@@ -330,11 +330,8 @@ mod tests {
 
         #[track_caller]
         fn check(s: &str, tokens: &[TokenKind]) {
-            let mut it = lex(s);
-            for &token in tokens {
-                assert_eq!(it.next().unwrap().kind, token);
-            }
-            assert!(it.next().is_none());
+            let got_tokens = lex(s).map(|token| token.kind).collect::<Vec<_>>();
+            assert_eq!(got_tokens, tokens);
         }
 
         check("\t ", &[Space]);
