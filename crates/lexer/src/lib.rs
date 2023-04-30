@@ -61,9 +61,9 @@ pub enum TokenKind {
     Equal,
 
     /// `&`
-    And,
+    Ampersand,
     /// `|`
-    Bar,
+    Pipe,
     /// `^`
     Caret,
     /// `~`
@@ -179,8 +179,8 @@ pub fn lex_one(s: &str) -> Token {
         '<' => Some(TokenKind::Less),
         '>' => Some(TokenKind::Greater),
         '=' => Some(TokenKind::Equal),
-        '&' => Some(TokenKind::And),
-        '|' => Some(TokenKind::Bar),
+        '&' => Some(TokenKind::Ampersand),
+        '|' => Some(TokenKind::Pipe),
         '^' => Some(TokenKind::Caret),
         '~' => Some(TokenKind::Tilde),
         '.' => Some(TokenKind::Period),
