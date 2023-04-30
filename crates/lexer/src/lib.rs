@@ -175,7 +175,6 @@ pub fn lex_one(s: &str) -> Token {
         '+' => Some(TokenKind::Plus),
         '-' => Some(TokenKind::Minus),
         '*' => Some(TokenKind::Star),
-        '/' => Some(TokenKind::Slash),
         '%' => Some(TokenKind::Percent),
         '<' => Some(TokenKind::Less),
         '>' => Some(TokenKind::Greater),
@@ -302,6 +301,31 @@ pub fn lex_one(s: &str) -> Token {
                 }
             }
         }
+        '/' => match it.next() {
+            Some('/') => {
+                len += 1;
+                loop {
+                    match it.next() {
+                        c @ (Some('\n') | None) => {
+                            if c.is_some() {
+                                len += 1;
+                            }
+                            break Token {
+                                kind: TokenKind::Comment,
+                                len,
+                            };
+                        }
+                        Some(c) => {
+                            len += c.len_utf8();
+                        }
+                    }
+                }
+            }
+            _ => Token {
+                kind: TokenKind::Slash,
+                len,
+            },
+        },
         _ => Token {
             kind: TokenKind::Unknown,
             len,
@@ -347,5 +371,10 @@ mod tests {
         check("'\\'", &[Character]);
         check("'''", &[Apostrophe, Apostrophe, Apostrophe]);
         check("10", &[Integer]);
+        check("/", &[Slash]);
+        check("//", &[Comment]);
+        check("//\n", &[Comment]);
+        check("//hello", &[Comment]);
+        check("//hello\nworld", &[Comment, Ident]);
     }
 }
