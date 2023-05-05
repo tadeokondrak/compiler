@@ -135,7 +135,7 @@ pub fn parse_raw_ident(s: &str) -> Option<Cow<'_, str>> {
 }
 
 pub fn parse_integer(s: &str) -> Option<u64> {
-    u64::from_str_radix(s, 10).ok()
+    s.parse::<u64>().ok()
 }
 
 pub fn parse_character(s: &str) -> Option<char> {
@@ -150,7 +150,7 @@ pub fn parse_character(s: &str) -> Option<char> {
                 }
                 Some(c)
             }
-            _ => return None,
+            _ => None,
         },
         _ => {
             if it.next().is_some() {
