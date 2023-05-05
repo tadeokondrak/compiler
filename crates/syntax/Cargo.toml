@@ -1,0 +1,10 @@
+[package]
+name = "syntax"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+expect-test = "1.4.1"
+lexer = { path = "../lexer" }
+#parser = { path = "../parser" }
+rowan = "0.15.11"
