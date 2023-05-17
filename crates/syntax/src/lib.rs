@@ -332,9 +332,19 @@ impl<'a> Parser<'a> {
             TokenKind::LeftBrace => token == LexerTokenKind::LeftBrace,
             TokenKind::RightBrace => token == LexerTokenKind::RightBrace,
             // TODO
-            TokenKind::FnKeyword => token == LexerTokenKind::Ident,
-            TokenKind::LetKeyword => token == LexerTokenKind::Ident,
+            TokenKind::FnKeyword => self.is_at_keyword("fn"),
+            TokenKind::LetKeyword => self.is_at_keyword("let"),
         }
+    }
+
+    fn is_at_keyword(&self, text: &str) -> bool {
+        if !self.is_at(TokenKind::Ident) {
+            return false;
+        }
+        let pos = self.text_pos;
+        let len = self.token_lengths[self.cur_idx];
+        let src = &self.src[TextRange::at(pos, len)];
+        src == text
     }
 
     fn skip_trivia(&mut self) {
@@ -493,7 +503,7 @@ impl<'a> Parser<'a> {
     fn parse_stmt(&mut self) -> Stmt {
         let trivia_start = self.text_pos;
         self.skip_trivia();
-        if self.is_at(TokenKind::FnKeyword) {
+        if self.is_at(TokenKind::LetKeyword) {
             Stmt::Let(self.parse_let_stmt(trivia_start))
         } else {
             Stmt::Expr(self.parse_expr(trivia_start))
