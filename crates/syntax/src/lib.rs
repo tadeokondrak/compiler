@@ -92,6 +92,7 @@ pub enum TokenKind {
     RightBrace,
 
     FnKeyword,
+    LetKeyword,
 }
 
 impl TokenKind {
@@ -175,12 +176,13 @@ pub enum Item {
 #[derive(Debug)]
 pub enum Ty {
     Invalid(Token),
-    Ident(Ident),
+    Ident(Token),
     Slice(SliceTy),
 }
 
 #[derive(Debug)]
 pub enum Expr {
+    Ident(Token),
     Unary(UnaryExpr),
     Binary(BinaryExpr),
 }
@@ -189,11 +191,6 @@ pub enum Expr {
 pub enum Stmt {
     Let(LetStmt),
     Expr(Expr),
-}
-
-#[derive(Debug)]
-pub struct Ident {
-    pub token: Token,
 }
 
 #[derive(Debug)]
@@ -206,6 +203,10 @@ pub struct SliceTy {
 #[derive(Debug)]
 pub struct LetStmt {
     pub let_kw: Token,
+    pub name: Token,
+    pub equal: Token,
+    pub expr: Expr,
+    pub semi: Token,
 }
 
 #[derive(Debug)]
@@ -226,6 +227,7 @@ pub struct FnItem {
     pub name: Token,
     pub params: FnParams,
     pub left_bracket: Token,
+    pub stmts: Vec<Stmt>,
     pub right_bracket: Token,
 }
 
@@ -331,6 +333,7 @@ impl<'a> Parser<'a> {
             TokenKind::RightBrace => token == LexerTokenKind::RightBrace,
             // TODO
             TokenKind::FnKeyword => token == LexerTokenKind::Ident,
+            TokenKind::LetKeyword => token == LexerTokenKind::Ident,
         }
     }
 
@@ -426,6 +429,13 @@ impl<'a> Parser<'a> {
             name: self.expect_with_leading(TokenKind::Ident),
             params: self.parse_fn_params(),
             left_bracket: self.expect_with_leading(TokenKind::LeftBrace),
+            stmts: {
+                let mut stmts = Vec::new();
+                while !self.is_at(TokenKind::Eof) && !self.is_at(TokenKind::RightBrace) {
+                    stmts.push(self.parse_stmt());
+                }
+                stmts
+            },
             right_bracket: self.expect_with_leading(TokenKind::RightBrace),
         }
     }
@@ -445,7 +455,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        //let right_paren = self.expect_with_leading(TokenKind::RightParen);
     }
 
     fn parse_fn_param(&mut self) -> Result<FnParam, Token> {
@@ -472,11 +481,44 @@ impl<'a> Parser<'a> {
                 ty: Box::new(self.parse_ty()),
             })
         } else if self.is_at(TokenKind::Ident) {
-            Ty::Ident(Ident {
-                token: self.bump(trivia_start, token_start, TokenKind::Ident),
-            })
+            Ty::Ident(self.bump(trivia_start, token_start, TokenKind::Ident))
         } else {
+            // TODO: it would be better for error recovery not to eat the next token here,
+            // but that would require us to handle stuff farther up the stack so as not to
+            // infinitely loop.
             Ty::Invalid(self.bump_any_as_unknown(trivia_start))
+        }
+    }
+
+    fn parse_stmt(&mut self) -> Stmt {
+        let trivia_start = self.text_pos;
+        self.skip_trivia();
+        if self.is_at(TokenKind::FnKeyword) {
+            Stmt::Let(self.parse_let_stmt(trivia_start))
+        } else {
+            Stmt::Expr(self.parse_expr(trivia_start))
+        }
+    }
+
+    fn parse_let_stmt(&mut self, trivia_start: TextSize) -> LetStmt {
+        LetStmt {
+            let_kw: self.bump(trivia_start, self.text_pos, TokenKind::LetKeyword),
+            name: self.expect_with_leading(TokenKind::Ident),
+            equal: self.expect_with_leading(TokenKind::Equal),
+            expr: {
+                let trivia_start = self.text_pos;
+                self.skip_trivia();
+                self.parse_expr(trivia_start)
+            },
+            semi: self.expect_with_leading(TokenKind::Semi),
+        }
+    }
+
+    fn parse_expr(&mut self, trivia_start: TextSize) -> Expr {
+        if self.is_at(TokenKind::Ident) {
+            Expr::Ident(self.bump(trivia_start, self.text_pos, TokenKind::Ident))
+        } else {
+            todo!("{:?}", self.token_kinds[self.cur_idx]);
         }
     }
 }
@@ -532,6 +574,7 @@ mod tests {
                                     right_paren: RightParen("", ")", ""),
                                 },
                                 left_bracket: LeftBrace(" ", "{", ""),
+                                stmts: [],
                                 right_bracket: RightBrace("", "}", ""),
                             },
                         ),
@@ -544,51 +587,52 @@ mod tests {
         check(
             "fn main(args: ???) {}",
             expect![[r#"
-            Root {
-                items: [
-                    Fn(
-                        FnItem {
-                            fn_kw: FnKeyword("", "fn", ""),
-                            name: Ident(" ", "main", ""),
-                            params: FnParams {
-                                left_paren: LeftParen("", "(", ""),
-                                params: [
-                                    FnParam {
-                                        name: Ident("", "args", ""),
-                                        colon: Colon("", ":", ""),
-                                        ty: Invalid(
-                                            Question(" ", "?", ""),
-                                        ),
-                                    },
-                                    FnParam {
-                                        name: Ident("", "", ""),
-                                        colon: Colon("", "", ""),
-                                        ty: Invalid(
-                                            Question("", "?", ""),
-                                        ),
-                                    },
-                                    FnParam {
-                                        name: Ident("", "", ""),
-                                        colon: Colon("", "", ""),
-                                        ty: Invalid(
-                                            RightParen("", "?", ""),
-                                        ),
-                                    },
-                                ],
-                                right_paren: RightParen("", ")", ""),
+                Root {
+                    items: [
+                        Fn(
+                            FnItem {
+                                fn_kw: FnKeyword("", "fn", ""),
+                                name: Ident(" ", "main", ""),
+                                params: FnParams {
+                                    left_paren: LeftParen("", "(", ""),
+                                    params: [
+                                        FnParam {
+                                            name: Ident("", "args", ""),
+                                            colon: Colon("", ":", ""),
+                                            ty: Invalid(
+                                                Question(" ", "?", ""),
+                                            ),
+                                        },
+                                        FnParam {
+                                            name: Ident("", "", ""),
+                                            colon: Colon("", "", ""),
+                                            ty: Invalid(
+                                                Question("", "?", ""),
+                                            ),
+                                        },
+                                        FnParam {
+                                            name: Ident("", "", ""),
+                                            colon: Colon("", "", ""),
+                                            ty: Invalid(
+                                                RightParen("", "?", ""),
+                                            ),
+                                        },
+                                    ],
+                                    right_paren: RightParen("", ")", ""),
+                                },
+                                left_bracket: LeftBrace(" ", "{", ""),
+                                stmts: [],
+                                right_bracket: RightBrace("", "}", ""),
                             },
-                            left_bracket: LeftBrace(" ", "{", ""),
-                            right_bracket: RightBrace("", "}", ""),
-                        },
-                    ),
-                ],
-                eof: Eof("", "", ""),
-            }
-        "#]],
+                        ),
+                    ],
+                    eof: Eof("", "", ""),
+                }
+            "#]],
         );
 
         check(
-            "fn main(args: []T) {}",
+            "fn main(args: []T) { let x = x;} ",
             expect![[r#"
                 Root {
                     items: [
@@ -607,9 +651,7 @@ mod tests {
                                                     left_bracket: LeftBracket(" ", "[", ""),
                                                     right_bracket: RightBracket("", "]", ""),
                                                     ty: Ident(
-                                                        Ident {
-                                                            token: Ident("", "T", ""),
-                                                        },
+                                                        Ident("", "T", ""),
                                                     ),
                                                 },
                                             ),
@@ -618,11 +660,24 @@ mod tests {
                                     right_paren: RightParen("", ")", ""),
                                 },
                                 left_bracket: LeftBrace(" ", "{", ""),
+                                stmts: [
+                                    Let(
+                                        LetStmt {
+                                            let_kw: LetKeyword(" ", "let", ""),
+                                            name: Ident(" ", "x", ""),
+                                            equal: Equal(" ", "=", ""),
+                                            expr: Ident(
+                                                Ident(" ", "x", ""),
+                                            ),
+                                            semi: Semi("", ";", ""),
+                                        },
+                                    ),
+                                ],
                                 right_bracket: RightBrace("", "}", ""),
                             },
                         ),
                     ],
-                    eof: Eof("", "", ""),
+                    eof: Eof(" ", "", ""),
                 }
             "#]],
         );
