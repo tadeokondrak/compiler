@@ -3,7 +3,7 @@
 //! The API here is inspired by rustc's lexer.
 
 use std::borrow::Cow;
-use unicode_xid::UnicodeXID;
+use unicode_ident::{is_xid_continue, is_xid_start};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Token {
@@ -232,9 +232,9 @@ pub fn lex_one(s: &str) -> Token {
                 }
             }
         },
-        c if c.is_xid_start() || c == '_' => loop {
+        c if is_xid_start(c) || c == '_' => loop {
             match it.next() {
-                Some(c) if c.is_xid_continue() => {
+                Some(c) if is_xid_continue(c) => {
                     len += c.len_utf8();
                 }
                 Some(_) | None => {

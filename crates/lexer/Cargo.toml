@@ -4,4 +4,4 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-unicode-xid = "0.2.4"
+unicode-ident = "1.0.8"
