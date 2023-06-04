@@ -4,15 +4,16 @@ pub const TreeTag = enum(u15) {
     file,
 
     decl_fn,
-
-    stmt_block,
-    stmt_expr,
+    decl_const,
 
     expr_unary,
     expr_binary,
     expr_ident,
     expr_literal,
     expr_paren,
+
+    stmt_block,
+    stmt_expr,
 };
 
 pub const TokenTag = enum(u15) {

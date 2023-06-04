@@ -52,7 +52,7 @@ fn genBlock(root: syntax.Root, block: ast.Stmt.Block, builder: *ir.Builder) !voi
 fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
     switch (expr) {
         .unary => |unary| {
-            if (unary.kw_return(root)) |_| {
+            if (unary.returnToken(root)) |_| {
                 const returned = unary.expr(root) orelse return error.ExpectedExpression;
                 try builder.buildRet(try genExpr(root, returned, builder) orelse return error.ExpectedReturnValue);
                 return null;

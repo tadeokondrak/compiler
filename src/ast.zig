@@ -72,10 +72,10 @@ pub const Decl = union(enum) {
 
         pub const tag = syntax.TreeTag.decl_fn;
         pub const cast = treeCastFn(@This());
-        pub const kw_fn = tokenAccessorFn(@This(), .kw_fn);
+        pub const fnToken = tokenAccessorFn(@This(), .kw_fn);
         pub const ident = tokenAccessorFn(@This(), .ident);
-        pub const l_paren = tokenAccessorFn(@This(), .l_paren);
-        pub const r_paren = tokenAccessorFn(@This(), .r_paren);
+        pub const lParen = tokenAccessorFn(@This(), .l_paren);
+        pub const rParen = tokenAccessorFn(@This(), .r_paren);
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
     };
 
@@ -84,7 +84,7 @@ pub const Decl = union(enum) {
 
         pub const tag = syntax.TreeTag.decl_const;
         pub const cast = treeCastFn(@This());
-        pub const kw_const = tokenAccessorFn(@This(), .kw_const);
+        pub const constToken = tokenAccessorFn(@This(), .kw_const);
         pub const ident = tokenAccessorFn(@This(), .ident);
         pub const eq = tokenAccessorFn(@This(), .eq);
         pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
@@ -104,7 +104,7 @@ pub const Expr = union(enum) {
 
         pub const tag = syntax.TreeTag.expr_unary;
         pub const cast = treeCastFn(@This());
-        pub const kw_return = tokenAccessorFn(@This(), .kw_return);
+        pub const returnToken = tokenAccessorFn(@This(), .kw_return);
         pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
     };
 
@@ -133,8 +133,8 @@ pub const Expr = union(enum) {
 
         pub const tag = syntax.TreeTag.expr_paren;
         pub const cast = treeCastFn(@This());
-        pub const l_paren = tokenAccessorFn(@This(), .l_paren);
-        pub const r_paren = tokenAccessorFn(@This(), .r_paren);
+        pub const lParen = tokenAccessorFn(@This(), .l_paren);
+        pub const rParen = tokenAccessorFn(@This(), .r_paren);
         pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
     };
 };
@@ -158,8 +158,8 @@ pub const Stmt = union(enum) {
 
         pub const tag = syntax.TreeTag.stmt_block;
         pub const cast = treeCastFn(@This());
-        pub const l_brace = tokenAccessorFn(@This(), .l_brace);
-        pub const r_brace = tokenAccessorFn(@This(), .r_brace);
+        pub const lBrace = tokenAccessorFn(@This(), .l_brace);
+        pub const rBrace = tokenAccessorFn(@This(), .r_brace);
         pub const stmt = nthTreeAccessorFn(@This(), Stmt, 0);
     };
 };
