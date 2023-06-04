@@ -76,8 +76,12 @@ fn evalExpr(root: syntax.Root, expr: ast.Expr) !ExprEvalResult {
             return error.UnknownBinop;
         },
         .literal => |literal| {
-            const text = root.tokenText(literal.number(root).?);
-            return .{ .value = try std.fmt.parseInt(u8, text, 10) };
+            if (literal.number(root)) |number| {
+                const text = root.tokenText(number);
+                return .{ .value = try std.fmt.parseInt(u8, text, 10) };
+            }
+
+            return error.UnknownLiteral;
         },
         .paren => |paren| {
             const inner = paren.expr(root) orelse return error.ExpectedExpression;
