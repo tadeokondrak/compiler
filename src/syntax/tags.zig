@@ -5,6 +5,7 @@ pub const TreeTag = enum(u15) {
 
     decl_fn,
     decl_const,
+    decl_struct,
 
     expr_unary,
     expr_binary,
@@ -14,6 +15,8 @@ pub const TreeTag = enum(u15) {
 
     stmt_block,
     stmt_expr,
+
+    struct_field,
 };
 
 pub const TokenTag = enum(u15) {
@@ -48,6 +51,8 @@ pub const TokenTag = enum(u15) {
     semi,
     caret,
     tilde,
+    colon,
+    comma,
     ampersand,
 
     l_paren,
@@ -59,4 +64,5 @@ pub const TokenTag = enum(u15) {
 
     kw_fn,
     kw_return,
+    kw_struct,
 };

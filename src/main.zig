@@ -6,6 +6,10 @@ const parse = @import("parse.zig");
 const ir = @import("ir.zig");
 
 const source =
+    \\struct Struct {
+    \\    field1: u32;
+    \\    field2: u32;
+    \\}
     \\fn main() {
     \\    return 1 + 1 + 2;
     \\}

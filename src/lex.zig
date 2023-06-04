@@ -45,6 +45,8 @@ pub const Lexer = struct {
                     '^' => { lexer.pos += 1; return Token{ .tag = .caret, .len = 1 }; },
                     '|' => { lexer.pos += 1; return Token{ .tag = .pipe, .len = 1 }; },
                     ';' => { lexer.pos += 1; return Token{ .tag = .semi, .len = 1 }; },
+                    ':' => { lexer.pos += 1; return Token{ .tag = .colon, .len = 1 }; },
+                    ',' => { lexer.pos += 1; return Token{ .tag = .comma, .len = 1 }; },
                     '=' => switch (lexer.nth(1)) {
                         '=' => { lexer.pos += 2; return Token{ .tag = .eq2, .len = 2 }; },
                         else => { lexer.pos += 1; return Token{ .tag = .eq, .len = 1 }; },
@@ -83,6 +85,7 @@ pub const Lexer = struct {
                         const kw_map = std.ComptimeStringMap(Tag, .{
                             .{ "fn", .kw_fn },
                             .{ "return", .kw_return },
+                            .{ "struct", .kw_struct },
                         });
                         const text = lexer.text[ident_state.start_pos..lexer.pos];
                         const tag = kw_map.get(text) orelse .ident;

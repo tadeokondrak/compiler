@@ -53,10 +53,36 @@ const Parser = struct {
         p.fuel = 255;
     }
 
+    const decl_first = [_]syntax.TokenTag{
+        .kw_fn,
+        .kw_struct,
+    };
+
+    const expr_first = [_]syntax.TokenTag{
+        .number,
+        .l_paren,
+        .kw_return,
+    };
+
     pub fn parseFile(p: *Parser) void {
         const m = p.builder.open();
-        p.parseFnDecl();
+        while (!p.at(.eof)) {
+            p.parseDecl();
+        }
         p.builder.close(m, .file);
+    }
+
+    pub fn parseDecl(p: *Parser) void {
+        if (p.at(.kw_fn)) {
+            p.parseFnDecl();
+        } else if (p.at(.kw_struct)) {
+            p.parseStructDecl();
+        } else {
+            const m = p.builder.open();
+            while (!p.atAny(&decl_first))
+                p.advance();
+            p.builder.close(m, .invalid);
+        }
     }
 
     pub fn parseFnDecl(p: *Parser) void {
@@ -70,10 +96,31 @@ const Parser = struct {
         p.builder.close(m, .decl_fn);
     }
 
+    pub fn parseStructDecl(p: *Parser) void {
+        const m = p.builder.open();
+        p.bump(.kw_struct);
+        _ = p.eat(.ident);
+        if (p.eat(.l_brace)) {
+            while (p.at(.ident))
+                p.parseStructField();
+            _ = p.eat(.r_brace);
+        }
+        p.builder.close(m, .decl_struct);
+    }
+
+    pub fn parseStructField(p: *Parser) void {
+        const m = p.builder.open();
+        _ = p.eat(.ident);
+        _ = p.eat(.colon);
+        p.parseExpr();
+        _ = p.eat(.semi);
+        p.builder.close(m, .struct_field);
+    }
+
     pub fn parseBlockStmt(p: *Parser) void {
         const m = p.builder.open();
         _ = p.eat(.l_brace);
-        while (!p.at(.r_brace) and !p.at(.eof)) {
+        while (!p.atAny(&.{ .r_brace, .eof })) {
             if (p.atAny(&expr_first)) {
                 p.parseStmtExpr();
             } else {
@@ -91,12 +138,6 @@ const Parser = struct {
         _ = p.eat(.semi);
         p.builder.close(m, .stmt_expr);
     }
-
-    const expr_first = [_]syntax.TokenTag{
-        .number,
-        .l_paren,
-        .kw_return,
-    };
 
     pub fn parseExpr(p: *Parser) void {
         p.parseExprPrecedence(0);
@@ -149,6 +190,13 @@ const Parser = struct {
             const m = p.builder.open();
             p.bump(.number);
             p.builder.close(m, .expr_literal);
+            return m;
+        }
+
+        if (p.at(.ident)) {
+            const m = p.builder.open();
+            p.bump(.ident);
+            p.builder.close(m, .expr_ident);
             return m;
         }
 
