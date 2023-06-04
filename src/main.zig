@@ -32,7 +32,7 @@ fn genFunc(root: syntax.Root, file: ast.File, builder: *ir.Builder) !void {
     return genBlock(root, body, builder);
 }
 
-fn genBlock(root: syntax.Root, block: ast.StmtBlock, builder: *ir.Builder) !void {
+fn genBlock(root: syntax.Root, block: ast.Stmt.Block, builder: *ir.Builder) !void {
     for (root.treeChildren(block.tree)) |child| {
         if (child.asTree()) |child_tree| {
             const stmt = ast.Stmt.cast(root, child_tree) orelse return error.ExpectedStatement;

@@ -1,167 +1,165 @@
 const syntax = @import("syntax.zig");
+
+const ast = @This();
+
+fn unionCastFn(comptime This: type) fn (syntax.Root, syntax.Tree) ?This {
+    return struct {
+        pub fn cast(root: syntax.Root, tree: syntax.Tree) ?This {
+            const tag = root.treeTag(tree);
+            inline for (@typeInfo(This).Union.fields) |field|
+                if (tag == field.type.tag)
+                    return @unionInit(This, field.name, field.type{ .tree = tree });
+            return null;
+        }
+    }.cast;
+}
+
+fn treeCastFn(comptime This: type) fn (syntax.Root, syntax.Tree) ?This {
+    return struct {
+        fn cast(root: syntax.Root, tree: syntax.Tree) ?This {
+            if (root.treeTag(tree) != This.tag) return null;
+            return This{ .tree = tree };
+        }
+    }.cast;
+}
+
+fn nthTreeAccessorFn(comptime This: type, comptime Tree: type, comptime nth: usize) fn (This, syntax.Root) ?Tree {
+    return struct {
+        fn get(this: This, root: syntax.Root) ?Tree {
+            var i: usize = 0;
+            for (root.treeChildren(this.tree)) |child| {
+                if (child.asTree()) |child_tree| {
+                    if (Tree.cast(root, child_tree)) |correct_tree| {
+                        if (i == nth)
+                            return correct_tree
+                        else
+                            i += 1;
+                    }
+                }
+            }
+            return null;
+        }
+    }.get;
+}
+
+fn tokenAccessorFn(comptime This: type, comptime tag: syntax.TokenTag) fn (This, syntax.Root) ?syntax.Token {
+    return struct {
+        fn get(this: This, root: syntax.Root) ?syntax.Token {
+            for (root.treeChildren(this.tree), root.treeChildrenTags(this.tree)) |child, child_tag|
+                if (child_tag.asTokenTag() == tag)
+                    return child.asToken().?;
+            return null;
+        }
+    }.get;
+}
+
 pub const File = struct {
     tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .file, @This());
-    }
-    pub fn function(this: @This(), root: syntax.Root) ?DeclFn {
-        return syntax.findNthTree(root, this.tree, DeclFn, 0);
-    }
+
+    pub const tag = syntax.TreeTag.file;
+    pub const cast = treeCastFn(@This());
+    pub const function = nthTreeAccessorFn(@This(), Decl.Fn, 0);
 };
-pub const DeclFn = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .decl_fn, @This());
-    }
-    pub fn kw_fn(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .kw_fn);
-    }
-    pub fn ident(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .ident);
-    }
-    pub fn l_paren(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .l_paren);
-    }
-    pub fn r_paren(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .r_paren);
-    }
-    pub fn body(this: @This(), root: syntax.Root) ?StmtBlock {
-        return syntax.findNthTree(root, this.tree, StmtBlock, 0);
-    }
-};
+
 pub const Decl = union(enum) {
-    function: DeclFn,
-    constant: DeclConst,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return switch (root.treeTag(tree)) {
-            .decl_fn => .{ .function = .{ .tree = tree } },
-            .decl_const => .{ .constant = .{ .tree = tree } },
-            else => null,
-        };
-    }
+    function: Decl.Fn,
+    constant: Decl.Const,
+
+    pub const cast = unionCastFn(@This());
+
+    pub const Fn = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.decl_fn;
+        pub const cast = treeCastFn(@This());
+        pub const kw_fn = tokenAccessorFn(@This(), .kw_fn);
+        pub const ident = tokenAccessorFn(@This(), .ident);
+        pub const l_paren = tokenAccessorFn(@This(), .l_paren);
+        pub const r_paren = tokenAccessorFn(@This(), .r_paren);
+        pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+    };
+
+    pub const Const = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.decl_const;
+        pub const cast = treeCastFn(@This());
+        pub const kw_const = tokenAccessorFn(@This(), .kw_const);
+        pub const ident = tokenAccessorFn(@This(), .ident);
+        pub const eq = tokenAccessorFn(@This(), .eq);
+        pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+    };
 };
-pub const DeclConst = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .decl_const, @This());
-    }
-    pub fn kw_const(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .kw_const);
-    }
-    pub fn ident(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .ident);
-    }
-    pub fn eq(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .eq);
-    }
-    pub fn expr(this: @This(), root: syntax.Root) ?Expr {
-        return syntax.findNthTree(root, this.tree, Expr, 0);
-    }
-};
-pub const StmtBlock = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .stmt_block, @This());
-    }
-    pub fn l_brace(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .l_brace);
-    }
-    pub fn stmts(this: @This(), root: syntax.Root) ?Stmt {
-        return syntax.findNthTree(root, this.tree, Stmt, 0);
-    }
-    pub fn r_brace(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .r_brace);
-    }
-};
+
 pub const Expr = union(enum) {
-    unary: ExprUnary,
-    binary: ExprBinary,
-    literal: ExprLiteral,
-    paren: ExprParen,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return switch (root.treeTag(tree)) {
-            .expr_unary => .{ .unary = .{ .tree = tree } },
-            .expr_binary => .{ .binary = .{ .tree = tree } },
-            .expr_literal => .{ .literal = .{ .tree = tree } },
-            .expr_paren => .{ .paren = .{ .tree = tree } },
-            else => null,
-        };
-    }
+    unary: Expr.Unary,
+    binary: Expr.Binary,
+    literal: Expr.Literal,
+    paren: Expr.Paren,
+
+    pub const cast = unionCastFn(@This());
+
+    pub const Unary = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.expr_unary;
+        pub const cast = treeCastFn(@This());
+        pub const kw_return = tokenAccessorFn(@This(), .kw_return);
+        pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+    };
+
+    pub const Binary = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.expr_binary;
+        pub const cast = treeCastFn(@This());
+        pub const plus = tokenAccessorFn(@This(), .plus);
+        pub const star = tokenAccessorFn(@This(), .star);
+        pub const lhs = nthTreeAccessorFn(@This(), Expr, 0);
+        pub const rhs = nthTreeAccessorFn(@This(), Expr, 1);
+    };
+
+    pub const Literal = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.expr_literal;
+        pub const cast = treeCastFn(@This());
+        pub const string = tokenAccessorFn(@This(), .string);
+        pub const number = tokenAccessorFn(@This(), .number);
+    };
+
+    pub const Paren = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.expr_paren;
+        pub const cast = treeCastFn(@This());
+        pub const l_paren = tokenAccessorFn(@This(), .l_paren);
+        pub const r_paren = tokenAccessorFn(@This(), .r_paren);
+        pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+    };
 };
+
 pub const Stmt = union(enum) {
-    expr: StmtExpr,
-    block: StmtBlock,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return switch (root.treeTag(tree)) {
-            .stmt_expr => .{ .expr = .{ .tree = tree } },
-            .stmt_block => .{ .block = .{ .tree = tree } },
-            else => null,
-        };
-    }
-};
-pub const StmtExpr = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .stmt_expr, @This());
-    }
-    pub fn expr(this: @This(), root: syntax.Root) ?Expr {
-        return syntax.findNthTree(root, this.tree, Expr, 0);
-    }
-};
-pub const ExprUnary = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .expr_unary, @This());
-    }
-    pub fn kw_return(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .kw_return);
-    }
-    pub fn expr(this: @This(), root: syntax.Root) ?Expr {
-        return syntax.findNthTree(root, this.tree, Expr, 0);
-    }
-};
-pub const ExprBinary = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .expr_binary, @This());
-    }
-    pub fn lhs(this: @This(), root: syntax.Root) ?Expr {
-        return syntax.findNthTree(root, this.tree, Expr, 0);
-    }
-    pub fn plus(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .plus);
-    }
-    pub fn star(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .star);
-    }
-    pub fn rhs(this: @This(), root: syntax.Root) ?Expr {
-        return syntax.findNthTree(root, this.tree, Expr, 1);
-    }
-};
-pub const ExprLiteral = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .expr_literal, @This());
-    }
-    pub fn string(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .string);
-    }
-    pub fn number(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .number);
-    }
-};
-pub const ExprParen = struct {
-    tree: syntax.Tree,
-    pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {
-        return syntax.castTree(root, tree, .expr_paren, @This());
-    }
-    pub fn l_paren(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .l_paren);
-    }
-    pub fn expr(this: @This(), root: syntax.Root) ?Expr {
-        return syntax.findNthTree(root, this.tree, Expr, 0);
-    }
-    pub fn r_paren(this: @This(), root: syntax.Root) ?syntax.Token {
-        return syntax.findToken(root, this.tree, .r_paren);
-    }
+    expr: Stmt.Expr,
+    block: Stmt.Block,
+
+    pub const cast = unionCastFn(@This());
+
+    pub const Expr = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.stmt_expr;
+        pub const cast = treeCastFn(@This());
+        pub const expr = nthTreeAccessorFn(@This(), ast.Expr, 0);
+    };
+
+    pub const Block = struct {
+        tree: syntax.Tree,
+
+        pub const tag = syntax.TreeTag.stmt_block;
+        pub const cast = treeCastFn(@This());
+        pub const l_brace = tokenAccessorFn(@This(), .l_brace);
+        pub const r_brace = tokenAccessorFn(@This(), .r_brace);
+        pub const stmt = nthTreeAccessorFn(@This(), Stmt, 0);
+    };
 };
