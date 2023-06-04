@@ -5,16 +5,24 @@ const ast = @import("ast.zig");
 const parse = @import("parse.zig");
 const ir = @import("ir.zig");
 
+comptime {
+    _ = syntax;
+    _ = lex;
+    _ = ast;
+    _ = parse;
+    _ = ir;
+}
+
 const source =
     \\struct Struct {
     \\    field1: u32;
     \\    field2: u32;
     \\}
-    \\fn infallible(num: u32) error {}
-    \\fn fallible(num: u32) (res: u32, err: error) {}
     \\fn main(x: u32) {
     \\    return 1 + 1 + 2;
     \\}
+    \\fn infallible(num: u32) error {}
+    \\fn fallible(num: u32) (res: u32, err: error) {}
 ;
 
 pub fn main() !void {
@@ -92,11 +100,4 @@ fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
             return genExpr(root, inner, builder);
         },
     }
-}
-
-comptime {
-    _ = syntax;
-    _ = ast;
-    _ = lex;
-    _ = parse;
 }
