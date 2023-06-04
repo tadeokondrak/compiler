@@ -1,3 +1,6 @@
+File =
+  function:DeclFn
+
 Decl =
   function:DeclFn
 | constant:DeclConst
@@ -19,9 +22,14 @@ StmtBlock =
   '{' stmts:Stmt '}'
 
 Expr =
-  binary:ExprBinary
+  unary:ExprUnary
+| binary:ExprBinary
 | literal:ExprLiteral
 | paren:ExprParen
+
+ExprUnary =
+  kw_return:'return'
+  expr:Expr
 
 ExprBinary =
   lhs:Expr

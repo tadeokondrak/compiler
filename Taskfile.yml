@@ -1,0 +1,9 @@
+version: '3'
+
+tasks:
+  gen-ast:
+    dir: codegen
+    cmds:
+      - cargo run < ../syntax.ungram | zig fmt --stdin > ../src/ast.zig
+    generates:
+      - src/ast.zig

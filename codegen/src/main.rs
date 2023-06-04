@@ -19,6 +19,7 @@ fn token_name(name: &str) -> &str {
         "*" => "star",
         "fn" => "kw_fn",
         "const" => "kw_const",
+        "return" => "kw_return",
         "=" => "eq",
         other => other,
     }
@@ -65,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 writeln!(
                     output,
-                    "pub fn cast(root: *syntax.Root, tree: syntax.Tree) ?@This() {{"
+                    "pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {{"
                 )?;
                 writeln!(output, "return switch (root.treeTag(tree)) {{",)?;
                 for (label, node) in &variants {
@@ -81,7 +82,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 for token in accessors {
                     writeln!(
                         output,
-                        "pub fn {name}(this: @This(), root: *syntax.Root) ?syntax.Token {{ return syntax.findToken(root, this.tree, .{name}); }}",
+                        "pub fn {name}(this: @This(), root: syntax.Root) ?syntax.Token \
+                        {{ return syntax.findToken(root, this.tree, .{name}); }}",
                         name = token_name(&grammar[*token].name),
                     )?;
                 }
@@ -113,7 +115,7 @@ fn tree_wrapper(
     writeln!(output, "tree: syntax.Tree,")?;
     writeln!(
         output,
-        "pub fn cast(root: *syntax.Root, tree: syntax.Tree) ?@This() {{"
+        "pub fn cast(root: syntax.Root, tree: syntax.Tree) ?@This() {{"
     )?;
     writeln!(
         output,
@@ -132,7 +134,8 @@ fn tree_wrapper(
                         .or_default();
                     writeln!(
                         output,
-                        "pub fn {label}(this: @This(), root: *syntax.Root) ?{name} {{ return syntax.findNthTree(root, this.tree, {name}, {n}); }}",
+                        "pub fn {label}(this: @This(), root: syntax.Root) ?{name} \
+                            {{ return syntax.findNthTree(root, this.tree, {name}, {n}); }}",
                         name = grammar[node].name,
                         label = label,
                     )?;
@@ -140,7 +143,8 @@ fn tree_wrapper(
                 Rule::Token(token) => {
                     writeln!(
                         output,
-                        "pub fn {label}(this: @This(), root: *syntax.Root) ?syntax.Token {{ return syntax.findToken(root, this.tree, .{name}); }}",
+                        "pub fn {label}(this: @This(), root: syntax.Root) ?syntax.Token \
+                            {{ return syntax.findToken(root, this.tree, .{name}); }}",
                         name = token_name(&grammar[token].name),
                         label = label,
                     )?;
@@ -150,7 +154,8 @@ fn tree_wrapper(
             Rule::Token(token) => {
                 writeln!(
                     output,
-                    "pub fn {name}(this: @This(), root: *syntax.Root) ?syntax.Token {{ return syntax.findToken(root, this.tree, .{name}); }}",
+                    "pub fn {name}(this: @This(), root: syntax.Root) ?syntax.Token \
+                        {{ return syntax.findToken(root, this.tree, .{name}); }}",
                     name = token_name(&grammar[*token].name),
                 )?;
             }

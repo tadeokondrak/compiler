@@ -53,6 +53,12 @@ const Parser = struct {
         p.fuel = 255;
     }
 
+    pub fn parseFile(p: *Parser) void {
+        const m = p.builder.open();
+        p.parseFnDecl();
+        p.builder.close(m, .file);
+    }
+
     pub fn parseFnDecl(p: *Parser) void {
         const m = p.builder.open();
         p.bump(.kw_fn);
@@ -89,6 +95,7 @@ const Parser = struct {
     const expr_first = [_]syntax.TokenTag{
         .number,
         .l_paren,
+        .kw_return,
     };
 
     pub fn parseExpr(p: *Parser) void {
@@ -96,7 +103,16 @@ const Parser = struct {
     }
 
     pub fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
-        var lhs = p.parseExprDelimited() orelse return;
+        var lhs = lhs: {
+            if (unaryPrecedence(p.nth(0))) |right_precedence| {
+                const m = p.builder.open();
+                p.advance();
+                p.parseExprPrecedence(right_precedence);
+                p.builder.close(m, .expr_unary);
+                break :lhs m;
+            }
+            break :lhs p.parseExprDelimited() orelse return;
+        };
         while (true) {
             const tok = p.nth(0);
             const right_precedence = binopPrecedence(tok) orelse
@@ -111,10 +127,17 @@ const Parser = struct {
         }
     }
 
+    fn unaryPrecedence(tag: syntax.TokenTag) ?u8 {
+        return switch (tag) {
+            .kw_return => 1,
+            else => null,
+        };
+    }
+
     fn binopPrecedence(tag: syntax.TokenTag) ?[2]u8 {
         return switch (tag) {
             // .eof is zero, but we don't return it here
-            .lt, .gt, .eq2 => .{ 1, 1 },
+            .lt, .gt, .eq2 => .{ 2, 2 },
             .plus, .minus => .{ 3, 4 },
             .star, .slash, .percent => .{ 5, 6 },
             else => null,
@@ -244,6 +267,37 @@ const Parser = struct {
         );
     }
 };
+
+pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!syntax.Root {
+    var tokens = std.ArrayList(lexer.Token).init(allocator);
+    defer tokens.deinit();
+
+    var text = std.ArrayList(u8).init(allocator);
+    defer text.deinit();
+
+    var l = lexer.Lexer{ .text = src };
+    var pos: usize = 0;
+    while (l.next()) |token| {
+        if (token.tag != .space) {
+            try tokens.append(token);
+            try text.appendSlice(src[pos .. pos + token.len]);
+        }
+        pos += token.len;
+    }
+
+    var parser = Parser{
+        .text = text.items,
+        .tokens = tokens.items,
+        .builder = syntax.Builder{
+            .allocator = allocator,
+        },
+    };
+    defer parser.deinit();
+
+    parser.parseFile();
+
+    return parser.builder.build(allocator);
+}
 
 fn expectSyntaxTree(comptime parseFunc: fn (*Parser) void, src: []const u8, expect: []const u8) !void {
     var tokens = std.ArrayList(lexer.Token).init(std.testing.allocator);

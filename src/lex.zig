@@ -82,6 +82,7 @@ pub const Lexer = struct {
                     else => {
                         const kw_map = std.ComptimeStringMap(Tag, .{
                             .{ "fn", .kw_fn },
+                            .{ "return", .kw_return },
                         });
                         const text = lexer.text[ident_state.start_pos..lexer.pos];
                         const tag = kw_map.get(text) orelse .ident;
