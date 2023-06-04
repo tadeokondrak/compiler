@@ -89,11 +89,55 @@ const Parser = struct {
         const m = p.builder.open();
         p.bump(.kw_fn);
         _ = p.eat(.ident);
-        if (p.eat(.l_paren)) {
-            _ = p.eat(.r_paren);
-        }
+        p.parseFnParams();
+        p.parseFnReturns();
         p.parseBlockStmt();
         p.builder.close(m, .decl_fn);
+    }
+
+    pub fn parseFnParams(p: *Parser) void {
+        const m = p.builder.open();
+        if (p.eat(.l_paren)) {
+            while (p.atAny(&.{ .ident, .colon }) or p.atAny(&expr_first))
+                p.parseFnParam();
+            _ = p.eat(.r_paren);
+        }
+        p.builder.close(m, .fn_params);
+    }
+
+    pub fn parseFnParam(p: *Parser) void {
+        const m = p.builder.open();
+        _ = p.eat(.ident);
+        _ = p.eat(.colon);
+        p.parseExpr();
+        p.builder.close(m, .fn_param);
+    }
+
+    pub fn parseFnReturns(p: *Parser) void {
+        const m = p.builder.open();
+        if (p.eat(.l_paren)) {
+            while (p.atAny(&.{ .ident, .colon }) or p.atAny(&expr_first))
+                p.parseFnReturnNamed();
+            _ = p.eat(.r_paren);
+        } else {
+            p.parseFnReturnAnonymous();
+        }
+        p.builder.close(m, .fn_returns);
+    }
+
+    pub fn parseFnReturnAnonymous(p: *Parser) void {
+        const m = p.builder.open();
+        p.parseExpr();
+        p.builder.close(m, .fn_return);
+    }
+
+    pub fn parseFnReturnNamed(p: *Parser) void {
+        const m = p.builder.open();
+        _ = p.eat(.ident);
+        _ = p.eat(.colon);
+        p.parseExpr();
+        _ = p.eat(.comma);
+        p.builder.close(m, .fn_return);
     }
 
     pub fn parseStructDecl(p: *Parser) void {

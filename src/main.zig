@@ -10,7 +10,9 @@ const source =
     \\    field1: u32;
     \\    field2: u32;
     \\}
-    \\fn main() {
+    \\fn infallible(num: u32) error {}
+    \\fn fallible(num: u32) (res: u32, err: error) {}
+    \\fn main(x: u32) {
     \\    return 1 + 1 + 2;
     \\}
 ;

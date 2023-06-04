@@ -16,6 +16,11 @@ pub const TreeTag = enum(u15) {
     stmt_block,
     stmt_expr,
 
+    fn_params,
+    fn_param,
+    fn_returns,
+    fn_return,
+
     struct_field,
 };
 
