@@ -56,6 +56,16 @@ pub const Func = struct {
     returns: std.ArrayListUnmanaged(Type) = .{},
     blocks: std.ArrayListUnmanaged(Block) = .{},
 
+    pub fn deinit(func: *Func, allocator: std.mem.Allocator) void {
+        func.params.deinit(allocator);
+        func.returns.deinit(allocator);
+        for (func.blocks.items) |*block| {
+            block.params.deinit(allocator);
+            block.insts.deinit(allocator);
+        }
+        func.blocks.deinit(allocator);
+    }
+
     pub fn format(func: Func, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
         if (fmt.len != 0) @compileError("format string should be empty");

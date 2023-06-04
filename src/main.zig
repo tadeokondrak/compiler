@@ -28,22 +28,27 @@ const source =
 pub fn main() !void {
     std.debug.print("source: '{s}'\n", .{source});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
     var root = try parse.parseFile(gpa.allocator(), source);
     defer root.deinit(gpa.allocator());
     const file = ast.File{ .tree = @intToEnum(syntax.Tree, 0) };
     std.debug.print("tree: '{}'\n", .{root});
-
-    var builder = ir.Builder{ .allocator = gpa.allocator() };
-    const result = try genFunc(root, file, &builder);
-    _ = result;
-    std.debug.print("result: {}\n", .{builder.func});
-}
-
-fn genFunc(root: syntax.Root, file: ast.File, builder: *ir.Builder) !void {
-    const function = file.function(root) orelse return error.MissingFunction;
-    const body = function.body(root) orelse return error.MissingFunctionBody;
-    builder.switchToBlock(try builder.addBlock());
-    return genBlock(root, body, builder);
+    var it = file.decls(root);
+    while (it.next(root)) |decl| {
+        switch (decl) {
+            .function => |function| {
+                var builder = ir.Builder{ .allocator = gpa.allocator() };
+                defer builder.func.deinit(gpa.allocator());
+                const name = function.ident(root) orelse return error.MissingFunctionName;
+                const nameText = root.tokenText(name);
+                const block = function.body(root) orelse return error.MissingFunctionBody;
+                builder.switchToBlock(try builder.addBlock());
+                try genBlock(root, block, &builder);
+                std.debug.print("{s}: {}\n", .{ nameText, builder.func });
+            },
+            .constant => {},
+        }
+    }
 }
 
 fn genBlock(root: syntax.Root, block: ast.Stmt.Block, builder: *ir.Builder) !void {
