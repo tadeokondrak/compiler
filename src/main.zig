@@ -4,6 +4,7 @@ const lex = @import("lex.zig");
 const ast = @import("ast.zig");
 const parse = @import("parse.zig");
 const ir = @import("ir.zig");
+const hir = @import("hir.zig");
 
 comptime {
     _ = syntax;
@@ -31,7 +32,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     var root = try parse.parseFile(gpa.allocator(), source);
     defer root.deinit(gpa.allocator());
-    const file = ast.File{ .tree = @intToEnum(syntax.Tree, 0) };
+    const file = ast.File{ .tree = syntax.Tree{ .index = 0 } };
     std.debug.print("tree: '{}'\n", .{root});
     var it = file.decls(root);
     while (it.next(root)) |decl| {

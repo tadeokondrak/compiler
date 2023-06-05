@@ -146,7 +146,7 @@ test Parser {
         \\
     , tree_text);
 
-    const untyped_root = @intToEnum(syntax.Tree, 0);
+    const untyped_root = syntax.Tree{ .index = 0 };
 
     const paren_expr = ast.Expr{ .paren = ast.Expr.Paren.cast(root, untyped_root).? };
     try std.testing.expect(paren_expr.paren.lParen(root) != null);
