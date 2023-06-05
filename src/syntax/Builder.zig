@@ -55,10 +55,7 @@ pub fn token(builder: *Builder, tag: syntax.TokenTag, text: []const u8) void {
     };
 }
 
-pub fn build(
-    builder: *Builder,
-    tree_allocator: std.mem.Allocator,
-) error{OutOfMemory}!syntax.Root {
+pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMemory}!syntax.Root {
     if (builder.oom) return error.OutOfMemory;
 
     var root: syntax.Root = .{};
@@ -135,4 +132,23 @@ pub fn build(
     }
 
     return root;
+}
+
+test Builder {
+    const allocator = std.heap.page_allocator;
+    var builder = Builder{ .allocator = allocator };
+    const mark = builder.open();
+    builder.token(.ident, "foo");
+    builder.close(mark, .expr_ident);
+
+    var root = try builder.build(std.testing.allocator);
+    defer root.deinit(std.testing.allocator);
+
+    const text = try std.fmt.allocPrint(std.testing.allocator, "{}", .{root});
+    defer std.testing.allocator.free(text);
+    try std.testing.expectEqualSlices(u8,
+        \\expr_ident(
+        \\  ident("foo")
+        \\)
+    ++ "\n", text);
 }

@@ -4,8 +4,15 @@
 
 const std = @import("std");
 
+pub const Builder = @import("syntax/Builder.zig");
 pub const TreeTag = @import("syntax/tags.zig").TreeTag;
 pub const TokenTag = @import("syntax/tags.zig").TokenTag;
+
+comptime {
+    _ = Builder;
+    _ = TreeTag;
+    _ = TokenTag;
+}
 
 pub const NodeTag = enum(u16) {
     _,
@@ -220,28 +227,6 @@ test Root {
     try std.testing.expectEqualSlices(u8,
         \\expr_literal(
         \\  number("1")
-        \\)
-        \\
-    , text);
-}
-
-pub const Builder = @import("syntax/Builder.zig");
-
-test Builder {
-    const allocator = std.heap.page_allocator;
-    var builder = Builder{ .allocator = allocator };
-    const mark = builder.open();
-    builder.token(.ident, "foo");
-    builder.close(mark, .expr_ident);
-
-    var root = try builder.build(std.testing.allocator);
-    defer root.deinit(std.testing.allocator);
-
-    const text = try std.fmt.allocPrint(std.testing.allocator, "{}", .{root});
-    defer std.testing.allocator.free(text);
-    try std.testing.expectEqualSlices(u8,
-        \\expr_ident(
-        \\  ident("foo")
         \\)
         \\
     , text);
