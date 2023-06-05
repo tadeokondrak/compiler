@@ -4,6 +4,12 @@ const lexer = @import("lex.zig");
 const ast = @import("ast.zig");
 
 const Parser = @import("parse/Parser.zig");
+const grammar = @import("parse/grammar.zig");
+
+comptime {
+    _ = Parser;
+    _ = grammar;
+}
 
 pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!syntax.Root {
     var tokens = std.ArrayList(lexer.Token).init(allocator);
@@ -31,12 +37,12 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
     };
     defer parser.deinit();
 
-    parser.parseFile();
+    grammar.parseFile(&parser);
 
     return parser.builder.build(allocator);
 }
 
-fn expectSyntaxTree(comptime parseFunc: fn (*Parser) void, src: []const u8, expect: []const u8) !void {
+pub fn expectSyntaxTree(comptime parseFunc: fn (*Parser) void, src: []const u8, expect: []const u8) !void {
     var tokens = std.ArrayList(lexer.Token).init(std.testing.allocator);
     defer tokens.deinit();
 
@@ -70,7 +76,11 @@ fn expectSyntaxTree(comptime parseFunc: fn (*Parser) void, src: []const u8, expe
     var root = try parser.builder.build(std.testing.allocator);
     defer root.deinit(std.testing.allocator);
 
+    const expect_text = try std.fmt.allocPrint(std.testing.allocator, "{s}\n", .{expect});
+    defer std.testing.allocator.free(expect_text);
+
     const tree_text = try std.fmt.allocPrint(std.testing.allocator, "{}", .{root});
     defer std.testing.allocator.free(tree_text);
-    try std.testing.expectEqualStrings(expect, tree_text);
+
+    try std.testing.expectEqualStrings(expect_text, tree_text);
 }
