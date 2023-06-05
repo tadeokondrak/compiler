@@ -246,34 +246,3 @@ test Builder {
         \\
     , text);
 }
-
-pub fn castTree(root: Root, tree: Tree, tag: TreeTag, comptime T: type) ?T {
-    if (root.treeTag(tree) != tag) return null;
-    return T{ .tree = tree };
-}
-
-pub fn findNthTree(root: Root, tree: Tree, comptime T: type, comptime n: usize) ?T {
-    var i: usize = 0;
-    for (root.treeChildren(tree)) |child| {
-        if (child.asTree()) |child_tree| {
-            if (T.cast(root, child_tree)) |casted_tree| {
-                if (i == n)
-                    return casted_tree
-                else
-                    i += 1;
-            }
-        }
-    }
-    return null;
-}
-
-pub fn findTree(root: Root, tree: Tree, comptime T: type) ?T {
-    return findNthTree(root, tree, T, 0);
-}
-
-pub fn findToken(root: Root, tree: Tree, tag: TokenTag) ?Token {
-    for (root.treeChildren(tree), root.treeChildrenTags(tree)) |child, child_tag|
-        if (child_tag.asTokenTag() == tag)
-            return child.asToken().?;
-    return null;
-}
