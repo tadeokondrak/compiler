@@ -48,11 +48,11 @@ pub fn main() !void {
                 var builder = ir.Builder{ .allocator = gpa.allocator() };
                 defer builder.func.deinit(gpa.allocator());
                 const name = function.ident(root) orelse return error.MissingFunctionName;
-                const nameText = root.tokenText(name);
+                const name_text = root.tokenText(name);
                 const block = function.body(root) orelse return error.MissingFunctionBody;
                 builder.switchToBlock(try builder.addBlock());
                 try genBlock(root, block, &builder);
-                std.debug.print("{s}: {}\n", .{ nameText, builder.func });
+                std.debug.print("{s}: {}\n", .{ name_text, builder.func });
             },
             .constant => {},
         }
