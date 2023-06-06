@@ -4,7 +4,6 @@ const lex = @import("lex.zig");
 const ast = @import("ast.zig");
 const parse = @import("parse.zig");
 const ir = @import("ir.zig");
-const hir = @import("hir.zig");
 
 comptime {
     _ = syntax;
@@ -13,6 +12,14 @@ comptime {
     _ = parse;
     _ = ir;
 }
+
+const Type = enum {
+    invalid,
+    never,
+    unit,
+    i32,
+    string,
+};
 
 const source =
     \\struct Struct {
@@ -70,6 +77,9 @@ fn genBlock(root: syntax.Root, block: ast.Stmt.Block, builder: *ir.Builder) !voi
 }
 
 fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
+    const typeof = try typeOfExpr(root, expr);
+    std.debug.print("typeof: {}\n", .{typeof});
+
     switch (expr) {
         .unary => |unary| {
             if (unary.returnToken(root)) |_| {
@@ -104,6 +114,50 @@ fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
         .paren => |paren| {
             const inner = paren.expr(root) orelse return error.ExpectedExpression;
             return genExpr(root, inner, builder);
+        },
+    }
+}
+
+fn typeOfExpr(root: syntax.Root, expr: ast.Expr) !Type {
+    switch (expr) {
+        .unary => |unary| {
+            if (unary.returnToken(root)) |_| {
+                return Type.unit;
+            }
+
+            return error.UnknownUnop;
+        },
+        .binary => |binary| {
+            if (binary.plus(root)) |_| {
+                const lhs = binary.lhs(root) orelse return error.ExpectedExpression;
+                const rhs = binary.rhs(root) orelse return error.ExpectedExpression;
+                const lhs_type = try typeOfExpr(root, lhs);
+                const rhs_type = try typeOfExpr(root, rhs);
+                if (lhs_type == Type.i32 and rhs_type == Type.i32) {
+                    return Type.i32;
+                }
+
+                return error.TypeError;
+            }
+
+            return error.UnknownBinop;
+        },
+        .literal => |literal| {
+            if (literal.number(root)) |number| {
+                _ = number;
+                return Type.i32;
+            }
+
+            if (literal.string(root)) |string| {
+                _ = string;
+                return Type.string;
+            }
+
+            return error.UnknownLiteral;
+        },
+        .paren => |paren| {
+            const inner = paren.expr(root) orelse return error.ExpectedExpression;
+            return typeOfExpr(root, inner);
         },
     }
 }
