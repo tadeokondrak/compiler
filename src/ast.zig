@@ -137,7 +137,8 @@ pub const Expr = union(enum) {
 
         pub const tag: syntax.TreeTag = .expr_unary;
         pub const cast = treeCastFn(@This());
-        pub const returnToken = tokenAccessorFn(@This(), .kw_return);
+        pub const plus = tokenAccessorFn(@This(), .plus);
+        pub const minus = tokenAccessorFn(@This(), .minus);
         pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
     };
 
@@ -147,7 +148,10 @@ pub const Expr = union(enum) {
         pub const tag: syntax.TreeTag = .expr_binary;
         pub const cast = treeCastFn(@This());
         pub const plus = tokenAccessorFn(@This(), .plus);
+        pub const minus = tokenAccessorFn(@This(), .minus);
         pub const star = tokenAccessorFn(@This(), .star);
+        pub const slash = tokenAccessorFn(@This(), .slash);
+        pub const percent = tokenAccessorFn(@This(), .percent);
         pub const lhs = nthTreeAccessorFn(@This(), Expr, 0);
         pub const rhs = nthTreeAccessorFn(@This(), Expr, 1);
     };
@@ -175,6 +179,7 @@ pub const Expr = union(enum) {
 pub const Stmt = union(enum) {
     expr: Stmt.Expr,
     block: Stmt.Block,
+    @"return": Stmt.Return,
 
     pub const cast = unionCastFn(@This());
 
@@ -194,5 +199,14 @@ pub const Stmt = union(enum) {
         pub const lBrace = tokenAccessorFn(@This(), .l_brace);
         pub const rBrace = tokenAccessorFn(@This(), .r_brace);
         pub const stmt = nthTreeAccessorFn(@This(), Stmt, 0);
+    };
+
+    pub const Return = struct {
+        tree: syntax.Tree,
+
+        pub const tag: syntax.TreeTag = .stmt_return;
+        pub const cast = treeCastFn(@This());
+        pub const returnToken = tokenAccessorFn(@This(), .kw_return);
+        pub const expr = nthTreeAccessorFn(@This(), ast.Expr, 0);
     };
 };

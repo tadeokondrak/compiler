@@ -14,7 +14,6 @@ const decl_first = [_]syntax.TokenTag{
 const expr_first = [_]syntax.TokenTag{
     .number,
     .l_paren,
-    .kw_return,
 };
 
 pub fn parseFile(p: *Parser) void {
@@ -114,26 +113,47 @@ fn parseStructField(p: *Parser) void {
     p.builder.close(m, .struct_field);
 }
 
+fn parseStmt(p: *Parser) void {
+    if (p.at(.l_brace)) {
+        parseBlockStmt(p);
+    } else if (p.atAny(&expr_first)) {
+        parseExprStmt(p);
+    } else if (p.at(.kw_return)) {
+        parseReturnStmt(p);
+    } else {
+        @panic("TODO");
+    }
+}
+
 fn parseBlockStmt(p: *Parser) void {
     const m = p.builder.open();
     _ = p.eat(.l_brace);
     while (!p.atAny(&.{ .r_brace, .eof })) {
         if (p.atAny(&expr_first)) {
-            parseStmtExpr(p);
+            parseExprStmt(p);
         } else {
-            p.advance();
+            parseStmt(p);
+            //p.advance();
         }
     }
     _ = p.eat(.r_brace);
     p.builder.close(m, .stmt_block);
 }
 
-fn parseStmtExpr(p: *Parser) void {
+fn parseExprStmt(p: *Parser) void {
     std.debug.assert(p.atAny(&expr_first));
     const m = p.builder.open();
     parseExpr(p);
     _ = p.eat(.semi);
     p.builder.close(m, .stmt_expr);
+}
+
+fn parseReturnStmt(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_return);
+    parseExpr(p);
+    _ = p.eat(.semi);
+    p.builder.close(m, .stmt_return);
 }
 
 pub fn parseExpr(p: *Parser) void {
@@ -167,7 +187,7 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
 
 fn unaryPrecedence(tag: syntax.TokenTag) ?u8 {
     return switch (tag) {
-        .kw_return => 1,
+        .plus, .minus => 1,
         else => null,
     };
 }
@@ -267,8 +287,8 @@ test parseBlockStmt {
     );
 }
 
-test parseStmtExpr {
-    try parse.expectSyntaxTree(parseStmtExpr,
+test parseExprStmt {
+    try parse.expectSyntaxTree(parseExprStmt,
         \\1 + 2;
     ,
         \\stmt_expr(

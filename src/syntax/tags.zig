@@ -15,6 +15,7 @@ pub const TreeTag = enum(u15) {
 
     stmt_block,
     stmt_expr,
+    stmt_return,
 
     fn_params,
     fn_param,

@@ -71,6 +71,11 @@ fn genBlock(root: syntax.Root, block: ast.Stmt.Block, builder: *ir.Builder) !voi
                 .block => |nested_block| {
                     return genBlock(root, nested_block, builder);
                 },
+                .@"return" => |return_stmt| {
+                    const expr = return_stmt.expr(root) orelse return error.ExpectedExpression;
+                    const value = try genExpr(root, expr, builder) orelse return error.ExpectedReturnValue;
+                    try builder.buildRet(value);
+                },
             }
         }
     }
@@ -82,12 +87,7 @@ fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
 
     switch (expr) {
         .unary => |unary| {
-            if (unary.returnToken(root)) |_| {
-                const returned = unary.expr(root) orelse return error.ExpectedExpression;
-                try builder.buildRet(try genExpr(root, returned, builder) orelse return error.ExpectedReturnValue);
-                return null;
-            }
-
+            _ = unary;
             return error.UnknownUnop;
         },
         .binary => |binary| {
@@ -121,10 +121,7 @@ fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
 fn typeOfExpr(root: syntax.Root, expr: ast.Expr) !Type {
     switch (expr) {
         .unary => |unary| {
-            if (unary.returnToken(root)) |_| {
-                return Type.unit;
-            }
-
+            _ = unary;
             return error.UnknownUnop;
         },
         .binary => |binary| {
