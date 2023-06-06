@@ -129,6 +129,8 @@ pub const Expr = union(enum) {
     binary: Expr.Binary,
     literal: Expr.Literal,
     paren: Expr.Paren,
+    call: Expr.Call,
+    ident: Expr.Ident,
 
     pub const cast = unionCastFn(@This());
 
@@ -173,6 +175,24 @@ pub const Expr = union(enum) {
         pub const lParen = tokenAccessorFn(@This(), .l_paren);
         pub const rParen = tokenAccessorFn(@This(), .r_paren);
         pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+    };
+
+    pub const Call = struct {
+        tree: syntax.Tree,
+
+        pub const tag: syntax.TreeTag = .expr_call;
+        pub const cast = treeCastFn(@This());
+        pub const lParen = tokenAccessorFn(@This(), .l_paren);
+        pub const rParen = tokenAccessorFn(@This(), .r_paren);
+        pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+    };
+
+    pub const Ident = struct {
+        tree: syntax.Tree,
+
+        pub const tag: syntax.TreeTag = .expr_ident;
+        pub const cast = treeCastFn(@This());
+        pub const ident = tokenAccessorFn(@This(), .ident);
     };
 };
 

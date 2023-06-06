@@ -184,8 +184,10 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
             if (tok == .l_paren) {
                 parseExpr(p);
                 _ = p.eat(.r_paren);
+                p.builder.close(lhs, .expr_call);
+            } else {
+                p.builder.close(lhs, .expr_unary);
             }
-            p.builder.close(lhs, .expr_unary);
 
             continue;
         }

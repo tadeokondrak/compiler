@@ -27,10 +27,11 @@ const source =
     \\    field2: u32;
     \\}
     \\fn main(x: u32) {
-    \\    return 1 + 1 + 2 + f() + g();
+    \\    return 1 + 1 + 2 + f();
     \\}
-    \\fn infallible(num: u32) error {}
-    \\fn fallible(num: u32) (res: u32, err: error) {}
+    //\\fn infallible(num: u32) error {}
+    //\\fn fallible(num: u32) (res: u32, err: error) {}
+    //\\fn fallible2(num: u32) (u32, error) {}
 ;
 
 pub fn main() !void {
@@ -115,6 +116,15 @@ fn genExpr(root: syntax.Root, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
             const inner = paren.expr(root) orelse return error.ExpectedExpression;
             return genExpr(root, inner, builder);
         },
+        .call => |call| {
+            const inner = call.expr(root) orelse return error.ExpectedExpression;
+            // TODO
+            return genExpr(root, inner, builder);
+        },
+        .ident => |ident| {
+            _ = ident;
+            return try builder.buildConstant(.i64, ir.Value{ .bits = 0 });
+        },
     }
 }
 
@@ -155,6 +165,15 @@ fn typeOfExpr(root: syntax.Root, expr: ast.Expr) !Type {
         .paren => |paren| {
             const inner = paren.expr(root) orelse return error.ExpectedExpression;
             return typeOfExpr(root, inner);
+        },
+        .call => |call| {
+            const f = call.expr(root) orelse return error.ExpectedExpression;
+            // TODO
+            return typeOfExpr(root, f);
+        },
+        .ident => {
+            // TODO
+            return Type.i32;
         },
     }
 }
