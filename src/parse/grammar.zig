@@ -122,6 +122,7 @@ fn parseStmt(p: *Parser) void {
         parseReturnStmt(p);
     } else {
         @panic("TODO");
+        //p.advance();
     }
 }
 
@@ -162,10 +163,10 @@ pub fn parseExpr(p: *Parser) void {
 
 fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
     var lhs = lhs: {
-        if (unaryPrecedence(p.nth(0))) |right_precedence| {
+        if (prefixPrecedence(p.nth(0))) |prec| {
             const m = p.builder.open();
             p.advance();
-            parseExprPrecedence(p, right_precedence);
+            parseExprPrecedence(p, prec);
             p.builder.close(m, .expr_unary);
             break :lhs m;
         }
@@ -173,31 +174,58 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
     };
     while (true) {
         const tok = p.nth(0);
-        const right_precedence = binopPrecedence(tok) orelse
-            break;
-        if (right_precedence[0] <= left_precedence)
-            break;
 
-        lhs = p.builder.openBefore(lhs);
-        p.advance();
-        parseExprPrecedence(p, right_precedence[1]);
-        p.builder.close(lhs, .expr_binary);
+        if (postfixPrecedence(tok)) |prec| {
+            if (prec <= left_precedence)
+                break;
+
+            lhs = p.builder.openBefore(lhs);
+            p.advance();
+            if (tok == .l_paren) {
+                parseExpr(p);
+                _ = p.eat(.r_paren);
+            }
+            p.builder.close(lhs, .expr_unary);
+
+            continue;
+        }
+
+        if (infixPrecedence(tok)) |prec| {
+            if (prec[0] <= left_precedence)
+                break;
+
+            lhs = p.builder.openBefore(lhs);
+            p.advance();
+            parseExprPrecedence(p, prec[1]);
+            p.builder.close(lhs, .expr_binary);
+
+            continue;
+        }
+
+        break;
     }
 }
 
-fn unaryPrecedence(tag: syntax.TokenTag) ?u8 {
+fn prefixPrecedence(tag: syntax.TokenTag) ?u8 {
     return switch (tag) {
         .plus, .minus => 1,
         else => null,
     };
 }
 
-fn binopPrecedence(tag: syntax.TokenTag) ?[2]u8 {
+fn infixPrecedence(tag: syntax.TokenTag) ?[2]u8 {
     return switch (tag) {
         // .eof is zero, but we don't return it here
         .lt, .gt, .eq2 => .{ 2, 2 },
         .plus, .minus => .{ 3, 4 },
         .star, .slash, .percent => .{ 5, 6 },
+        else => null,
+    };
+}
+
+fn postfixPrecedence(tag: syntax.TokenTag) ?u8 {
+    return switch (tag) {
+        .l_paren => 7,
         else => null,
     };
 }
