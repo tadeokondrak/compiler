@@ -31,11 +31,7 @@ pub fn at(p: *Parser, tag: syntax.Token.Tag) bool {
 }
 
 pub fn atAny(p: *Parser, comptime tags: []const syntax.Token.Tag) bool {
-    switch (p.nth(0)) {
-        inline else => |tag| {
-            return std.mem.indexOfScalar(syntax.Token.Tag, tags, tag) != null;
-        },
-    }
+    return std.mem.indexOfScalar(syntax.Token.Tag, tags, p.nth(0)) != null;
 }
 
 pub fn eat(p: *Parser, tag: syntax.Token.Tag) bool {
