@@ -128,7 +128,6 @@ pub fn analyzeDecls(ctx: *Context) !void {
     while (it.next(ctx.root)) |decl| {
         switch (decl) {
             .function => |function| try ctx.analyzeFunction(function),
-            .constant => {},
             .structure => |structure| {
                 _ = try ctx.getTypeByKey(.{ .structure = structure });
             },
