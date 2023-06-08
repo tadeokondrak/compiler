@@ -7,7 +7,7 @@ pub const Reg = struct {
         _ = options;
         if (fmt.len != 0) @compileError("format string should be empty");
 
-        try writer.print("r{}", .{reg.index});
+        try writer.print("%{}", .{reg.index});
     }
 };
 
