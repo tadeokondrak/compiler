@@ -86,13 +86,11 @@ pub const Node = struct {
 };
 
 pub const Token = struct {
-    pub const Index = struct {
-        index: u32,
+    tag: Token.Tag,
+    text_pos: u32,
+    text_len: u32,
 
-        fn fromTokenIndex(index: u32) Token.Index {
-            return Token.Index{ .bits = index };
-        }
-    };
+    pub const Index = struct { index: u32 };
 
     pub const Tag = enum(u15) {
         invalid,
@@ -141,20 +139,14 @@ pub const Token = struct {
         kw_return,
         kw_struct,
     };
-
-    tag: Token.Tag,
-    text_pos: u32,
-    text_len: u32,
 };
 
 pub const Tree = struct {
-    pub const Index = struct {
-        index: u32,
+    tag: Tree.Tag,
+    children_pos: u32,
+    children_len: u32,
 
-        pub fn fromTreeIndex(index: u32) Tree.Index {
-            return Tree.Index{ .bits = index };
-        }
-    };
+    pub const Index = struct { index: u32 };
 
     pub const Tag = enum(u15) {
         invalid,
@@ -183,10 +175,6 @@ pub const Tree = struct {
 
         struct_field,
     };
-
-    tag: Tree.Tag,
-    children_pos: u32,
-    children_len: u32,
 };
 
 pub const Child = struct {
