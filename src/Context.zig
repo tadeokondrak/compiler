@@ -82,7 +82,11 @@ fn analyzeStruct(ctx: *Context, structure: ast.Decl.Struct) !void {
             const field = ast.Decl.Struct.Field.cast(ctx.root, child_tree) orelse return error.ExpectedStructField;
             const name = field.ident(ctx.root) orelse return error.MissingStructFieldName;
             const name_text = ctx.root.tokenText(name);
+            const type_expr = field.typeExpr(ctx.root) orelse return error.MissingStructFieldType;
+            const type_expr_ident = type_expr.ident.ident(ctx.root) orelse return error.MissingStructFieldType;
+            const type_expr_ident_text = ctx.root.tokenText(type_expr_ident);
             std.debug.print("field: {s}\n", .{name_text});
+            std.debug.print("field type: {s}\n", .{type_expr_ident_text});
         }
     }
 }

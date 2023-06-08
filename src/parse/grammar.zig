@@ -6,6 +6,30 @@ const parse = @import("../parse.zig");
 
 const Parser = @import("Parser.zig");
 
+fn prefixPrecedence(tag: syntax.Token.Tag) ?u8 {
+    return switch (tag) {
+        .plus, .minus => 1,
+        else => null,
+    };
+}
+
+fn infixPrecedence(tag: syntax.Token.Tag) ?[2]u8 {
+    return switch (tag) {
+        // .eof is zero, but we don't return it here
+        .lt, .gt, .eq2 => .{ 2, 2 },
+        .plus, .minus => .{ 3, 4 },
+        .star, .slash, .percent => .{ 5, 6 },
+        else => null,
+    };
+}
+
+fn postfixPrecedence(tag: syntax.Token.Tag) ?u8 {
+    return switch (tag) {
+        .l_paren => 7,
+        else => null,
+    };
+}
+
 const decl_first = [_]syntax.Token.Tag{
     .kw_fn,
     .kw_struct,
@@ -50,7 +74,7 @@ fn parseFnDecl(p: *Parser) void {
 fn parseFnParams(p: *Parser) void {
     const m = p.builder.open();
     if (p.eat(.l_paren)) {
-        while (p.atAny(&.{ .ident, .colon }) or p.atAny(&expr_first))
+        while (p.at(.ident) or p.atAny(&expr_first))
             parseFnParam(p);
         _ = p.eat(.r_paren);
     }
@@ -61,14 +85,14 @@ fn parseFnParam(p: *Parser) void {
     const m = p.builder.open();
     _ = p.eat(.ident);
     _ = p.eat(.colon);
-    parseExpr(p);
+    parseTypeExpr(p);
     p.builder.close(m, .fn_param);
 }
 
 fn parseFnReturns(p: *Parser) void {
     const m = p.builder.open();
     if (p.eat(.l_paren)) {
-        while (p.atAny(&.{ .ident, .colon }) or p.atAny(&expr_first))
+        while (p.at(.ident) or p.atAny(&expr_first))
             parseFnReturnNamed(p);
         _ = p.eat(.r_paren);
     } else {
@@ -79,15 +103,14 @@ fn parseFnReturns(p: *Parser) void {
 
 fn parseFnReturnAnonymous(p: *Parser) void {
     const m = p.builder.open();
-    parseExpr(p);
+    parseTypeExpr(p);
     p.builder.close(m, .fn_return);
 }
 
 fn parseFnReturnNamed(p: *Parser) void {
     const m = p.builder.open();
     _ = p.eat(.ident);
-    _ = p.eat(.colon);
-    parseExpr(p);
+    parseTypeExpr(p);
     _ = p.eat(.comma);
     p.builder.close(m, .fn_return);
 }
@@ -107,8 +130,7 @@ fn parseStructDecl(p: *Parser) void {
 fn parseStructField(p: *Parser) void {
     const m = p.builder.open();
     _ = p.eat(.ident);
-    _ = p.eat(.colon);
-    parseExpr(p);
+    parseTypeExpr(p);
     _ = p.eat(.semi);
     p.builder.close(m, .struct_field);
 }
@@ -208,30 +230,6 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
     }
 }
 
-fn prefixPrecedence(tag: syntax.Token.Tag) ?u8 {
-    return switch (tag) {
-        .plus, .minus => 1,
-        else => null,
-    };
-}
-
-fn infixPrecedence(tag: syntax.Token.Tag) ?[2]u8 {
-    return switch (tag) {
-        // .eof is zero, but we don't return it here
-        .lt, .gt, .eq2 => .{ 2, 2 },
-        .plus, .minus => .{ 3, 4 },
-        .star, .slash, .percent => .{ 5, 6 },
-        else => null,
-    };
-}
-
-fn postfixPrecedence(tag: syntax.Token.Tag) ?u8 {
-    return switch (tag) {
-        .l_paren => 7,
-        else => null,
-    };
-}
-
 fn parseExprDelimited(p: *Parser) ?syntax.Builder.Mark {
     if (p.at(.number)) {
         const m = p.builder.open();
@@ -257,6 +255,15 @@ fn parseExprDelimited(p: *Parser) ?syntax.Builder.Mark {
     }
 
     return null;
+}
+
+pub fn parseTypeExpr(p: *Parser) void {
+    if (p.at(.ident)) {
+        const m = p.builder.open();
+        p.bump(.ident);
+        p.builder.close(m, .type_expr_ident);
+        return;
+    }
 }
 
 test parseFnDecl {
