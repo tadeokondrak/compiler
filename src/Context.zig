@@ -13,23 +13,37 @@ file: ast.File,
 types: std.ArrayListUnmanaged(Type) = .{},
 structs: std.ArrayListUnmanaged(Struct) = .{},
 
+const TypeKey = union(enum) {
+    invalid,
+    integer: struct { bits: u32 },
+    structure: ast.Decl.Struct,
+};
+
 const Type = union(enum) {
     const Index = struct { index: usize };
 
     invalid,
-    untyped_number,
     integer: struct { bits: u32 },
     structure: Struct,
+
+    fn deinit(typ: *Type, allocator: std.mem.Allocator) void {
+        switch (typ.*) {
+            .invalid, .integer => {},
+            .structure => {
+                typ.structure.fields.deinit(allocator);
+            },
+        }
+    }
 };
 
 const Value = union(enum) {
     reg: ir.Reg,
-    untyped_number: std.math.big.int.Const,
 };
 
 const Struct = struct {
     const Index = struct { index: usize };
 
+    decl: ast.Decl.Struct,
     name: []const u8,
     fields: std.ArrayListUnmanaged(Field) = .{},
 
@@ -38,6 +52,60 @@ const Struct = struct {
         type: Type.Index,
     };
 };
+
+fn typeMatchesKey(typ: Type, key: TypeKey) bool {
+    return switch (typ) {
+        .invalid => key == .invalid,
+        .integer => |integer_type| key == .integer and key.integer.bits == integer_type.bits,
+        .structure => |struct_type| key == .structure and key.structure.tree.index == struct_type.decl.tree.index,
+    };
+}
+
+// TODO: infer or make a global error thing
+fn getTypeByKey(ctx: *Context, key: TypeKey) error{ OutOfMemory, MissingStructName, ExpectedStructField, MissingStructFieldName, MissingStructFieldType, TODO }!Type.Index {
+    for (ctx.types.items, 0..) |typ, i| {
+        if (typeMatchesKey(typ, key))
+            return Type.Index{ .index = i };
+    }
+
+    switch (key) {
+        .invalid => {
+            try ctx.types.append(ctx.allocator, .invalid);
+            return Type.Index{ .index = ctx.types.items.len - 1 };
+        },
+        .integer => {
+            try ctx.types.append(ctx.allocator, .{ .integer = .{ .bits = key.integer.bits } });
+            return Type.Index{ .index = ctx.types.items.len - 1 };
+        },
+        .structure => |struct_key| {
+            const struct_ident = struct_key.ident(ctx.root) orelse return error.MissingStructName;
+            const struct_name = ctx.root.tokenText(struct_ident);
+            const struct_type = try ctx.types.addOne(ctx.allocator);
+            struct_type.* = .{
+                .structure = .{
+                    .decl = struct_key,
+                    .name = struct_name,
+                },
+            };
+
+            for (ctx.root.treeChildren(struct_key.tree)) |child| {
+                if (child.asTree()) |child_tree| {
+                    const field = ast.Decl.Struct.Field.cast(ctx.root, child_tree) orelse return error.ExpectedStructField;
+                    const name = field.ident(ctx.root) orelse return error.MissingStructFieldName;
+                    const name_text = ctx.root.tokenText(name);
+                    const type_expr = field.typeExpr(ctx.root) orelse return error.MissingStructFieldType;
+                    const field_type = try ctx.analyzeTypeExpr(type_expr);
+                    try struct_type.structure.fields.append(ctx.allocator, .{
+                        .name = name_text,
+                        .type = field_type,
+                    });
+                }
+            }
+
+            return Type.Index{ .index = ctx.types.items.len - 1 };
+        },
+    }
+}
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     var root = try parse.parseFile(allocator, src);
@@ -50,6 +118,7 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
 }
 
 pub fn deinit(ctx: *Context) void {
+    for (ctx.types.items) |*typ| typ.deinit(ctx.allocator);
     ctx.types.deinit(ctx.allocator);
     ctx.root.deinit(ctx.allocator);
 }
@@ -60,7 +129,9 @@ pub fn analyzeDecls(ctx: *Context) !void {
         switch (decl) {
             .function => |function| try ctx.analyzeFunction(function),
             .constant => {},
-            .structure => |structure| try ctx.analyzeStruct(structure),
+            .structure => |structure| {
+                _ = try ctx.getTypeByKey(.{ .structure = structure });
+            },
         }
     }
 }
@@ -76,18 +147,17 @@ fn analyzeFunction(ctx: *Context, function: ast.Decl.Fn) !void {
     std.debug.print("{s}: {}\n", .{ name_text, builder.func });
 }
 
-fn analyzeStruct(ctx: *Context, structure: ast.Decl.Struct) !void {
-    for (ctx.root.treeChildren(structure.tree)) |child| {
-        if (child.asTree()) |child_tree| {
-            const field = ast.Decl.Struct.Field.cast(ctx.root, child_tree) orelse return error.ExpectedStructField;
-            const name = field.ident(ctx.root) orelse return error.MissingStructFieldName;
-            const name_text = ctx.root.tokenText(name);
-            const type_expr = field.typeExpr(ctx.root) orelse return error.MissingStructFieldType;
-            const type_expr_ident = type_expr.ident.ident(ctx.root) orelse return error.MissingStructFieldType;
-            const type_expr_ident_text = ctx.root.tokenText(type_expr_ident);
-            std.debug.print("field: {s}\n", .{name_text});
-            std.debug.print("field type: {s}\n", .{type_expr_ident_text});
-        }
+fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) !Type.Index {
+    switch (type_expr) {
+        .ident => |ident| {
+            const ident_token = ident.ident(ctx.root) orelse return error.MissingStructFieldType;
+            const ident_text = ctx.root.tokenText(ident_token);
+            if (std.mem.eql(u8, ident_text, "u32")) {
+                return ctx.getTypeByKey(.{ .integer = .{ .bits = 32 } });
+            }
+
+            return error.TODO;
+        },
     }
 }
 
