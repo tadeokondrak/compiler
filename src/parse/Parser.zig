@@ -18,7 +18,7 @@ pub fn deinit(p: *Parser) void {
     p.builder.deinit();
 }
 
-pub fn nth(p: *Parser, n: usize) syntax.TokenTag {
+pub fn nth(p: *Parser, n: usize) syntax.Token.Tag {
     p.fuel -|= 1;
     if (p.fuel == 0)
         @panic("out of fuel");
@@ -26,25 +26,25 @@ pub fn nth(p: *Parser, n: usize) syntax.TokenTag {
     return p.tokens[p.token_pos + n].tag;
 }
 
-pub fn at(p: *Parser, tag: syntax.TokenTag) bool {
+pub fn at(p: *Parser, tag: syntax.Token.Tag) bool {
     return p.nth(0) == tag;
 }
 
-pub fn atAny(p: *Parser, comptime tags: []const syntax.TokenTag) bool {
+pub fn atAny(p: *Parser, comptime tags: []const syntax.Token.Tag) bool {
     switch (p.nth(0)) {
         inline else => |tag| {
-            return std.mem.indexOfScalar(syntax.TokenTag, tags, tag) != null;
+            return std.mem.indexOfScalar(syntax.Token.Tag, tags, tag) != null;
         },
     }
 }
 
-pub fn eat(p: *Parser, tag: syntax.TokenTag) bool {
+pub fn eat(p: *Parser, tag: syntax.Token.Tag) bool {
     if (!p.at(tag)) return false;
     p.advance();
     return true;
 }
 
-pub fn bump(p: *Parser, tag: syntax.TokenTag) void {
+pub fn bump(p: *Parser, tag: syntax.Token.Tag) void {
     std.debug.assert(p.eat(tag));
 }
 
@@ -121,8 +121,7 @@ test Parser {
         \\  close
         \\  token(r_paren, ")")
         \\close
-        \\
-    , events_text.items);
+    ++ "\n", events_text.items);
 
     var root = try parser.builder.build(std.testing.allocator);
     defer root.deinit(std.testing.allocator);
@@ -143,10 +142,9 @@ test Parser {
         \\  )
         \\  r_paren(")")
         \\)
-        \\
-    , tree_text);
+    ++ "\n", tree_text);
 
-    const untyped_root = syntax.Tree{ .index = 0 };
+    const untyped_root = syntax.Tree.Index{ .index = 0 };
 
     const paren_expr = ast.Expr{ .paren = ast.Expr.Paren.cast(root, untyped_root).? };
     try std.testing.expect(paren_expr.paren.lParen(root) != null);

@@ -29,9 +29,6 @@ const source =
     \\fn main(x: u32) {
     \\    return 1 + 1 + 2 + f();
     \\}
-    //\\fn infallible(num: u32) error {}
-    //\\fn fallible(num: u32) (res: u32, err: error) {}
-    //\\fn fallible2(num: u32) (u32, error) {}
 ;
 
 pub fn main() !void {
@@ -40,7 +37,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     var root = try parse.parseFile(gpa.allocator(), source);
     defer root.deinit(gpa.allocator());
-    const file = ast.File{ .tree = syntax.Tree{ .index = 0 } };
+    const file = ast.File{ .tree = syntax.Tree.Index{ .index = 0 } };
     std.debug.print("tree: '{}'\n", .{root});
     var it = file.decls(root);
     while (it.next(root)) |decl| {

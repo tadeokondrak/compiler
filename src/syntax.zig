@@ -5,126 +5,200 @@
 const std = @import("std");
 
 pub const Builder = @import("syntax/Builder.zig");
-pub const TreeTag = @import("syntax/tags.zig").TreeTag;
-pub const TokenTag = @import("syntax/tags.zig").TokenTag;
 
 comptime {
     _ = Builder;
-    _ = TreeTag;
-    _ = TokenTag;
 }
 
-pub const NodeTag = struct {
-    bits: u16,
+pub const Node = struct {
+    pub const Index = struct {
+        bits: u32,
 
-    const TREE_FLAG: u16 = 1 << 15;
+        const TREE_FLAG: u32 = 1 << 31;
 
-    pub fn isTreeTag(tag: NodeTag) bool {
-        //return (@enumToInt(tag) & TREE_FLAG) != 0;
-        return tag.bits & TREE_FLAG != 0;
-    }
+        pub fn isTree(node: Node.Index) bool {
+            return (node.bits & TREE_FLAG) != 0;
+        }
 
-    pub fn asTreeTag(tag: NodeTag) ?TreeTag {
-        if (!isTreeTag(tag)) return null;
-        return @intToEnum(TreeTag, tag.bits & ~TREE_FLAG);
-    }
+        pub fn asTree(node: Node.Index) ?Tree.Index {
+            if (!isTree(node)) return null;
+            return Tree.Index{ .index = node.bits & ~TREE_FLAG };
+        }
 
-    pub fn fromTreeTag(tag: TreeTag) NodeTag {
-        return NodeTag{ .bits = @as(u16, @enumToInt(tag)) | TREE_FLAG };
-    }
+        pub fn fromTree(tree: Tree.Index) Node.Index {
+            return Node.Index{ .bits = tree.index | TREE_FLAG };
+        }
 
-    pub fn isTokenTag(tag: NodeTag) bool {
-        return tag.bits & TREE_FLAG == 0;
-    }
+        pub fn fromTreeIndex(id: u32) Node.Index {
+            return Node.Index{ .bits = id | TREE_FLAG };
+        }
 
-    pub fn asTokenTag(tag: NodeTag) ?TokenTag {
-        if (!isTokenTag(tag)) return null;
-        return @intToEnum(TokenTag, tag.bits);
-    }
+        pub fn isToken(node: Node.Index) bool {
+            return (node.bits & TREE_FLAG) == 0;
+        }
 
-    pub fn fromTokenTag(tag: TokenTag) NodeTag {
-        return NodeTag{ .bits = @enumToInt(tag) };
-    }
-};
+        pub fn asToken(node: Node.Index) ?Token.Index {
+            if (!isToken(node)) return null;
+            return Token.Index{ .index = node.bits };
+        }
 
-pub const Tree = struct {
-    index: u32,
+        pub fn fromToken(token: Token.Index) Node.Index {
+            return Node.Index{ .bits = token.index };
+        }
 
-    pub fn fromTreeIndex(index: u32) Tree {
-        return Tree{ .bits = index };
-    }
+        pub fn fromTokenIndex(id: u32) Node.Index {
+            return Node.Index{ .bits = id };
+        }
+    };
+
+    pub const Tag = struct {
+        bits: u16,
+
+        const TREE_FLAG: u16 = 1 << 15;
+
+        pub fn isTreeTag(tag: Node.Tag) bool {
+            //return (@enumToInt(tag) & TREE_FLAG) != 0;
+            return tag.bits & TREE_FLAG != 0;
+        }
+
+        pub fn asTreeTag(tag: Node.Tag) ?Tree.Tag {
+            if (!isTreeTag(tag)) return null;
+            return @intToEnum(Tree.Tag, tag.bits & ~TREE_FLAG);
+        }
+
+        pub fn fromTreeTag(tag: Tree.Tag) Node.Tag {
+            return Node.Tag{ .bits = @as(u16, @enumToInt(tag)) | TREE_FLAG };
+        }
+
+        pub fn isTokenTag(tag: Node.Tag) bool {
+            return tag.bits & TREE_FLAG == 0;
+        }
+
+        pub fn asTokenTag(tag: Node.Tag) ?Token.Tag {
+            if (!isTokenTag(tag)) return null;
+            return @intToEnum(Token.Tag, tag.bits);
+        }
+
+        pub fn fromTokenTag(tag: Token.Tag) Node.Tag {
+            return Node.Tag{ .bits = @enumToInt(tag) };
+        }
+    };
 };
 
 pub const Token = struct {
-    index: u32,
+    pub const Index = struct {
+        index: u32,
 
-    fn fromTokenIndex(index: u32) Token {
-        return Token{ .bits = index };
-    }
-};
+        fn fromTokenIndex(index: u32) Token.Index {
+            return Token.Index{ .bits = index };
+        }
+    };
 
-pub const Node = struct {
-    bits: u32,
+    pub const Tag = enum(u15) {
+        invalid,
+        eof,
+        space,
 
-    const TREE_FLAG: u32 = 1 << 31;
+        ident,
+        number,
+        string,
 
-    pub fn isTree(node: Node) bool {
-        return (node.bits & TREE_FLAG) != 0;
-    }
+        plus,
+        minus,
+        star,
+        slash,
+        percent,
 
-    pub fn asTree(node: Node) ?Tree {
-        if (!isTree(node)) return null;
-        return Tree{ .index = node.bits & ~TREE_FLAG };
-    }
+        lt,
+        gt,
+        eq,
 
-    pub fn fromTree(tree: Tree) Node {
-        return Node{ .bits = tree.index | TREE_FLAG };
-    }
+        lt_eq,
+        gt_eq,
 
-    pub fn fromTreeIndex(id: u32) Node {
-        return Node{ .bits = id | TREE_FLAG };
-    }
+        lt2,
+        gt2,
+        eq2,
 
-    pub fn isToken(node: Node) bool {
-        return (node.bits & TREE_FLAG) == 0;
-    }
+        dot,
+        bang,
+        pipe,
+        semi,
+        caret,
+        tilde,
+        colon,
+        comma,
+        ampersand,
 
-    pub fn asToken(node: Node) ?Token {
-        if (!isToken(node)) return null;
-        return Token{ .index = node.bits };
-    }
+        l_paren,
+        r_paren,
+        l_bracket,
+        r_bracket,
+        l_brace,
+        r_brace,
 
-    pub fn fromToken(token: Token) Node {
-        return Node{ .bits = token.index };
-    }
+        kw_fn,
+        kw_return,
+        kw_struct,
+    };
 
-    pub fn fromTokenIndex(id: u32) Node {
-        return Node{ .bits = id };
-    }
-};
-
-pub const TokenData = struct {
-    tag: TokenTag,
+    tag: Token.Tag,
     text_pos: u32,
     text_len: u32,
 };
 
-pub const TreeData = struct {
-    tag: TreeTag,
+pub const Tree = struct {
+    pub const Index = struct {
+        index: u32,
+
+        pub fn fromTreeIndex(index: u32) Tree.Index {
+            return Tree.Index{ .bits = index };
+        }
+    };
+
+    pub const Tag = enum(u15) {
+        invalid,
+
+        file,
+
+        decl_fn,
+        decl_const,
+        decl_struct,
+
+        expr_unary,
+        expr_binary,
+        expr_ident,
+        expr_literal,
+        expr_paren,
+        expr_call,
+
+        stmt_block,
+        stmt_expr,
+        stmt_return,
+
+        fn_params,
+        fn_param,
+        fn_returns,
+        fn_return,
+
+        struct_field,
+    };
+
+    tag: Tree.Tag,
     children_pos: u32,
     children_len: u32,
 };
 
-pub const ChildData = struct {
-    node: Node,
-    tag: NodeTag,
+pub const Child = struct {
+    node: Node.Index,
+    tag: Node.Tag,
 };
 
 pub const Root = struct {
-    tokens: std.MultiArrayList(TokenData) = .{},
+    tokens: std.MultiArrayList(Token) = .{},
     text: std.ArrayListUnmanaged(u8) = .{},
-    trees: std.MultiArrayList(TreeData) = .{},
-    children: std.MultiArrayList(ChildData) = .{},
+    trees: std.MultiArrayList(Tree) = .{},
+    children: std.MultiArrayList(Child) = .{},
 
     pub fn deinit(root: *Root, allocator: std.mem.Allocator) void {
         root.tokens.deinit(allocator);
@@ -135,35 +209,35 @@ pub const Root = struct {
 
     // Token accessors
 
-    pub fn tokenData(root: Root, id: Token) TokenData {
+    pub fn tokenData(root: Root, id: Token.Index) Token {
         return root.tokens.get(id.index);
     }
 
-    pub fn tokenTag(root: Root, id: Token) TokenTag {
+    pub fn tokenTag(root: Root, id: Token.Index) Token.Tag {
         return root.tokenData(id).tag;
     }
 
-    pub fn tokenText(root: Root, id: Token) []const u8 {
+    pub fn tokenText(root: Root, id: Token.Index) []const u8 {
         const data = root.tokenData(id);
         return root.text.items[data.text_pos .. data.text_pos + data.text_len];
     }
 
     // Tree accessors
 
-    pub fn treeData(root: Root, id: Tree) TreeData {
+    pub fn treeData(root: Root, id: Tree.Index) Tree {
         return root.trees.get(id.index);
     }
 
-    pub fn treeTag(root: Root, id: Tree) TreeTag {
+    pub fn treeTag(root: Root, id: Tree.Index) Tree.Tag {
         return root.treeData(id).tag;
     }
 
-    pub fn treeChildren(root: Root, id: Tree) []const Node {
+    pub fn treeChildren(root: Root, id: Tree.Index) []const Node.Index {
         const data = root.treeData(id);
         return root.children.items(.node)[data.children_pos .. data.children_pos + data.children_len];
     }
 
-    pub fn treeChildrenTags(root: Root, id: Tree) []const NodeTag {
+    pub fn treeChildrenTags(root: Root, id: Tree.Index) []const Node.Tag {
         const data = root.treeData(id);
         return root.children.items(.tag)[data.children_pos .. data.children_pos + data.children_len];
     }
@@ -174,10 +248,10 @@ pub const Root = struct {
         _ = options;
         if (fmt.len != 0) @compileError("format string should be empty");
         if (root.trees.len > 0)
-            try root.formatTree(Tree{ .index = 0 }, 0, writer);
+            try root.formatTree(Tree.Index{ .index = 0 }, 0, writer);
     }
 
-    pub fn formatTree(root: Root, id: Tree, indent: usize, writer: anytype) !void {
+    pub fn formatTree(root: Root, id: Tree.Index, indent: usize, writer: anytype) !void {
         const data = root.treeData(id);
         try writer.writeByteNTimes(' ', indent);
         try writer.print("{s}(\n", .{@tagName(data.tag)});
@@ -193,7 +267,7 @@ pub const Root = struct {
         try writer.writeAll(")\n");
     }
 
-    pub fn formatToken(root: Root, id: Token, indent: usize, writer: anytype) !void {
+    pub fn formatToken(root: Root, id: Token.Index, indent: usize, writer: anytype) !void {
         const data = root.tokenData(id);
         const text = root.text.items[data.text_pos .. data.text_pos + data.text_len];
         try writer.writeByteNTimes(' ', indent);
@@ -207,25 +281,25 @@ test Root {
 
     try root.text.append(std.testing.allocator, '1');
 
-    const token_id = Token{ .index = 0 };
-    const token_data = TokenData{ .tag = .number, .text_pos = 0, .text_len = 1 };
+    const token_id = Token.Index{ .index = 0 };
+    const token_data = Token{ .tag = .number, .text_pos = 0, .text_len = 1 };
     try root.tokens.append(std.testing.allocator, token_data);
     try std.testing.expectEqual(token_data, root.tokenData(token_id));
-    try std.testing.expectEqual(TokenTag.number, root.tokenTag(token_id));
+    try std.testing.expectEqual(Token.Tag.number, root.tokenTag(token_id));
     try std.testing.expectEqualSlices(u8, "1", root.tokenText(token_id));
 
-    const tree_id = Tree{ .index = @intCast(u32, root.trees.len) };
-    const tree_data = TreeData{ .tag = .expr_literal, .children_pos = 0, .children_len = 1 };
+    const tree_id = Tree.Index{ .index = @intCast(u32, root.trees.len) };
+    const tree_data = Tree{ .tag = .expr_literal, .children_pos = 0, .children_len = 1 };
     try root.trees.append(std.testing.allocator, tree_data);
     try root.children.append(std.testing.allocator, .{
-        .node = Node.fromToken(token_id),
-        .tag = NodeTag.fromTokenTag(token_data.tag),
+        .node = Node.Index.fromToken(token_id),
+        .tag = Node.Tag.fromTokenTag(token_data.tag),
     });
     try std.testing.expectEqual(tree_data, root.treeData(tree_id));
-    try std.testing.expectEqual(TreeTag.expr_literal, root.treeTag(tree_id));
-    try std.testing.expectEqualSlices(Node, &.{Node.fromToken(token_id)}, root.treeChildren(tree_id));
-    try std.testing.expectEqual(@as(?Tree, null), root.treeChildren(tree_id)[0].asTree());
-    try std.testing.expectEqual(@as(?Token, token_id), root.treeChildren(tree_id)[0].asToken());
+    try std.testing.expectEqual(Tree.Tag.expr_literal, root.treeTag(tree_id));
+    try std.testing.expectEqualSlices(Node.Index, &.{Node.Index.fromToken(token_id)}, root.treeChildren(tree_id));
+    try std.testing.expectEqual(@as(?Tree.Index, null), root.treeChildren(tree_id)[0].asTree());
+    try std.testing.expectEqual(@as(?Token.Index, token_id), root.treeChildren(tree_id)[0].asToken());
 
     const text = try std.fmt.allocPrint(std.testing.allocator, "{}", .{root});
     defer std.testing.allocator.free(text);
@@ -233,6 +307,5 @@ test Root {
         \\expr_literal(
         \\  number("1")
         \\)
-        \\
-    , text);
+    ++ "\n", text);
 }

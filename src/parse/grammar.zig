@@ -6,12 +6,12 @@ const parse = @import("../parse.zig");
 
 const Parser = @import("Parser.zig");
 
-const decl_first = [_]syntax.TokenTag{
+const decl_first = [_]syntax.Token.Tag{
     .kw_fn,
     .kw_struct,
 };
 
-const expr_first = [_]syntax.TokenTag{
+const expr_first = [_]syntax.Token.Tag{
     .number,
     .l_paren,
 };
@@ -208,14 +208,14 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
     }
 }
 
-fn prefixPrecedence(tag: syntax.TokenTag) ?u8 {
+fn prefixPrecedence(tag: syntax.Token.Tag) ?u8 {
     return switch (tag) {
         .plus, .minus => 1,
         else => null,
     };
 }
 
-fn infixPrecedence(tag: syntax.TokenTag) ?[2]u8 {
+fn infixPrecedence(tag: syntax.Token.Tag) ?[2]u8 {
     return switch (tag) {
         // .eof is zero, but we don't return it here
         .lt, .gt, .eq2 => .{ 2, 2 },
@@ -225,7 +225,7 @@ fn infixPrecedence(tag: syntax.TokenTag) ?[2]u8 {
     };
 }
 
-fn postfixPrecedence(tag: syntax.TokenTag) ?u8 {
+fn postfixPrecedence(tag: syntax.Token.Tag) ?u8 {
     return switch (tag) {
         .l_paren => 7,
         else => null,

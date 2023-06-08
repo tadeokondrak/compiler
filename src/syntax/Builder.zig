@@ -8,8 +8,8 @@ events: std.ArrayListUnmanaged(Event) = .{},
 oom: bool = false,
 
 pub const Event = union(enum) {
-    open: struct { tag: syntax.TreeTag },
-    token: struct { tag: syntax.TokenTag, text: []const u8 },
+    open: struct { tag: syntax.Tree.Tag },
+    token: struct { tag: syntax.Token.Tag, text: []const u8 },
     close,
 };
 
@@ -40,7 +40,7 @@ pub fn openBefore(builder: *Builder, mark: Mark) Mark {
     return mark;
 }
 
-pub fn close(builder: *Builder, mark: Mark, tag: syntax.TreeTag) void {
+pub fn close(builder: *Builder, mark: Mark, tag: syntax.Tree.Tag) void {
     if (builder.oom) return;
     builder.events.items[mark.index].open.tag = tag;
     builder.events.append(builder.allocator, Event.close) catch {
@@ -48,7 +48,7 @@ pub fn close(builder: *Builder, mark: Mark, tag: syntax.TreeTag) void {
     };
 }
 
-pub fn token(builder: *Builder, tag: syntax.TokenTag, text: []const u8) void {
+pub fn token(builder: *Builder, tag: syntax.Token.Tag, text: []const u8) void {
     if (builder.oom) return;
     builder.events.append(builder.allocator, Event{ .token = .{ .tag = tag, .text = text } }) catch {
         builder.oom = true;
@@ -61,18 +61,18 @@ pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMe
     var root: syntax.Root = .{};
 
     var stack = std.ArrayList(struct {
-        tree_id: syntax.Tree,
-        tag: syntax.TreeTag,
+        tree_id: syntax.Tree.Index,
+        tag: syntax.Tree.Tag,
         num_children: usize,
     }).init(builder.allocator);
     defer std.debug.assert(stack.items.len == 1);
     defer stack.deinit();
 
-    var child_nodes = std.ArrayList(syntax.Node).init(builder.allocator);
+    var child_nodes = std.ArrayList(syntax.Node.Index).init(builder.allocator);
     defer std.debug.assert(child_nodes.items.len == 1);
     defer child_nodes.deinit();
 
-    var child_tags = std.ArrayList(syntax.NodeTag).init(builder.allocator);
+    var child_tags = std.ArrayList(syntax.Node.Tag).init(builder.allocator);
     defer std.debug.assert(child_tags.items.len == 1);
     defer child_tags.deinit();
 
@@ -82,14 +82,14 @@ pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMe
     for (builder.events.items) |event| {
         switch (event) {
             .open => |open_event| {
-                const tree_id = syntax.Tree{ .index = std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory };
-                try root.trees.append(tree_allocator, syntax.TreeData{
+                const tree_id = syntax.Tree.Index{ .index = std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory };
+                try root.trees.append(tree_allocator, syntax.Tree{
                     .tag = open_event.tag,
                     .children_pos = undefined,
                     .children_len = 0,
                 });
-                try child_nodes.append(syntax.Node.fromTree(tree_id));
-                try child_tags.append(syntax.NodeTag.fromTreeTag(open_event.tag));
+                try child_nodes.append(syntax.Node.Index.fromTree(tree_id));
+                try child_tags.append(syntax.Node.Tag.fromTreeTag(open_event.tag));
                 stack.items[stack.items.len - 1].num_children += 1;
                 try stack.append(.{ .tree_id = tree_id, .tag = open_event.tag, .num_children = 0 });
             },
@@ -97,13 +97,13 @@ pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMe
                 const text_pos = root.text.items.len;
                 try root.text.appendSlice(tree_allocator, token_event.text);
                 const token_pos = root.tokens.len;
-                try root.tokens.append(tree_allocator, syntax.TokenData{
+                try root.tokens.append(tree_allocator, syntax.Token{
                     .tag = token_event.tag,
                     .text_pos = std.math.cast(u32, text_pos) orelse return error.OutOfMemory,
                     .text_len = std.math.cast(u32, token_event.text.len) orelse return error.OutOfMemory,
                 });
-                try child_nodes.append(syntax.Node.fromTokenIndex(@intCast(u32, token_pos)));
-                try child_tags.append(syntax.NodeTag.fromTokenTag(token_event.tag));
+                try child_nodes.append(syntax.Node.Index.fromTokenIndex(@intCast(u32, token_pos)));
+                try child_tags.append(syntax.Node.Tag.fromTokenTag(token_event.tag));
                 stack.items[stack.items.len - 1].num_children += 1;
             },
             .close => {
@@ -116,12 +116,12 @@ pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMe
                 try root.children.ensureUnusedCapacity(tree_allocator, stack_element.num_children);
                 root.children.len += stack_element.num_children;
                 std.mem.copy(
-                    syntax.Node,
+                    syntax.Node.Index,
                     root.children.items(.node)[children_start..],
                     child_nodes.items[child_nodes.items.len - stack_element.num_children ..],
                 );
                 std.mem.copy(
-                    syntax.NodeTag,
+                    syntax.Node.Tag,
                     root.children.items(.tag)[children_start..],
                     child_tags.items[child_tags.items.len - stack_element.num_children ..],
                 );
