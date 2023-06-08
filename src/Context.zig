@@ -102,14 +102,14 @@ fn genBlock(ctx: *Context, block: ast.Stmt.Block, builder: *ir.Builder) !void {
                 .@"return" => |return_stmt| {
                     const expr = return_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
                     const value = try ctx.genExpr(expr, builder) orelse return error.ExpectedReturnValue;
-                    try builder.buildRet(value);
+                    try builder.buildRet(value.reg);
                 },
             }
         }
     }
 }
 
-fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
+fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !?Value {
     switch (expr) {
         .unary => |unary| {
             _ = unary;
@@ -122,7 +122,7 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
                 const lhs_value = try ctx.genExpr(lhs, builder) orelse return error.ExpectedValue;
                 const rhs_value = try ctx.genExpr(rhs, builder) orelse return error.ExpectedValue;
 
-                return try builder.buildAdd(lhs_value, rhs_value);
+                return .{ .reg = try builder.buildAdd(lhs_value.reg, rhs_value.reg) };
             }
 
             return error.UnknownBinop;
@@ -131,7 +131,7 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
             if (literal.number(ctx.root)) |number| {
                 const text = ctx.root.tokenText(number);
                 const num = try std.fmt.parseInt(u64, text, 10);
-                return try builder.buildConstant(.i64, ir.Value{ .bits = num });
+                return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = num }) };
             }
 
             return error.UnknownLiteral;
@@ -147,7 +147,7 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !?ir.Reg {
         },
         .ident => |ident| {
             _ = ident;
-            return try builder.buildConstant(.i64, ir.Value{ .bits = 0 });
+            return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
         },
     }
 }
