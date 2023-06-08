@@ -41,7 +41,7 @@ const Struct = struct {
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     var root = try parse.parseFile(allocator, src);
-    const file = ast.File{ .tree = syntax.Tree{ .index = 0 } };
+    const file = ast.File{ .tree = syntax.Tree.Index{ .index = 0 } };
     return .{
         .allocator = allocator,
         .root = root,
