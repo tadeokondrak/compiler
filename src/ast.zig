@@ -93,6 +93,7 @@ pub const File = struct {
 pub const Decl = union(enum) {
     function: Decl.Fn,
     structure: Decl.Struct,
+    constant: Decl.Const,
 
     pub const tags: []syntax.Tree.Tag = .{
         .decl_fn,
@@ -172,6 +173,19 @@ pub const Decl = union(enum) {
             pub const typeExpr = nthTreeAccessorFn(@This(), TypeExpr, 0);
             pub const semi = tokenAccessorFn(@This(), .semi);
         };
+    };
+
+    pub const Const = struct {
+        tree: syntax.Tree.Index,
+
+        pub const tag: syntax.Tree.Tag = .decl_const;
+        pub const cast = treeCastFn(@This());
+        pub const constToken = tokenAccessorFn(@This(), .kw_const);
+        pub const ident = tokenAccessorFn(@This(), .ident);
+        pub const typeExpr = nthTreeAccessorFn(@This(), TypeExpr, 0);
+        pub const equals = tokenAccessorFn(@This(), .equals);
+        pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+        pub const semi = tokenAccessorFn(@This(), .semi);
     };
 };
 

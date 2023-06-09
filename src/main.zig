@@ -17,6 +17,7 @@ comptime {
 
 pub fn main() !void {
     const src =
+        \\const num u32 = 0
         \\struct Struct {
         \\    field1 u32;
         \\    field2 u32;
@@ -26,10 +27,11 @@ pub fn main() !void {
         \\}
     ;
 
-    std.debug.print("source: '{s}'\n", .{src});
+    //std.debug.print("source: '{s}'\n", .{src});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();
+    //std.debug.print("syntax: '{}'\n", .{ctx.root});
     try ctx.main();
 }

@@ -15,12 +15,14 @@ types: std.ArrayListUnmanaged(Type) = .{},
 const Decl = union(enum) {
     structure: Decl.Struct,
     function: Decl.Fn,
+    constant: Decl.Const,
 
-    const Index = struct { index: usize };
+    const Index = enum(usize) { _ };
 
     const Key = union(enum) {
         structure: ast.Decl.Struct,
         function: ast.Decl.Fn,
+        constant: ast.Decl.Const,
     };
 
     const Struct = struct {
@@ -33,21 +35,27 @@ const Decl = union(enum) {
         name: []const u8,
     };
 
+    const Const = struct {
+        syntax: ast.Decl.Const,
+        name: []const u8,
+    };
+
     fn matchesKey(decl: Decl, key: Decl.Key) bool {
         return switch (decl) {
             .structure => |structure| key == .structure and key.structure.tree.index == structure.syntax.tree.index,
             .function => |function| key == .function and key.function.tree.index == function.syntax.tree.index,
+            .constant => |constant| key == .constant and key.constant.tree.index == constant.syntax.tree.index,
         };
     }
 };
 
 const Type = union(enum) {
     invalid,
-    integer: Integer,
+    integer: Type.Integer,
     structure: Decl.Index,
     function: Decl.Index,
 
-    const Index = struct { index: usize };
+    const Index = enum(usize) { _ };
 
     const Key = union(enum) {
         invalid,
@@ -74,7 +82,7 @@ const Type = union(enum) {
 fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
     for (ctx.decls.items, 0..) |decl, i| {
         if (decl.matchesKey(key))
-            return Decl.Index{ .index = i };
+            return @intToEnum(Decl.Index, i);
     }
 
     switch (key) {
@@ -85,7 +93,7 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
                 .name = name,
                 .syntax = structure_syntax,
             } });
-            return Decl.Index{ .index = ctx.decls.items.len - 1 };
+            return @intToEnum(Decl.Index, ctx.decls.items.len - 1);
         },
         .function => |function_syntax| {
             const function_ident = function_syntax.ident(ctx.root).?;
@@ -94,7 +102,16 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
                 .name = name,
                 .syntax = function_syntax,
             } });
-            return Decl.Index{ .index = ctx.decls.items.len - 1 };
+            return @intToEnum(Decl.Index, ctx.decls.items.len - 1);
+        },
+        .constant => |constant_syntax| {
+            const constant_ident = constant_syntax.ident(ctx.root).?;
+            const name = ctx.root.tokenText(constant_ident);
+            try ctx.decls.append(ctx.allocator, .{ .constant = .{
+                .name = name,
+                .syntax = constant_syntax,
+            } });
+            return @intToEnum(Decl.Index, ctx.decls.items.len - 1);
         },
     }
 }
@@ -102,26 +119,26 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
 fn getTypeByKey(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
     for (ctx.types.items, 0..) |typ, i| {
         if (typ.matchesKey(key, ctx))
-            return Type.Index{ .index = i };
+            return @intToEnum(Type.Index, i);
     }
     switch (key) {
         .invalid => {
             try ctx.types.append(ctx.allocator, .invalid);
-            return Type.Index{ .index = ctx.types.items.len - 1 };
+            return @intToEnum(Type.Index, ctx.types.items.len - 1);
         },
         .integer => |integer_key| {
             try ctx.types.append(ctx.allocator, .{ .integer = .{ .bits = integer_key.bits } });
-            return Type.Index{ .index = ctx.types.items.len - 1 };
+            return @intToEnum(Type.Index, ctx.types.items.len - 1);
         },
         .structure => |struct_syntax| {
             const struct_decl = ctx.getDeclByKey(.{ .structure = struct_syntax });
             try ctx.types.append(ctx.allocator, .{ .structure = struct_decl });
-            return Type.Index{ .index = ctx.decls.items.len - 1 };
+            return @intToEnum(Type.Index, ctx.decls.items.len - 1);
         },
         .function => |function_syntax| {
             const function_decl = ctx.getDeclByKey(.{ .function = function_syntax });
             try ctx.types.append(ctx.allocator, .{ .function = function_decl });
-            return Type.Index{ .index = ctx.decls.items.len - 1 };
+            return @intToEnum(Type.Index, ctx.decls.items.len - 1);
         },
     }
 }
@@ -146,11 +163,15 @@ pub fn main(ctx: *Context) !void {
         switch (decl_syntax) {
             .function => |function| {
                 const decl = try ctx.getDeclByKey(.{ .function = function });
-                try decls.put(ctx.allocator, ctx.decls.items[decl.index].function.name, decl);
+                try decls.put(ctx.allocator, ctx.decls.items[@enumToInt(decl)].function.name, decl);
             },
             .structure => |structure| {
                 const decl = try ctx.getDeclByKey(.{ .structure = structure });
-                try decls.put(ctx.allocator, ctx.decls.items[decl.index].structure.name, decl);
+                try decls.put(ctx.allocator, ctx.decls.items[@enumToInt(decl)].structure.name, decl);
+            },
+            .constant => |constant| {
+                const decl = try ctx.getDeclByKey(.{ .constant = constant });
+                try decls.put(ctx.allocator, ctx.decls.items[@enumToInt(decl)].constant.name, decl);
             },
         }
     }
@@ -158,7 +179,7 @@ pub fn main(ctx: *Context) !void {
 }
 
 fn analyzeDecl(ctx: *Context, decl: Decl.Index) !void {
-    const data = ctx.decls.items[decl.index];
+    const data = ctx.decls.items[@enumToInt(decl)];
     switch (data) {
         .structure => |structure| {
             _ = structure;
@@ -170,6 +191,9 @@ fn analyzeDecl(ctx: *Context, decl: Decl.Index) !void {
             builder.switchToBlock(try builder.addBlock());
             try ctx.genBlock(body, &builder);
             std.debug.print("{}\n", .{builder.func});
+        },
+        .constant => |constant| {
+            _ = constant;
         },
     }
 }

@@ -138,6 +138,7 @@ pub const Token = struct {
         kw_fn,
         kw_return,
         kw_struct,
+        kw_const,
     };
 };
 

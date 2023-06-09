@@ -33,6 +33,7 @@ fn postfixPrecedence(tag: syntax.Token.Tag) ?u8 {
 const decl_first = [_]syntax.Token.Tag{
     .kw_fn,
     .kw_struct,
+    .kw_const,
 };
 
 const expr_first = [_]syntax.Token.Tag{
@@ -49,15 +50,16 @@ pub fn parseFile(p: *Parser) void {
 }
 
 fn parseDecl(p: *Parser) void {
-    if (p.at(.kw_fn)) {
-        parseFnDecl(p);
-    } else if (p.at(.kw_struct)) {
-        parseStructDecl(p);
-    } else {
-        const m = p.builder.open();
-        while (!p.atAny(&decl_first))
-            p.advance();
-        p.builder.close(m, .invalid);
+    switch (p.nth(0)) {
+        .kw_fn => parseFnDecl(p),
+        .kw_struct => parseStructDecl(p),
+        .kw_const => parseConstDecl(p),
+        else => {
+            const m = p.builder.open();
+            while (!p.atAny(&decl_first))
+                p.advance();
+            p.builder.close(m, .invalid);
+        },
     }
 }
 
@@ -132,6 +134,17 @@ fn parseStructField(p: *Parser) void {
     parseTypeExpr(p);
     _ = p.eat(.semi);
     p.builder.close(m, .struct_field);
+}
+
+fn parseConstDecl(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_const);
+    _ = p.eat(.ident);
+    parseTypeExpr(p);
+    _ = p.eat(.eq);
+    parseExpr(p);
+    _ = p.eat(.semi);
+    p.builder.close(m, .decl_const);
 }
 
 fn parseStmt(p: *Parser) void {

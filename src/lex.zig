@@ -86,6 +86,7 @@ pub const Lexer = struct {
                             .{ "fn", .kw_fn },
                             .{ "return", .kw_return },
                             .{ "struct", .kw_struct },
+                            .{ "const", .kw_const },
                         });
                         const text = lexer.text[ident_state.start_pos..lexer.pos];
                         const tag = kw_map.get(text) orelse .ident;
