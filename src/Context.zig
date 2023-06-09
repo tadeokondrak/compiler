@@ -11,6 +11,7 @@ allocator: std.mem.Allocator,
 root: syntax.Root,
 decls: std.ArrayListUnmanaged(Decl) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
+scopes: std.ArrayListUnmanaged(Scope) = .{},
 
 const Decl = union(enum) {
     structure: Decl.Struct,
@@ -49,42 +50,11 @@ const Decl = union(enum) {
     }
 };
 
-const Type = union(enum) {
-    invalid,
-    integer: Type.Integer,
-    structure: Decl.Index,
-    function: Decl.Index,
-
-    const Index = enum(usize) { _ };
-
-    const Key = union(enum) {
-        invalid,
-        integer: struct { bits: u32 },
-        structure: ast.Decl.Struct,
-        function: ast.Decl.Fn,
-    };
-
-    const Integer = struct {
-        signed: bool,
-        bits: u32,
-    };
-
-    fn matchesKey(typ: Type, key: Type.Key, ctx: *Context) bool {
-        return switch (typ) {
-            .invalid => key == .invalid,
-            .integer => |integer_type| key == .integer and key.integer.bits == integer_type.bits,
-            .structure => |structure| key == .structure and key.structure.tree.index == ctx.decls.items[structure.index].structure.syntax.tree.index,
-            .function => |function| key == .function and key.function.tree.index == ctx.decls.items[function.index].function.syntax.tree.index,
-        };
-    }
-};
-
-fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
+fn lookUpDecl(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
     for (ctx.decls.items, 0..) |decl, i| {
         if (decl.matchesKey(key))
             return @intToEnum(Decl.Index, i);
     }
-
     switch (key) {
         .structure => |structure_syntax| {
             const structure_ident = structure_syntax.ident(ctx.root).?;
@@ -116,7 +86,37 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
     }
 }
 
-fn getTypeByKey(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
+const Type = union(enum) {
+    invalid,
+    integer: Type.Integer,
+    structure: Decl.Index,
+    function: Decl.Index,
+
+    const Index = enum(usize) { _ };
+
+    const Key = union(enum) {
+        invalid,
+        integer: struct { bits: u32 },
+        structure: ast.Decl.Struct,
+        function: ast.Decl.Fn,
+    };
+
+    const Integer = struct {
+        signed: bool,
+        bits: u32,
+    };
+
+    fn matchesKey(typ: Type, key: Type.Key, ctx: *Context) bool {
+        return switch (typ) {
+            .invalid => key == .invalid,
+            .integer => |integer_type| key == .integer and key.integer.bits == integer_type.bits,
+            .structure => |structure| key == .structure and key.structure.tree.index == ctx.decls.items[structure.index].structure.syntax.tree.index,
+            .function => |function| key == .function and key.function.tree.index == ctx.decls.items[function.index].function.syntax.tree.index,
+        };
+    }
+};
+
+fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
     for (ctx.types.items, 0..) |typ, i| {
         if (typ.matchesKey(key, ctx))
             return @intToEnum(Type.Index, i);
@@ -131,14 +131,63 @@ fn getTypeByKey(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
             return @intToEnum(Type.Index, ctx.types.items.len - 1);
         },
         .structure => |struct_syntax| {
-            const struct_decl = ctx.getDeclByKey(.{ .structure = struct_syntax });
+            const struct_decl = ctx.lookUpDecl(.{ .structure = struct_syntax });
             try ctx.types.append(ctx.allocator, .{ .structure = struct_decl });
             return @intToEnum(Type.Index, ctx.decls.items.len - 1);
         },
         .function => |function_syntax| {
-            const function_decl = ctx.getDeclByKey(.{ .function = function_syntax });
+            const function_decl = ctx.lookUpDecl(.{ .function = function_syntax });
             try ctx.types.append(ctx.allocator, .{ .function = function_decl });
             return @intToEnum(Type.Index, ctx.decls.items.len - 1);
+        },
+    }
+}
+
+const Scope = struct {
+    parent: Scope.Index,
+    variant: Scope.Variant,
+
+    const Index = enum(usize) {
+        none = std.math.maxInt(usize),
+        _,
+    };
+
+    const Key = union(enum) {
+        root,
+        decl: Context.Decl.Index,
+    };
+
+    const Variant = union(enum) {
+        root,
+        decl: Scope.Decl,
+    };
+
+    const Decl = struct {
+        decl: Context.Decl.Index,
+    };
+
+    fn matchesKey(scope: Scope, key: Scope.Key) bool {
+        return switch (key) {
+            .root => scope.variant == .root,
+            .decl => |decl| scope.variant == .decl and scope.variant.decl.decl == decl,
+        };
+    }
+};
+
+fn lookUpScope(ctx: *Context, key: Scope.Key) error{OutOfMemory}!Scope.Index {
+    for (ctx.scopes.items, 0..) |scope, i| {
+        if (scope.matchesKey(key))
+            return @intToEnum(Scope.Index, i);
+    }
+    switch (key) {
+        .root => {
+            try ctx.scopes.append(ctx.allocator, .{ .parent = .none, .variant = .root });
+            return @intToEnum(Scope.Index, ctx.scopes.items.len - 1);
+        },
+        .decl => |decl| {
+            const parent = try ctx.lookUpScope(.root);
+            try ctx.scopes.append(ctx.allocator, .{ .parent = parent, .variant = .{ .decl = .{ .decl = decl } } });
+            return @intToEnum(Scope.Index, ctx.scopes.items.len - 1);
         },
     }
 }
@@ -149,6 +198,7 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
 }
 
 pub fn deinit(ctx: *Context) void {
+    ctx.scopes.deinit(ctx.allocator);
     ctx.decls.deinit(ctx.allocator);
     ctx.types.deinit(ctx.allocator);
     ctx.root.deinit(ctx.allocator);
@@ -162,15 +212,15 @@ pub fn main(ctx: *Context) !void {
     while (it.next(ctx.root)) |decl_syntax| {
         switch (decl_syntax) {
             .function => |function| {
-                const decl = try ctx.getDeclByKey(.{ .function = function });
+                const decl = try ctx.lookUpDecl(.{ .function = function });
                 try decls.put(ctx.allocator, ctx.decls.items[@enumToInt(decl)].function.name, decl);
             },
             .structure => |structure| {
-                const decl = try ctx.getDeclByKey(.{ .structure = structure });
+                const decl = try ctx.lookUpDecl(.{ .structure = structure });
                 try decls.put(ctx.allocator, ctx.decls.items[@enumToInt(decl)].structure.name, decl);
             },
             .constant => |constant| {
-                const decl = try ctx.getDeclByKey(.{ .constant = constant });
+                const decl = try ctx.lookUpDecl(.{ .constant = constant });
                 try decls.put(ctx.allocator, ctx.decls.items[@enumToInt(decl)].constant.name, decl);
             },
         }
@@ -185,6 +235,7 @@ fn analyzeDecl(ctx: *Context, decl: Decl.Index) !void {
             _ = structure;
         },
         .function => |function| {
+            _ = try ctx.lookUpScope(.{ .decl = decl });
             var builder = ir.Builder{ .allocator = ctx.allocator };
             defer builder.func.deinit(ctx.allocator);
             const body = function.syntax.body(ctx.root) orelse return error.Syntax;
@@ -204,7 +255,7 @@ fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) !Type.Index {
             const ident_token = ident.ident(ctx.root) orelse return error.Syntax;
             const ident_text = ctx.root.tokenText(ident_token);
             if (std.mem.eql(u8, ident_text, "u32")) {
-                return ctx.getTypeByKey(.{ .integer = .{ .signed = false, .bits = 32 } });
+                return ctx.lookUpType(.{ .integer = .{ .signed = false, .bits = 32 } });
             }
 
             @panic("TODO");

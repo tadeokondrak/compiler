@@ -17,13 +17,13 @@ comptime {
 
 pub fn main() !void {
     const src =
-        \\const num u32 = 0
+        \\const num u32 = 1;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 u32;
         \\}
         \\fn main(x u32) {
-        \\    return 1 + 1 + 2 + f();
+        \\    return x + num;
         \\}
     ;
 
