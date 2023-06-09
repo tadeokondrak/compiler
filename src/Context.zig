@@ -43,9 +43,9 @@ const Decl = union(enum) {
 
     fn matchesKey(decl: Decl, key: Decl.Key) bool {
         return switch (decl) {
-            .structure => |structure| key == .structure and key.structure.tree.index == structure.syntax.tree.index,
-            .function => |function| key == .function and key.function.tree.index == function.syntax.tree.index,
-            .constant => |constant| key == .constant and key.constant.tree.index == constant.syntax.tree.index,
+            .structure => |structure| key == .structure and key.structure.tree == structure.syntax.tree,
+            .function => |function| key == .function and key.function.tree == function.syntax.tree,
+            .constant => |constant| key == .constant and key.constant.tree == constant.syntax.tree,
         };
     }
 };
@@ -166,11 +166,19 @@ const Scope = struct {
         decl: Context.Decl.Index,
     };
 
+    const LookupResult = union(enum) {
+        not_found,
+    };
+
     fn matchesKey(scope: Scope, key: Scope.Key) bool {
         return switch (key) {
             .root => scope.variant == .root,
             .decl => |decl| scope.variant == .decl and scope.variant.decl.decl == decl,
         };
+    }
+
+    fn lookUpName(scope: Scope, context: Context) LookupResult {
+        return .not_found;
     }
 };
 
@@ -205,7 +213,7 @@ pub fn deinit(ctx: *Context) void {
 }
 
 pub fn main(ctx: *Context) !void {
-    const file = ast.File{ .tree = syntax.Tree.Index{ .index = 0 } };
+    const file = ast.File{ .tree = @intToEnum(syntax.Tree.Index, 0) };
     var it = file.decls(ctx.root);
     var decls = std.StringHashMapUnmanaged(Decl.Index){};
     defer decls.deinit(ctx.allocator);
@@ -323,6 +331,7 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
         },
         .ident => |ident| {
             _ = ident;
+            //ctx.lookUpScope(.{ .decl = decl });
             return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
         },
     }

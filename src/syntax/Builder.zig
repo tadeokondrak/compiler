@@ -82,7 +82,7 @@ pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMe
     for (builder.events.items) |event| {
         switch (event) {
             .open => |open_event| {
-                const tree_id = syntax.Tree.Index{ .index = std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory };
+                const tree_id = @intToEnum(syntax.Tree.Index, std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory);
                 try root.trees.append(tree_allocator, syntax.Tree{
                     .tag = open_event.tag,
                     .children_pos = undefined,
@@ -108,9 +108,9 @@ pub fn build(builder: *Builder, tree_allocator: std.mem.Allocator) error{OutOfMe
             },
             .close => {
                 const stack_element = stack.pop();
-                root.trees.items(.children_pos)[stack_element.tree_id.index] =
+                root.trees.items(.children_pos)[@enumToInt(stack_element.tree_id)] =
                     std.math.cast(u32, root.children.len) orelse return error.OutOfMemory;
-                root.trees.items(.children_len)[stack_element.tree_id.index] =
+                root.trees.items(.children_len)[@enumToInt(stack_element.tree_id)] =
                     std.math.cast(u32, stack_element.num_children) orelse return error.OutOfMemory;
                 const children_start = root.children.len;
                 try root.children.ensureUnusedCapacity(tree_allocator, stack_element.num_children);
