@@ -20,6 +20,11 @@ const Decl = union(enum) {
 
     const Index = struct { index: usize };
 
+    const Key = union(enum) {
+        structure: ast.Decl.Struct,
+        function: ast.Decl.Fn,
+    };
+
     const Struct = struct {
         syntax: ast.Decl.Struct,
         name: []const u8,
@@ -29,6 +34,13 @@ const Decl = union(enum) {
         syntax: ast.Decl.Fn,
         name: []const u8,
     };
+
+    fn matchesKey(decl: Decl, key: Decl.Key) bool {
+        return switch (decl) {
+            .structure => |structure| key == .structure and key.structure.tree.index == structure.syntax.tree.index,
+            .function => |function| key == .function and key.function.tree.index == function.syntax.tree.index,
+        };
+    }
 };
 
 const Type = union(enum) {
@@ -73,6 +85,36 @@ const Struct = struct {
     };
 };
 
+fn getDeclByKey(ctx: *Context, key: Decl.Key) !Decl.Index {
+    for (ctx.decls.items, 0..) |decl, i| {
+        if (decl.matchesKey(key))
+            return Decl.Index{ .index = i };
+    }
+
+    switch (key) {
+        .structure => |structure_syntax| {
+            const structure_ident = structure_syntax.ident(ctx.root).?;
+            const name = ctx.root.tokenText(structure_ident);
+
+            try ctx.decls.append(ctx.allocator, .{ .structure = .{
+                .name = name,
+                .syntax = structure_syntax,
+            } });
+            return Decl.Index{ .index = ctx.decls.items.len - 1 };
+        },
+        .function => |function_syntax| {
+            const function_ident = function_syntax.ident(ctx.root).?;
+            const name = ctx.root.tokenText(function_ident);
+
+            try ctx.decls.append(ctx.allocator, .{ .function = .{
+                .name = name,
+                .syntax = function_syntax,
+            } });
+            return Decl.Index{ .index = ctx.decls.items.len - 1 };
+        },
+    }
+}
+
 fn getTypeByKey(ctx: *Context, key: Type.Key) error{ OutOfMemory, Syntax }!Type.Index {
     for (ctx.types.items, 0..) |typ, i| {
         if (typ.matchesKey(key, ctx))
@@ -88,17 +130,13 @@ fn getTypeByKey(ctx: *Context, key: Type.Key) error{ OutOfMemory, Syntax }!Type.
             return Type.Index{ .index = ctx.types.items.len - 1 };
         },
         .structure => |struct_syntax| {
-            const struct_ident = struct_syntax.ident(ctx.root) orelse return error.Syntax;
-            const struct_name = ctx.root.tokenText(struct_ident);
-            try ctx.decls.append(ctx.allocator, .{ .structure = Decl.Struct{ .syntax = struct_syntax, .name = struct_name } });
-            try ctx.types.append(ctx.allocator, .{ .structure = Decl.Index{ .index = ctx.decls.items.len - 1 } });
+            const struct_decl = ctx.getDeclByKey(.{ .structure = struct_syntax });
+            try ctx.types.append(ctx.allocator, .{ .structure = struct_decl });
             return Type.Index{ .index = ctx.decls.items.len - 1 };
         },
         .function => |function_syntax| {
-            const function_ident = function_syntax.ident(ctx.root) orelse return error.Syntax;
-            const function_name = ctx.root.tokenText(function_ident);
-            try ctx.decls.append(ctx.allocator, .{ .function = Decl.Fn{ .syntax = function_syntax, .name = function_name } });
-            try ctx.types.append(ctx.allocator, .{ .function = Decl.Index{ .index = ctx.decls.items.len - 1 } });
+            const function_decl = ctx.getDeclByKey(.{ .function = function_syntax });
+            try ctx.types.append(ctx.allocator, .{ .function = function_decl });
             return Type.Index{ .index = ctx.decls.items.len - 1 };
         },
     }
@@ -122,17 +160,17 @@ pub fn deinit(ctx: *Context) void {
 
 pub fn main(ctx: *Context) !void {
     var it = ctx.file.decls(ctx.root);
-    var map = std.StringHashMapUnmanaged(Type.Index){};
-    defer map.deinit(ctx.allocator);
+    var decls = std.StringHashMapUnmanaged(Decl.Index){};
+    defer decls.deinit(ctx.allocator);
     while (it.next(ctx.root)) |decl| {
         switch (decl) {
             .function => |function| {
-                const typ = try ctx.getTypeByKey(.{ .function = function });
-                try map.put(ctx.allocator, ctx.root.tokenText(function.ident(ctx.root).?), typ);
+                const typ = try ctx.getDeclByKey(.{ .function = function });
+                try decls.put(ctx.allocator, ctx.root.tokenText(function.ident(ctx.root).?), typ);
             },
             .structure => |structure| {
-                const typ = try ctx.getTypeByKey(.{ .structure = structure });
-                try map.put(ctx.allocator, ctx.root.tokenText(structure.ident(ctx.root).?), typ);
+                const typ = try ctx.getDeclByKey(.{ .structure = structure });
+                try decls.put(ctx.allocator, ctx.root.tokenText(structure.ident(ctx.root).?), typ);
             },
         }
     }

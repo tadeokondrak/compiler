@@ -42,7 +42,7 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
     return parser.builder.build(allocator);
 }
 
-pub fn expectSyntaxTree(comptime parseFunc: fn (*Parser) void, src: []const u8, expect: []const u8) !void {
+pub fn expectSyntaxTree(comptime parseFn: fn (*Parser) void, src: []const u8, expect: []const u8) !void {
     var tokens = std.ArrayList(lexer.Token).init(std.testing.allocator);
     defer tokens.deinit();
 
@@ -68,7 +68,7 @@ pub fn expectSyntaxTree(comptime parseFunc: fn (*Parser) void, src: []const u8, 
     };
     defer parser.deinit();
 
-    parseFunc(&parser);
+    parseFn(&parser);
 
     var events_text = std.ArrayList(u8).init(std.testing.allocator);
     defer events_text.deinit();
