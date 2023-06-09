@@ -31,5 +31,5 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();
-    try ctx.analyzeDecls();
+    try ctx.main();
 }
