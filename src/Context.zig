@@ -12,7 +12,6 @@ root: syntax.Root,
 file: ast.File,
 decls: std.ArrayListUnmanaged(Decl) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
-structs: std.ArrayListUnmanaged(Struct) = .{},
 
 const Decl = union(enum) {
     structure: Decl.Struct,
@@ -45,7 +44,7 @@ const Decl = union(enum) {
 
 const Type = union(enum) {
     invalid,
-    integer: struct { bits: u32 },
+    integer: Integer,
     structure: Decl.Index,
     function: Decl.Index,
 
@@ -58,6 +57,11 @@ const Type = union(enum) {
         function: ast.Decl.Fn,
     };
 
+    const Integer = struct {
+        signed: bool,
+        bits: u32,
+    };
+
     fn matchesKey(typ: Type, key: Type.Key, ctx: *Context) bool {
         return switch (typ) {
             .invalid => key == .invalid,
@@ -66,23 +70,6 @@ const Type = union(enum) {
             .function => |function| key == .function and key.function.tree.index == ctx.decls.items[function.index].function.syntax.tree.index,
         };
     }
-};
-
-const Value = union(enum) {
-    reg: ir.Reg,
-};
-
-const Struct = struct {
-    const Index = struct { index: usize };
-
-    decl: ast.Decl.Struct,
-    name: []const u8,
-    fields: std.ArrayListUnmanaged(Field) = .{},
-
-    const Field = struct {
-        name: []const u8,
-        type: Type.Index,
-    };
 };
 
 fn getDeclByKey(ctx: *Context, key: Decl.Key) !Decl.Index {
@@ -95,7 +82,6 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) !Decl.Index {
         .structure => |structure_syntax| {
             const structure_ident = structure_syntax.ident(ctx.root).?;
             const name = ctx.root.tokenText(structure_ident);
-
             try ctx.decls.append(ctx.allocator, .{ .structure = .{
                 .name = name,
                 .syntax = structure_syntax,
@@ -105,7 +91,6 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) !Decl.Index {
         .function => |function_syntax| {
             const function_ident = function_syntax.ident(ctx.root).?;
             const name = ctx.root.tokenText(function_ident);
-
             try ctx.decls.append(ctx.allocator, .{ .function = .{
                 .name = name,
                 .syntax = function_syntax,
@@ -174,104 +159,115 @@ pub fn main(ctx: *Context) !void {
             },
         }
     }
+    try ctx.analyzeDecl(decls.get("main").?);
 }
 
-//fn analyzeFunction(ctx: *Context, function: ast.Decl.Fn) !void {
-//    var builder = ir.Builder{ .allocator = ctx.allocator };
-//    defer builder.func.deinit(ctx.allocator);
-//    const name = function.ident(ctx.root) orelse return error.Syntax;
-//    const name_text = ctx.root.tokenText(name);
-//    const block = function.body(ctx.root) orelse return error.Syntax;
-//    builder.switchToBlock(try builder.addBlock());
-//    try ctx.genBlock(block, &builder);
-//    std.debug.print("{s}: {}\n", .{ name_text, builder.func });
-//}
-//
-//fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) !Type.Index {
-//    switch (type_expr) {
-//        .ident => |ident| {
-//            const ident_token = ident.ident(ctx.root) orelse return error.Syntax;
-//            const ident_text = ctx.root.tokenText(ident_token);
-//            if (std.mem.eql(u8, ident_text, "u32")) {
-//                return ctx.getTypeByKey(.{ .integer = .{ .bits = 32 } });
-//            }
-//
-//            @panic("TODO");
-//        },
-//    }
-//}
-//
-//fn genBlock(ctx: *Context, block: ast.Stmt.Block, builder: *ir.Builder) !void {
-//    for (ctx.root.treeChildren(block.tree)) |child| {
-//        if (child.asTree()) |child_tree| {
-//            const stmt = ast.Stmt.cast(ctx.root, child_tree) orelse return error.ExpectedStatement;
-//            switch (stmt) {
-//                .expr => |expr_stmt| {
-//                    const expr = expr_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
-//                    _ = try ctx.genExpr(expr, builder);
-//                },
-//                .block => |nested_block| {
-//                    return ctx.genBlock(nested_block, builder);
-//                },
-//                .@"return" => |return_stmt| {
-//                    const expr = return_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
-//                    const value = try ctx.genExpr(expr, builder);
-//                    try builder.buildRet(value.reg);
-//                },
-//            }
-//        }
-//    }
-//}
-//
-//fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
-//    switch (expr) {
-//        .unary => |unary| {
-//            _ = unary;
-//            return error.UnknownUnaryOperator;
-//        },
-//        .binary => |binary_expr| {
-//            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .add);
-//            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .sub);
-//            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .mul);
-//            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .div);
-//            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .rem);
-//            return error.UnknownBinaryOperator;
-//        },
-//        .literal => |literal| {
-//            if (literal.number(ctx.root)) |number| {
-//                const text = ctx.root.tokenText(number);
-//                const num = try std.fmt.parseInt(u64, text, 10);
-//                return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = num }) };
-//            }
-//
-//            return error.UnknownLiteralKind;
-//        },
-//        .paren => |paren| {
-//            const inner = paren.expr(ctx.root) orelse return error.ExpectedExpression;
-//            return ctx.genExpr(inner, builder);
-//        },
-//        .call => |call| {
-//            const inner = call.expr(ctx.root) orelse return error.ExpectedExpression;
-//            // TODO
-//            return ctx.genExpr(inner, builder);
-//        },
-//        .ident => |ident| {
-//            _ = ident;
-//            return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
-//        },
-//    }
-//}
-//
-//fn genBinExpr(ctx: *Context, expr: ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem }) !Value {
-//    const lhs = expr.lhs(ctx.root) orelse return error.ExpectedExpression;
-//    const rhs = expr.rhs(ctx.root) orelse return error.ExpectedExpression;
-//    const lhs_value = try ctx.genExpr(lhs, builder);
-//    const rhs_value = try ctx.genExpr(rhs, builder);
-//    return switch (op) {
-//        .add => .{ .reg = try builder.buildAdd(lhs_value.reg, rhs_value.reg) },
-//        .sub => unreachable, //.{ .reg = try builder.buildSub(lhs_value.reg, rhs_value.reg) },
-//        .mul => unreachable, //.{ .reg = try builder.buildMul(lhs_value.reg, rhs_value.reg) },
-//        .div => unreachable, //.{ .reg = try builder.buildDiv(lhs_value.reg, rhs_value.reg) },
-//        .rem => unreachable, //.{ .reg = try builder.buildRem(lhs_value.reg, rhs_value.reg) },
-//    };
-//}
+fn analyzeDecl(ctx: *Context, decl: Decl.Index) !void {
+    const data = ctx.decls.items[decl.index];
+    switch (data) {
+        .structure => |structure| {
+            _ = structure;
+        },
+        .function => |function| {
+            var builder = ir.Builder{ .allocator = ctx.allocator };
+            defer builder.func.deinit(ctx.allocator);
+            const body = function.syntax.body(ctx.root) orelse return error.Syntax;
+            builder.switchToBlock(try builder.addBlock());
+            try ctx.genBlock(body, &builder);
+            std.debug.print("{}\n", .{builder.func});
+        },
+    }
+}
+
+fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) !Type.Index {
+    switch (type_expr) {
+        .ident => |ident| {
+            const ident_token = ident.ident(ctx.root) orelse return error.Syntax;
+            const ident_text = ctx.root.tokenText(ident_token);
+            if (std.mem.eql(u8, ident_text, "u32")) {
+                return ctx.getTypeByKey(.{ .integer = .{ .signed = false, .bits = 32 } });
+            }
+
+            @panic("TODO");
+        },
+    }
+}
+
+fn genBlock(ctx: *Context, block: ast.Stmt.Block, builder: *ir.Builder) !void {
+    for (ctx.root.treeChildren(block.tree)) |child| {
+        if (child.asTree()) |child_tree| {
+            const stmt = ast.Stmt.cast(ctx.root, child_tree) orelse return error.ExpectedStatement;
+            switch (stmt) {
+                .expr => |expr_stmt| {
+                    const expr = expr_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
+                    _ = try ctx.genExpr(expr, builder);
+                },
+                .block => |nested_block| {
+                    return ctx.genBlock(nested_block, builder);
+                },
+                .@"return" => |return_stmt| {
+                    const expr = return_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
+                    const value = try ctx.genExpr(expr, builder);
+                    try builder.buildRet(value.reg);
+                },
+            }
+        }
+    }
+}
+
+const Value = union(enum) {
+    reg: ir.Reg,
+};
+
+fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
+    switch (expr) {
+        .unary => |unary| {
+            _ = unary;
+            return error.UnknownUnaryOperator;
+        },
+        .binary => |binary_expr| {
+            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .add);
+            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .sub);
+            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .mul);
+            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .div);
+            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .rem);
+            return error.UnknownBinaryOperator;
+        },
+        .literal => |literal| {
+            if (literal.number(ctx.root)) |number| {
+                const text = ctx.root.tokenText(number);
+                const num = try std.fmt.parseInt(u64, text, 10);
+                return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = num }) };
+            }
+
+            return error.UnknownLiteralKind;
+        },
+        .paren => |paren| {
+            const inner = paren.expr(ctx.root) orelse return error.ExpectedExpression;
+            return ctx.genExpr(inner, builder);
+        },
+        .call => |call| {
+            const inner = call.expr(ctx.root) orelse return error.ExpectedExpression;
+            // TODO
+            return ctx.genExpr(inner, builder);
+        },
+        .ident => |ident| {
+            _ = ident;
+            return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
+        },
+    }
+}
+
+fn genBinExpr(ctx: *Context, expr: ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem }) !Value {
+    const lhs = expr.lhs(ctx.root) orelse return error.ExpectedExpression;
+    const rhs = expr.rhs(ctx.root) orelse return error.ExpectedExpression;
+    const lhs_value = try ctx.genExpr(lhs, builder);
+    const rhs_value = try ctx.genExpr(rhs, builder);
+    return switch (op) {
+        .add => .{ .reg = try builder.buildAdd(lhs_value.reg, rhs_value.reg) },
+        .sub => unreachable, //.{ .reg = try builder.buildSub(lhs_value.reg, rhs_value.reg) },
+        .mul => unreachable, //.{ .reg = try builder.buildMul(lhs_value.reg, rhs_value.reg) },
+        .div => unreachable, //.{ .reg = try builder.buildDiv(lhs_value.reg, rhs_value.reg) },
+        .rem => unreachable, //.{ .reg = try builder.buildRem(lhs_value.reg, rhs_value.reg) },
+    };
+}
