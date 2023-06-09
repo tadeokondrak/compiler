@@ -84,7 +84,6 @@ fn parseFnParams(p: *Parser) void {
 fn parseFnParam(p: *Parser) void {
     const m = p.builder.open();
     _ = p.eat(.ident);
-    _ = p.eat(.colon);
     parseTypeExpr(p);
     p.builder.close(m, .fn_param);
 }

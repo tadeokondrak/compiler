@@ -107,9 +107,49 @@ pub const Decl = union(enum) {
         pub const cast = treeCastFn(@This());
         pub const fnToken = tokenAccessorFn(@This(), .kw_fn);
         pub const ident = tokenAccessorFn(@This(), .ident);
-        pub const lParen = tokenAccessorFn(@This(), .l_paren);
-        pub const rParen = tokenAccessorFn(@This(), .r_paren);
+        pub const params = nthTreeAccessorFn(@This(), Params, 0);
+        pub const returns = nthTreeAccessorFn(@This(), Returns, 0);
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+
+        pub const Params = struct {
+            tree: syntax.Tree.Index,
+
+            pub const tag: syntax.Tree.Tag = .fn_params;
+            pub const cast = treeCastFn(@This());
+            pub const lParen = tokenAccessorFn(@This(), .l_paren);
+            pub const rParen = tokenAccessorFn(@This(), .r_paren);
+            pub const params = treeIteratorFn(@This(), Param);
+        };
+
+        pub const Returns = struct {
+            tree: syntax.Tree.Index,
+
+            pub const tag: syntax.Tree.Tag = .fn_returns;
+            pub const cast = treeCastFn(@This());
+            pub const lParen = tokenAccessorFn(@This(), .l_paren);
+            pub const rParen = tokenAccessorFn(@This(), .r_paren);
+            pub const returns = treeIteratorFn(@This(), Return);
+        };
+
+        pub const Param = struct {
+            tree: syntax.Tree.Index,
+
+            pub const tag: syntax.Tree.Tag = .fn_param;
+            pub const cast = treeCastFn(@This());
+            pub const ident = tokenAccessorFn(@This(), .ident);
+            pub const typeExpr = nthTreeAccessorFn(@This(), TypeExpr, 0);
+            pub const comma = tokenAccessorFn(@This(), .comma);
+        };
+
+        pub const Return = struct {
+            tree: syntax.Tree.Index,
+
+            pub const tag: syntax.Tree.Tag = .fn_return;
+            pub const cast = treeCastFn(@This());
+            pub const ident = tokenAccessorFn(@This(), .ident);
+            pub const typeExpr = nthTreeAccessorFn(@This(), TypeExpr, 0);
+            pub const comma = tokenAccessorFn(@This(), .comma);
+        };
     };
 
     pub const Struct = struct {
@@ -129,7 +169,6 @@ pub const Decl = union(enum) {
             pub const tag: syntax.Tree.Tag = .struct_field;
             pub const cast = treeCastFn(@This());
             pub const ident = tokenAccessorFn(@This(), .ident);
-            pub const colon = tokenAccessorFn(@This(), .colon);
             pub const typeExpr = nthTreeAccessorFn(@This(), TypeExpr, 0);
             pub const semi = tokenAccessorFn(@This(), .semi);
         };

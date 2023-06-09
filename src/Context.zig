@@ -9,7 +9,6 @@ const Context = @This();
 
 allocator: std.mem.Allocator,
 root: syntax.Root,
-file: ast.File,
 decls: std.ArrayListUnmanaged(Decl) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
 
@@ -72,7 +71,7 @@ const Type = union(enum) {
     }
 };
 
-fn getDeclByKey(ctx: *Context, key: Decl.Key) !Decl.Index {
+fn getDeclByKey(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
     for (ctx.decls.items, 0..) |decl, i| {
         if (decl.matchesKey(key))
             return Decl.Index{ .index = i };
@@ -100,7 +99,7 @@ fn getDeclByKey(ctx: *Context, key: Decl.Key) !Decl.Index {
     }
 }
 
-fn getTypeByKey(ctx: *Context, key: Type.Key) error{ OutOfMemory, Syntax }!Type.Index {
+fn getTypeByKey(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
     for (ctx.types.items, 0..) |typ, i| {
         if (typ.matchesKey(key, ctx))
             return Type.Index{ .index = i };
@@ -129,12 +128,7 @@ fn getTypeByKey(ctx: *Context, key: Type.Key) error{ OutOfMemory, Syntax }!Type.
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     var root = try parse.parseFile(allocator, src);
-    const file = ast.File{ .tree = syntax.Tree.Index{ .index = 0 } };
-    return .{
-        .allocator = allocator,
-        .root = root,
-        .file = file,
-    };
+    return .{ .allocator = allocator, .root = root };
 }
 
 pub fn deinit(ctx: *Context) void {
@@ -144,18 +138,19 @@ pub fn deinit(ctx: *Context) void {
 }
 
 pub fn main(ctx: *Context) !void {
-    var it = ctx.file.decls(ctx.root);
+    const file = ast.File{ .tree = syntax.Tree.Index{ .index = 0 } };
+    var it = file.decls(ctx.root);
     var decls = std.StringHashMapUnmanaged(Decl.Index){};
     defer decls.deinit(ctx.allocator);
-    while (it.next(ctx.root)) |decl| {
-        switch (decl) {
+    while (it.next(ctx.root)) |decl_syntax| {
+        switch (decl_syntax) {
             .function => |function| {
-                const typ = try ctx.getDeclByKey(.{ .function = function });
-                try decls.put(ctx.allocator, ctx.root.tokenText(function.ident(ctx.root).?), typ);
+                const decl = try ctx.getDeclByKey(.{ .function = function });
+                try decls.put(ctx.allocator, ctx.decls.items[decl.index].function.name, decl);
             },
             .structure => |structure| {
-                const typ = try ctx.getDeclByKey(.{ .structure = structure });
-                try decls.put(ctx.allocator, ctx.root.tokenText(structure.ident(ctx.root).?), typ);
+                const decl = try ctx.getDeclByKey(.{ .structure = structure });
+                try decls.put(ctx.allocator, ctx.decls.items[decl.index].structure.name, decl);
             },
         }
     }
@@ -196,17 +191,17 @@ fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) !Type.Index {
 fn genBlock(ctx: *Context, block: ast.Stmt.Block, builder: *ir.Builder) !void {
     for (ctx.root.treeChildren(block.tree)) |child| {
         if (child.asTree()) |child_tree| {
-            const stmt = ast.Stmt.cast(ctx.root, child_tree) orelse return error.ExpectedStatement;
+            const stmt = ast.Stmt.cast(ctx.root, child_tree) orelse return error.Syntax;
             switch (stmt) {
                 .expr => |expr_stmt| {
-                    const expr = expr_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
+                    const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
                     _ = try ctx.genExpr(expr, builder);
                 },
                 .block => |nested_block| {
                     return ctx.genBlock(nested_block, builder);
                 },
                 .@"return" => |return_stmt| {
-                    const expr = return_stmt.expr(ctx.root) orelse return error.ExpectedExpression;
+                    const expr = return_stmt.expr(ctx.root) orelse return error.Syntax;
                     const value = try ctx.genExpr(expr, builder);
                     try builder.buildRet(value.reg);
                 },
@@ -243,11 +238,11 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
             return error.UnknownLiteralKind;
         },
         .paren => |paren| {
-            const inner = paren.expr(ctx.root) orelse return error.ExpectedExpression;
+            const inner = paren.expr(ctx.root) orelse return error.Syntax;
             return ctx.genExpr(inner, builder);
         },
         .call => |call| {
-            const inner = call.expr(ctx.root) orelse return error.ExpectedExpression;
+            const inner = call.expr(ctx.root) orelse return error.Syntax;
             // TODO
             return ctx.genExpr(inner, builder);
         },
@@ -259,8 +254,8 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
 }
 
 fn genBinExpr(ctx: *Context, expr: ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem }) !Value {
-    const lhs = expr.lhs(ctx.root) orelse return error.ExpectedExpression;
-    const rhs = expr.rhs(ctx.root) orelse return error.ExpectedExpression;
+    const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
+    const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
     const lhs_value = try ctx.genExpr(lhs, builder);
     const rhs_value = try ctx.genExpr(rhs, builder);
     return switch (op) {
