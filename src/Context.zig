@@ -1,9 +1,10 @@
 const std = @import("std");
 const syntax = @import("syntax.zig");
 const lex = @import("lex.zig");
-const ast = @import("ast.zig");
 const parse = @import("parse.zig");
 const ir = @import("ir.zig");
+
+const ast = syntax.ast;
 
 const Context = @This();
 
