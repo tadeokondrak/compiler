@@ -177,9 +177,9 @@ const Scope = struct {
         };
     }
 
-    fn lookUpName(scope: Scope, context: Context) LookupResult {
-        return .not_found;
-    }
+    //fn lookUpName(scope: Scope, context: Context) LookupResult {
+    //    return .not_found;
+    //}
 };
 
 fn lookUpScope(ctx: *Context, key: Scope.Key) error{OutOfMemory}!Scope.Index {
