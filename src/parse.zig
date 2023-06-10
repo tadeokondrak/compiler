@@ -1,6 +1,6 @@
 const std = @import("std");
 const syntax = @import("syntax.zig");
-const lexer = @import("lex.zig");
+const lex = @import("parse/lex.zig");
 
 const Parser = @import("parse/Parser.zig");
 const grammar = @import("parse/grammar.zig");
@@ -8,16 +8,17 @@ const grammar = @import("parse/grammar.zig");
 comptime {
     _ = Parser;
     _ = grammar;
+    _ = lex;
 }
 
 pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!syntax.pure.Root {
-    var tokens = std.ArrayList(lexer.Token).init(allocator);
+    var tokens = std.ArrayList(lex.Token).init(allocator);
     defer tokens.deinit();
 
     var text = std.ArrayList(u8).init(allocator);
     defer text.deinit();
 
-    var l = lexer.Lexer{ .text = src };
+    var l = lex.Lexer{ .text = src };
     var pos: usize = 0;
     while (l.next()) |token| {
         if (token.tag != .space) {
@@ -42,13 +43,13 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
 }
 
 pub fn expectSyntaxTree(comptime parseFn: fn (*Parser) void, src: []const u8, expect: []const u8) !void {
-    var tokens = std.ArrayList(lexer.Token).init(std.testing.allocator);
+    var tokens = std.ArrayList(lex.Token).init(std.testing.allocator);
     defer tokens.deinit();
 
     var text = std.ArrayList(u8).init(std.testing.allocator);
     defer text.deinit();
 
-    var l = lexer.Lexer{ .text = src };
+    var l = lex.Lexer{ .text = src };
     var pos: usize = 0;
     while (l.next()) |token| {
         if (token.tag != .space) {

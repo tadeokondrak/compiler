@@ -1,5 +1,5 @@
 const std = @import("std");
-const Tag = @import("syntax.zig").pure.Token.Tag;
+const Tag = @import("../syntax.zig").pure.Token.Tag;
 
 pub const Token = struct {
     tag: Tag,

@@ -1,6 +1,6 @@
 const std = @import("std");
 const syntax = @import("../syntax.zig");
-const lexer = @import("../lex.zig");
+const lex = @import("lex.zig");
 const parse = @import("../parse.zig");
 
 const ast = syntax.ast;
@@ -11,7 +11,7 @@ const grammar = @import("grammar.zig");
 text: []const u8,
 text_pos: usize = 0,
 token_pos: usize = 0,
-tokens: []const lexer.Token,
+tokens: []const lex.Token,
 builder: syntax.pure.Builder,
 fuel: u8 = 255,
 
@@ -56,14 +56,14 @@ pub fn advance(p: *Parser) void {
 test Parser {
     const src = "(1+2)";
 
-    var tokens = std.ArrayList(lexer.Token).init(std.testing.allocator);
+    var tokens = std.ArrayList(lex.Token).init(std.testing.allocator);
     defer tokens.deinit();
 
-    var l = lexer.Lexer{ .text = src };
+    var l = lex.Lexer{ .text = src };
     while (l.next()) |token|
         try tokens.append(token);
 
-    try std.testing.expectEqualSlices(lexer.Token, &[_]lexer.Token{
+    try std.testing.expectEqualSlices(lex.Token, &[_]lex.Token{
         .{ .tag = .l_paren, .len = 1 },
         .{ .tag = .number, .len = 1 },
         .{ .tag = .plus, .len = 1 },

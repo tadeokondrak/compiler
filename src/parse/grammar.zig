@@ -1,6 +1,5 @@
 const std = @import("std");
 const syntax = @import("../syntax.zig");
-const lexer = @import("../lex.zig");
 const parse = @import("../parse.zig");
 
 const Parser = @import("Parser.zig");
