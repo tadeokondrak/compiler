@@ -6,14 +6,14 @@ const parse = @import("../parse.zig");
 
 const Parser = @import("Parser.zig");
 
-fn prefixPrecedence(tag: syntax.Token.Tag) ?u8 {
+fn prefixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     return switch (tag) {
         .plus, .minus => 1,
         else => null,
     };
 }
 
-fn infixPrecedence(tag: syntax.Token.Tag) ?[2]u8 {
+fn infixPrecedence(tag: syntax.pure.Token.Tag) ?[2]u8 {
     return switch (tag) {
         // .eof is zero, but we don't return it here
         .lt, .gt, .eq2 => .{ 2, 2 },
@@ -23,20 +23,20 @@ fn infixPrecedence(tag: syntax.Token.Tag) ?[2]u8 {
     };
 }
 
-fn postfixPrecedence(tag: syntax.Token.Tag) ?u8 {
+fn postfixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     return switch (tag) {
         .l_paren => 7,
         else => null,
     };
 }
 
-const decl_first = [_]syntax.Token.Tag{
+const decl_first = [_]syntax.pure.Token.Tag{
     .kw_fn,
     .kw_struct,
     .kw_const,
 };
 
-const expr_first = [_]syntax.Token.Tag{
+const expr_first = [_]syntax.pure.Token.Tag{
     .number,
     .l_paren,
 };
@@ -242,7 +242,7 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
     }
 }
 
-fn parseExprDelimited(p: *Parser) ?syntax.Builder.Mark {
+fn parseExprDelimited(p: *Parser) ?syntax.pure.Builder.Mark {
     if (p.at(.number)) {
         const m = p.builder.open();
         p.bump(.number);

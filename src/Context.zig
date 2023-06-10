@@ -8,7 +8,7 @@ const ir = @import("ir.zig");
 const Context = @This();
 
 allocator: std.mem.Allocator,
-root: syntax.Root,
+root: syntax.pure.Root,
 decls: std.ArrayListUnmanaged(Decl) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
 scopes: std.ArrayListUnmanaged(Scope) = .{},
@@ -213,7 +213,7 @@ pub fn deinit(ctx: *Context) void {
 }
 
 pub fn main(ctx: *Context) !void {
-    const file = ast.File{ .tree = @intToEnum(syntax.Tree.Index, 0) };
+    const file = ast.File{ .tree = @intToEnum(syntax.pure.Tree.Index, 0) };
     var it = file.decls(ctx.root);
     var decls = std.StringHashMapUnmanaged(Decl.Index){};
     defer decls.deinit(ctx.allocator);

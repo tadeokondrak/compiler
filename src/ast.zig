@@ -3,9 +3,9 @@ const syntax = @import("syntax.zig");
 
 const ast = @This();
 
-fn unionCastFn(comptime This: type) fn (syntax.Root, syntax.Tree.Index) ?This {
+fn unionCastFn(comptime This: type) fn (syntax.pure.Root, syntax.pure.Tree.Index) ?This {
     return struct {
-        pub fn cast(root: syntax.Root, tree: syntax.Tree.Index) ?This {
+        pub fn cast(root: syntax.pure.Root, tree: syntax.pure.Tree.Index) ?This {
             inline for (@typeInfo(This).Union.fields) |field|
                 if (field.type.cast(root, tree)) |correct_tree|
                     return @unionInit(This, field.name, correct_tree);
@@ -14,18 +14,18 @@ fn unionCastFn(comptime This: type) fn (syntax.Root, syntax.Tree.Index) ?This {
     }.cast;
 }
 
-fn treeCastFn(comptime This: type, comptime tag: syntax.Tree.Tag) fn (syntax.Root, syntax.Tree.Index) ?This {
+fn treeCastFn(comptime This: type, comptime tag: syntax.pure.Tree.Tag) fn (syntax.pure.Root, syntax.pure.Tree.Index) ?This {
     return struct {
-        fn cast(root: syntax.Root, tree: syntax.Tree.Index) ?This {
+        fn cast(root: syntax.pure.Root, tree: syntax.pure.Tree.Index) ?This {
             if (root.treeTag(tree) != tag) return null;
             return This{ .tree = tree };
         }
     }.cast;
 }
 
-fn treeIteratorFn(comptime This: type, comptime Tree: type) fn (This, syntax.Root) ast.TreeIterator(Tree) {
+fn treeIteratorFn(comptime This: type, comptime Tree: type) fn (This, syntax.pure.Root) ast.TreeIterator(Tree) {
     return struct {
-        fn iter(this: This, root: syntax.Root) ast.TreeIterator(Tree) {
+        fn iter(this: This, root: syntax.pure.Root) ast.TreeIterator(Tree) {
             return ast.TreeIterator(Tree){
                 .nodes = root.treeChildren(this.tree),
             };
@@ -33,9 +33,9 @@ fn treeIteratorFn(comptime This: type, comptime Tree: type) fn (This, syntax.Roo
     }.iter;
 }
 
-fn nthTreeAccessorFn(comptime This: type, comptime Tree: type, comptime nth: usize) fn (This, syntax.Root) ?Tree {
+fn nthTreeAccessorFn(comptime This: type, comptime Tree: type, comptime nth: usize) fn (This, syntax.pure.Root) ?Tree {
     return struct {
-        fn get(this: This, root: syntax.Root) ?Tree {
+        fn get(this: This, root: syntax.pure.Root) ?Tree {
             var i: usize = 0;
             for (root.treeChildren(this.tree)) |child| {
                 if (child.asTree()) |child_tree| {
@@ -52,9 +52,9 @@ fn nthTreeAccessorFn(comptime This: type, comptime Tree: type, comptime nth: usi
     }.get;
 }
 
-fn tokenAccessorFn(comptime This: type, comptime tag: syntax.Token.Tag) fn (This, syntax.Root) ?syntax.Token.Index {
+fn tokenAccessorFn(comptime This: type, comptime tag: syntax.pure.Token.Tag) fn (This, syntax.pure.Root) ?syntax.pure.Token.Index {
     return struct {
-        fn get(this: This, root: syntax.Root) ?syntax.Token.Index {
+        fn get(this: This, root: syntax.pure.Root) ?syntax.pure.Token.Index {
             for (root.treeChildren(this.tree), root.treeChildrenTags(this.tree)) |child, child_tag|
                 if (child_tag.asTokenTag() == tag)
                     return child.asToken().?;
@@ -65,9 +65,9 @@ fn tokenAccessorFn(comptime This: type, comptime tag: syntax.Token.Tag) fn (This
 
 pub fn TreeIterator(comptime T: type) type {
     return struct {
-        nodes: []const syntax.Node.Index,
+        nodes: []const syntax.pure.Node.Index,
 
-        pub fn next(this: *@This(), root: syntax.Root) ?T {
+        pub fn next(this: *@This(), root: syntax.pure.Root) ?T {
             for (this.nodes, 0..) |node, i| {
                 if (node.asTree()) |tree| {
                     if (T.cast(root, tree)) |correct_tree| {
@@ -82,7 +82,7 @@ pub fn TreeIterator(comptime T: type) type {
 }
 
 pub const File = struct {
-    tree: syntax.Tree.Index,
+    tree: syntax.pure.Tree.Index,
 
     pub const cast = treeCastFn(@This(), .file);
     pub const decls = treeIteratorFn(@This(), Decl);
@@ -96,7 +96,7 @@ pub const Decl = union(enum) {
     pub const cast = unionCastFn(@This());
 
     pub const Fn = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .decl_fn);
         pub const fnToken = tokenAccessorFn(@This(), .kw_fn);
@@ -106,7 +106,7 @@ pub const Decl = union(enum) {
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
 
         pub const Params = struct {
-            tree: syntax.Tree.Index,
+            tree: syntax.pure.Tree.Index,
 
             pub const cast = treeCastFn(@This(), .fn_params);
             pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -115,7 +115,7 @@ pub const Decl = union(enum) {
         };
 
         pub const Returns = struct {
-            tree: syntax.Tree.Index,
+            tree: syntax.pure.Tree.Index,
 
             pub const cast = treeCastFn(@This(), .fn_returns);
             pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -124,7 +124,7 @@ pub const Decl = union(enum) {
         };
 
         pub const Param = struct {
-            tree: syntax.Tree.Index,
+            tree: syntax.pure.Tree.Index,
 
             pub const cast = treeCastFn(@This(), .fn_param);
             pub const ident = tokenAccessorFn(@This(), .ident);
@@ -133,7 +133,7 @@ pub const Decl = union(enum) {
         };
 
         pub const Return = struct {
-            tree: syntax.Tree.Index,
+            tree: syntax.pure.Tree.Index,
 
             pub const cast = treeCastFn(@This(), .fn_return);
             pub const ident = tokenAccessorFn(@This(), .ident);
@@ -143,7 +143,7 @@ pub const Decl = union(enum) {
     };
 
     pub const Struct = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .decl_struct);
         pub const structToken = tokenAccessorFn(@This(), .kw_struct);
@@ -153,7 +153,7 @@ pub const Decl = union(enum) {
         pub const fields = treeIteratorFn(@This(), Field);
 
         pub const Field = struct {
-            tree: syntax.Tree.Index,
+            tree: syntax.pure.Tree.Index,
 
             pub const cast = treeCastFn(@This(), .struct_field);
             pub const ident = tokenAccessorFn(@This(), .ident);
@@ -163,7 +163,7 @@ pub const Decl = union(enum) {
     };
 
     pub const Const = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .decl_const);
         pub const constToken = tokenAccessorFn(@This(), .kw_const);
@@ -186,7 +186,7 @@ pub const Expr = union(enum) {
     pub const cast = unionCastFn(@This());
 
     pub const Unary = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .expr_unary);
         pub const plus = tokenAccessorFn(@This(), .plus);
@@ -195,7 +195,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Binary = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .expr_binary);
         pub const plus = tokenAccessorFn(@This(), .plus);
@@ -208,7 +208,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Literal = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .expr_literal);
         pub const string = tokenAccessorFn(@This(), .string);
@@ -216,7 +216,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Paren = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .expr_paren);
         pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -225,7 +225,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Call = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .expr_call);
         pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -234,7 +234,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Ident = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .expr_ident);
         pub const ident = tokenAccessorFn(@This(), .ident);
@@ -249,14 +249,14 @@ pub const Stmt = union(enum) {
     pub const cast = unionCastFn(@This());
 
     pub const Expr = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .stmt_expr);
         pub const expr = nthTreeAccessorFn(@This(), ast.Expr, 0);
     };
 
     pub const Block = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .stmt_block);
         pub const lBrace = tokenAccessorFn(@This(), .l_brace);
@@ -265,7 +265,7 @@ pub const Stmt = union(enum) {
     };
 
     pub const Return = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .stmt_return);
         pub const returnToken = tokenAccessorFn(@This(), .kw_return);
@@ -279,7 +279,7 @@ pub const TypeExpr = union(enum) {
     pub const cast = unionCastFn(@This());
 
     pub const Ident = struct {
-        tree: syntax.Tree.Index,
+        tree: syntax.pure.Tree.Index,
 
         pub const cast = treeCastFn(@This(), .type_expr_ident);
         pub const ident = tokenAccessorFn(@This(), .ident);
