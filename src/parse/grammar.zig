@@ -39,25 +39,32 @@ const expr_first = [_]syntax.pure.Token.Tag{
     .l_paren,
 };
 
+const type_expr_first = [_]syntax.pure.Token.Tag{
+    .ident,
+};
+
 pub fn parseFile(p: *Parser) void {
     const m = p.builder.open();
     while (!p.at(.eof)) {
-        parseDecl(p);
+        if (p.atAny(&decl_first)) {
+            parseDecl(p);
+        } else {
+            const invalid_marker = p.builder.open();
+            while (!p.atAny(&decl_first))
+                p.advance();
+            p.builder.close(invalid_marker, .invalid);
+        }
     }
     p.builder.close(m, .file);
 }
 
 fn parseDecl(p: *Parser) void {
+    std.debug.assert(p.atAny(&decl_first));
     switch (p.nth(0)) {
         .kw_fn => parseFnDecl(p),
         .kw_struct => parseStructDecl(p),
         .kw_const => parseConstDecl(p),
-        else => {
-            const m = p.builder.open();
-            while (!p.atAny(&decl_first))
-                p.advance();
-            p.builder.close(m, .invalid);
-        },
+        else => unreachable,
     }
 }
 
@@ -65,19 +72,24 @@ fn parseFnDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_fn);
     _ = p.eat(.ident);
-    parseFnParams(p);
-    parseFnReturns(p);
+    if (p.at(.l_paren))
+        parseFnParams(p);
+    if (p.at(.l_paren) or p.atAny(&type_expr_first))
+        parseFnReturns(p);
     parseBlockStmt(p);
     p.builder.close(m, .decl_fn);
 }
 
 fn parseFnParams(p: *Parser) void {
     const m = p.builder.open();
-    if (p.eat(.l_paren)) {
-        while (p.at(.ident) or p.atAny(&expr_first))
-            parseFnParam(p);
-        _ = p.eat(.r_paren);
+    p.bump(.l_paren);
+    while (!p.at(.r_paren) and !p.at(.eof)) {
+        if (p.at(.ident) or p.atAny(&type_expr_first))
+            parseFnParam(p)
+        else
+            break;
     }
+    _ = p.eat(.r_paren);
     p.builder.close(m, .fn_params);
 }
 
@@ -101,6 +113,7 @@ fn parseFnReturns(p: *Parser) void {
 }
 
 fn parseFnReturnAnonymous(p: *Parser) void {
+    std.debug.assert(p.at(.ident) or p.atAny(&type_expr_first));
     const m = p.builder.open();
     parseTypeExpr(p);
     p.builder.close(m, .fn_return);
