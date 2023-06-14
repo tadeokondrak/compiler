@@ -11,7 +11,12 @@ comptime {
     _ = lex;
 }
 
-pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!syntax.pure.Root {
+pub const Parse = struct {
+    root: syntax.pure.Root,
+    ast: syntax.ast.File,
+};
+
+pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!Parse {
     var tokens = std.ArrayList(lex.Token).init(allocator);
     defer tokens.deinit();
 
@@ -39,7 +44,12 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
 
     grammar.parseFile(&parser);
 
-    return parser.builder.build(allocator);
+    return Parse{
+        .root = try parser.builder.build(allocator),
+        .ast = syntax.ast.File{
+            .tree = @intToEnum(syntax.pure.Tree.Index, 0),
+        },
+    };
 }
 
 pub fn expectSyntaxTree(comptime parseFn: fn (*Parser) void, src: []const u8, expect: []const u8) !void {

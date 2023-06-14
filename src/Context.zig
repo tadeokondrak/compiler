@@ -9,6 +9,7 @@ const Context = @This();
 
 allocator: std.mem.Allocator,
 root: syntax.pure.Root,
+ast: ast.File,
 decls: std.ArrayListUnmanaged(Decl) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
 scopes: std.ArrayListUnmanaged(Scope) = .{},
@@ -201,8 +202,12 @@ fn lookUpScope(ctx: *Context, key: Scope.Key) error{OutOfMemory}!Scope.Index {
 }
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
-    var root = try parse.parseFile(allocator, src);
-    return .{ .allocator = allocator, .root = root };
+    const parsed = try parse.parseFile(allocator, src);
+    return .{
+        .allocator = allocator,
+        .root = parsed.root,
+        .ast = parsed.ast,
+    };
 }
 
 pub fn deinit(ctx: *Context) void {
@@ -213,8 +218,7 @@ pub fn deinit(ctx: *Context) void {
 }
 
 pub fn main(ctx: *Context) !void {
-    const file = ast.File{ .tree = @intToEnum(syntax.pure.Tree.Index, 0) };
-    var it = file.decls(ctx.root);
+    var it = ctx.ast.decls(ctx.root);
     var decls = std.StringHashMapUnmanaged(Decl.Index){};
     defer decls.deinit(ctx.allocator);
     while (it.next(ctx.root)) |decl_syntax| {
