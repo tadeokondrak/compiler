@@ -119,7 +119,7 @@ const Type = union(enum) {
     fn matchesKey(typ: Type, key: Type.Key, ctx: *Context) bool {
         return switch (typ) {
             .invalid => key == .invalid,
-            .integer => |integer_type| key == .integer and key.integer.bits == integer_type.bits,
+            .integer => |integer_type| key == .integer and key.integer.signed == integer_type.signed and key.integer.bits == integer_type.bits,
             .structure => |structure| key == .structure and key.structure.tree == ctx.decls.items[@enumToInt(structure)].structure.syntax.tree,
             .function => |function| key == .function and key.function.tree == ctx.decls.items[@enumToInt(function)].function.syntax.tree,
         };
@@ -234,20 +234,24 @@ fn analyzeDecl(ctx: *Context, decl: Decl.Index) !void {
         .constant => |*constant| {
             std.debug.assert(constant.ty == .invalid);
             const type_syntax = constant.syntax.typeExpr(ctx.root) orelse return error.Syntax;
-            const ty = try ctx.analyzeTypeExpr(type_syntax);
-            constant.ty = ty;
-            //const expr = constant.syntax.expr(ctx.root) orelse return error.Syntax;
-            //const ty = try ctx.analyzeExpr(expr);
+            const annotated_ty = try ctx.analyzeTypeExpr(type_syntax);
+            constant.ty = annotated_ty;
+            const expr = constant.syntax.expr(ctx.root) orelse return error.Syntax;
+            const actual_ty = try ctx.analyzeExpr(expr, annotated_ty);
+            if (actual_ty != annotated_ty) {
+                return error.TypeInference;
+            }
         },
     }
 }
 
+// may return a type other than/incompatible with expected_type
 fn analyzeExpr(ctx: *Context, expr: ast.Expr, expected_type: Type.Index) !Type.Index {
     switch (expr) {
         .literal => |literal| {
-            if (literal.number(ctx.root)) |number| {
-                _ = number;
-                _ = expected_type;
+            if (literal.number(ctx.root)) |_| {
+                if (ctx.types.items[@enumToInt(expected_type)] == .integer)
+                    return expected_type;
             }
             return error.TypeInference;
         },
