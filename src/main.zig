@@ -18,6 +18,9 @@ pub fn main() !void {
         \\    field1 u32;
         \\    field2 u32;
         \\}
+        \\struct Other {
+        \\    field1 Struct;
+        \\}
         \\fn main(x u32) {
         \\    return x + num;
         \\}
@@ -29,5 +32,6 @@ pub fn main() !void {
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();
     //std.debug.print("syntax: '{}'\n", .{ctx.root});
-    try ctx.main();
+    try ctx.populateDeclMap();
+    try ctx.analyzeDecls();
 }
