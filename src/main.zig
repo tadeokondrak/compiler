@@ -32,6 +32,6 @@ pub fn main() !void {
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();
     //std.debug.print("syntax: '{}'\n", .{ctx.root});
-    try ctx.populateDeclMap();
-    try ctx.analyzeDecls();
+    try ctx.analyze();
+    ctx.dumpTypes();
 }

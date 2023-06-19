@@ -3,101 +3,36 @@ const syntax = @import("syntax.zig");
 const parse = @import("parse.zig");
 const ir = @import("ir.zig");
 
-const ast = syntax.ast;
-
 const Context = @This();
 
 allocator: std.mem.Allocator,
 root: syntax.pure.Root,
-ast: ast.File,
-decls: std.ArrayListUnmanaged(Decl) = .{},
-types: std.ArrayListUnmanaged(Type) = .{},
-decls_by_name: std.StringHashMapUnmanaged(Decl.Index) = .{},
+ast: syntax.ast.File,
+types: std.AutoArrayHashMapUnmanaged(Type.Key, Type) = .{},
+structures: std.ArrayListUnmanaged(Struct) = .{},
+functions: std.ArrayListUnmanaged(Fn) = .{},
 
-const Decl = union(enum) {
-    structure: Decl.Struct,
-    function: Decl.Fn,
-    constant: Decl.Const,
-
-    const Index = enum(usize) {
-        invalid = std.math.maxInt(usize),
-        _,
-    };
-
-    const Key = union(enum) {
-        structure: ast.Decl.Struct,
-        function: ast.Decl.Fn,
-        constant: ast.Decl.Const,
-    };
-
-    const Struct = struct {
-        syntax: ast.Decl.Struct,
-        name: []const u8,
-        ty: Type.Index = .invalid,
-        fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
-    };
-
-    const Fn = struct {
-        syntax: ast.Decl.Fn,
-        name: []const u8,
-    };
-
-    const Const = struct {
-        syntax: ast.Decl.Const,
-        name: []const u8,
-        ty: Type.Index = .invalid,
-    };
-
-    fn matchesKey(decl: Decl, key: Decl.Key) bool {
-        return switch (decl) {
-            .structure => |structure| key == .structure and key.structure.tree == structure.syntax.tree,
-            .function => |function| key == .function and key.function.tree == function.syntax.tree,
-            .constant => |constant| key == .constant and key.constant.tree == constant.syntax.tree,
-        };
+pub fn dumpTypes(ctx: *Context) void {
+    {
+        var it = ctx.types.iterator();
+        while (it.next()) |entry| {
+            std.debug.print("{}: {}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+        }
     }
-};
-
-fn lookUpDecl(ctx: *Context, key: Decl.Key) error{OutOfMemory}!Decl.Index {
-    for (ctx.decls.items, 0..) |decl, i| {
-        if (decl.matchesKey(key))
-            return @intToEnum(Decl.Index, i);
-    }
-    switch (key) {
-        .structure => |structure_syntax| {
-            const structure_ident = structure_syntax.ident(ctx.root).?;
-            const name = ctx.root.tokenText(structure_ident);
-            try ctx.decls.append(ctx.allocator, .{ .structure = .{
-                .name = name,
-                .syntax = structure_syntax,
-            } });
-            return @intToEnum(Decl.Index, ctx.decls.items.len - 1);
-        },
-        .function => |function_syntax| {
-            const function_ident = function_syntax.ident(ctx.root).?;
-            const name = ctx.root.tokenText(function_ident);
-            try ctx.decls.append(ctx.allocator, .{ .function = .{
-                .name = name,
-                .syntax = function_syntax,
-            } });
-            return @intToEnum(Decl.Index, ctx.decls.items.len - 1);
-        },
-        .constant => |constant_syntax| {
-            const constant_ident = constant_syntax.ident(ctx.root).?;
-            const name = ctx.root.tokenText(constant_ident);
-            try ctx.decls.append(ctx.allocator, .{ .constant = .{
-                .name = name,
-                .syntax = constant_syntax,
-            } });
-            return @intToEnum(Decl.Index, ctx.decls.items.len - 1);
-        },
+    for (ctx.structures.items, 0..) |structure, i| {
+        std.debug.print("structure({}):\n", .{i});
+        var it = structure.fields.iterator();
+        while (it.next()) |entry| {
+            std.debug.print("  {s}: (type_index: {})\n", .{ entry.key_ptr.*, @enumToInt(entry.value_ptr.*) });
+        }
     }
 }
 
 const Type = union(enum) {
     invalid,
-    integer: Type.Integer,
-    structure: Decl.Index,
-    function: Decl.Index,
+    unsigned_integer: struct { bits: u32 },
+    structure: Struct.Index,
+    function: Fn.Index,
 
     const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
@@ -106,55 +41,50 @@ const Type = union(enum) {
 
     const Key = union(enum) {
         invalid,
-        integer: struct { signed: bool, bits: u32 },
-        structure: ast.Decl.Struct,
-        function: ast.Decl.Fn,
+        unsigned_integer: struct { bits: u32 },
+        structure: syntax.ast.Decl.Struct,
+        function: syntax.ast.Decl.Fn,
+
+        pub fn format(this: Key, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            switch (this) {
+                .invalid => try writer.print("invalid", .{}),
+                .unsigned_integer => |unsigned_integer| try writer.print("unsigned_integer(bits: {})", .{unsigned_integer.bits}),
+                .structure => |structure| try writer.print("structure(syntax: {})", .{@enumToInt(structure.tree)}),
+                .function => |function| try writer.print("function(syntax: {})", .{@enumToInt(function.tree)}),
+            }
+        }
     };
 
-    const Integer = struct {
-        signed: bool,
-        bits: u32,
-    };
-
-    fn matchesKey(typ: Type, key: Type.Key, ctx: *Context) bool {
-        return switch (typ) {
-            .invalid => key == .invalid,
-            .integer => |integer_type| key == .integer and key.integer.signed == integer_type.signed and key.integer.bits == integer_type.bits,
-            .structure => |structure| key == .structure and key.structure.tree == ctx.decls.items[@enumToInt(structure)].structure.syntax.tree,
-            .function => |function| key == .function and key.function.tree == ctx.decls.items[@enumToInt(function)].function.syntax.tree,
-        };
+    pub fn format(this: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (this) {
+            .invalid => try writer.print("invalid", .{}),
+            .unsigned_integer => |unsigned_integer| try writer.print("unsigned_integer(bits: {})", .{unsigned_integer.bits}),
+            .structure => |structure| try writer.print("structure(index: {})", .{@enumToInt(structure)}),
+            .function => |function| try writer.print("function(index: {})", .{@enumToInt(function)}),
+        }
     }
 };
 
-fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
-    for (ctx.types.items, 0..) |typ, i| {
-        if (typ.matchesKey(key, ctx))
-            return @intToEnum(Type.Index, i);
-    }
-    switch (key) {
-        .invalid => {
-            try ctx.types.append(ctx.allocator, .invalid);
-            return @intToEnum(Type.Index, ctx.types.items.len - 1);
-        },
-        .integer => |integer_key| {
-            try ctx.types.append(ctx.allocator, .{ .integer = .{ .signed = integer_key.signed, .bits = integer_key.bits } });
-            return @intToEnum(Type.Index, ctx.types.items.len - 1);
-        },
-        .structure => |struct_syntax| {
-            const struct_decl = try ctx.lookUpDecl(.{ .structure = struct_syntax });
-            try ctx.types.append(ctx.allocator, .{ .structure = struct_decl });
-            const ty = @intToEnum(Type.Index, ctx.decls.items.len - 1);
-            std.debug.assert(ctx.decls.items[@enumToInt(struct_decl)].structure.ty == .invalid);
-            ctx.decls.items[@enumToInt(struct_decl)].structure.ty = ty;
-            return ty;
-        },
-        .function => |function_syntax| {
-            const function_decl = try ctx.lookUpDecl(.{ .function = function_syntax });
-            try ctx.types.append(ctx.allocator, .{ .function = function_decl });
-            return @intToEnum(Type.Index, ctx.decls.items.len - 1);
-        },
-    }
-}
+const Struct = struct {
+    analysis: enum { unanalyzed } = .unanalyzed,
+    syntax: syntax.ast.Decl.Struct,
+    fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
+
+    const Index = enum(usize) {
+        invalid = std.math.maxInt(usize),
+        _,
+    };
+};
+
+const Fn = struct {
+    analysis: enum { unanalyzed } = .unanalyzed,
+    syntax: syntax.ast.Decl.Fn,
+
+    const Index = enum(usize) {
+        invalid = std.math.maxInt(usize),
+        _,
+    };
+};
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     const parsed = try parse.parseFile(allocator, src);
@@ -166,87 +96,99 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
 }
 
 pub fn deinit(ctx: *Context) void {
-    for (ctx.decls.items) |*decl| {
-        switch (decl.*) {
-            .structure => |*structure| {
-                structure.fields.deinit(ctx.allocator);
-            },
-            else => {},
-        }
+    for (ctx.structures.items) |*structure| {
+        structure.fields.deinit(ctx.allocator);
     }
-    ctx.decls_by_name.deinit(ctx.allocator);
-    ctx.decls.deinit(ctx.allocator);
+    ctx.structures.deinit(ctx.allocator);
+    ctx.functions.deinit(ctx.allocator);
     ctx.types.deinit(ctx.allocator);
     ctx.root.deinit(ctx.allocator);
 }
 
-pub fn populateDeclMap(ctx: *Context) !void {
-    std.debug.assert(ctx.decls_by_name.size == 0);
-    var it = ctx.ast.decls(ctx.root);
-    while (it.next(ctx.root)) |decl_syntax| {
-        switch (decl_syntax) {
-            .function => |function| {
-                const decl = try ctx.lookUpDecl(.{ .function = function });
-                const name = ctx.decls.items[@enumToInt(decl)].function.name;
-                try ctx.decls_by_name.put(ctx.allocator, name, decl);
-            },
-            .structure => |structure| {
-                const decl = try ctx.lookUpDecl(.{ .structure = structure });
-                const name = ctx.decls.items[@enumToInt(decl)].structure.name;
-                try ctx.decls_by_name.put(ctx.allocator, name, decl);
-            },
-            .constant => |constant| {
-                const decl = try ctx.lookUpDecl(.{ .constant = constant });
-                const name = ctx.decls.items[@enumToInt(decl)].constant.name;
-                try ctx.decls_by_name.put(ctx.allocator, name, decl);
-            },
+pub fn analyze(ctx: *Context) !void {
+    var names: std.StringHashMapUnmanaged(syntax.ast.Decl) = .{};
+    defer names.deinit(ctx.allocator);
+
+    {
+        var it = ctx.ast.decls(ctx.root);
+        while (it.next(ctx.root)) |decl_syntax| {
+            const tree = switch (decl_syntax) {
+                inline else => |s| syntax.ast.Decl.cast(ctx.root, s.tree),
+            } orelse return error.Syntax;
+            const ident = switch (decl_syntax) {
+                inline else => |s| s.ident(ctx.root),
+            } orelse return error.Syntax;
+            const name = ctx.root.tokenText(ident);
+            try names.put(ctx.allocator, name, tree);
+        }
+    }
+
+    {
+        var scope = Scope.File{ .names = &names };
+        var it = names.iterator();
+        while (it.next()) |entry| {
+            try analyzeDecl(ctx, &scope.base, entry.value_ptr.*);
         }
     }
 }
 
-pub fn analyzeDecls(ctx: *Context) !void {
-    for (ctx.decls.items, 0..) |_, i| {
-        try ctx.analyzeDecl(@intToEnum(Decl.Index, i));
-    }
+fn typePtr(ctx: *Context, i: Type.Index) *Type {
+    return &ctx.types.values()[@enumToInt(i)];
 }
 
-fn analyzeDecl(ctx: *Context, decl: Decl.Index) !void {
-    switch (ctx.decls.items[@enumToInt(decl)]) {
-        .structure => |*structure| {
+fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
+    return &ctx.structures.items[@enumToInt(i)];
+}
+
+fn analyzeDecl(ctx: *Context, scope: *Scope, decl: syntax.ast.Decl) !void {
+    std.debug.print("analyzeDecl: {}\n", .{decl});
+    switch (decl) {
+        .structure => |struct_syntax| {
+            var type_index = try ctx.lookUpType(.{ .structure = struct_syntax });
+            var struct_index = typePtr(ctx, type_index).structure;
+            var structure = structPtr(ctx, struct_index);
             std.debug.assert(structure.fields.entries.len == 0);
-            var it = structure.syntax.fields(ctx.root);
+            var it = struct_syntax.fields(ctx.root);
             while (it.next(ctx.root)) |field| {
                 const name_syntax = field.ident(ctx.root) orelse return error.Syntax;
                 const name = ctx.root.tokenText(name_syntax);
                 const type_syntax = field.typeExpr(ctx.root) orelse return error.Syntax;
-                const ty = try ctx.analyzeTypeExpr(type_syntax);
+                const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
                 try structure.fields.put(ctx.allocator, name, ty);
             }
         },
         .function => |function| {
-            var builder = ir.Builder{ .allocator = ctx.allocator };
-            defer builder.func.deinit(ctx.allocator);
-            const body = function.syntax.body(ctx.root) orelse return error.Syntax;
-            builder.switchToBlock(try builder.addBlock());
-            try ctx.genBlock(body, &builder);
-            std.debug.print("{}\n", .{builder.func});
+            _ = function;
         },
-        .constant => |*constant| {
-            std.debug.assert(constant.ty == .invalid);
-            const type_syntax = constant.syntax.typeExpr(ctx.root) orelse return error.Syntax;
-            const annotated_ty = try ctx.analyzeTypeExpr(type_syntax);
-            constant.ty = annotated_ty;
-            const expr = constant.syntax.expr(ctx.root) orelse return error.Syntax;
-            const actual_ty = try ctx.analyzeExpr(expr, annotated_ty);
-            if (actual_ty != annotated_ty) {
-                return error.TypeInference;
-            }
+        .constant => |constant| {
+            _ = constant;
         },
     }
+
+    //    .function => |function| {
+    //        var builder = ir.Builder{ .allocator = ctx.allocator };
+    //        defer builder.func.deinit(ctx.allocator);
+    //        const body = function.syntax.body(ctx.root) orelse return error.Syntax;
+    //        builder.switchToBlock(try builder.addBlock());
+    //        try ctx.genBlock(body, &builder);
+    //        std.debug.print("{}\n", .{builder.func});
+    //    },
+    //    .constant => |*constant| {
+    //        std.debug.assert(constant.ty == .invalid);
+    //        const type_syntax = constant.syntax.typeExpr(ctx.root) orelse return error.Syntax;
+    //        const annotated_ty = try ctx.analyzeTypeExpr(scope, type_syntax);
+    //        constant.ty = annotated_ty;
+    //        const expr = constant.syntax.expr(ctx.root) orelse return error.Syntax;
+    //        const actual_ty = try ctx.analyzeExpr(expr, annotated_ty);
+    //        if (actual_ty != annotated_ty) {
+    //            return error.TypeInference;
+    //        }
+    //    },
+    //}
 }
 
 // may return a type other than/incompatible with expected_type
-fn analyzeExpr(ctx: *Context, expr: ast.Expr, expected_type: Type.Index) !Type.Index {
+fn analyzeExpr(ctx: *Context, expr: syntax.ast.Expr, expected_type: Type.Index) !Type.Index {
     switch (expr) {
         .literal => |literal| {
             if (literal.number(ctx.root)) |_| {
@@ -261,43 +203,92 @@ fn analyzeExpr(ctx: *Context, expr: ast.Expr, expected_type: Type.Index) !Type.I
     }
 }
 
-fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) !Type.Index {
-    switch (type_expr) {
-        .ident => |ident| {
-            const ident_token = ident.ident(ctx.root) orelse return error.Syntax;
-            const ident_text = ctx.root.tokenText(ident_token);
-            if (std.mem.eql(u8, ident_text, "u32")) {
-                return ctx.lookUpType(.{ .integer = .{ .signed = false, .bits = 32 } });
+const Scope = struct {
+    parent: ?*Scope,
+    getFn: *const fn (self: *Scope, name: []const u8) ?syntax.pure.Tree.Index,
+
+    pub fn get(self: *Scope, name: []const u8) ?syntax.pure.Tree.Index {
+        if (self.getFn(self, name)) |i| return i;
+        if (self.parent) |p| return p.get(name);
+        return null;
+    }
+
+    const File = struct {
+        base: Scope = .{
+            .parent = null,
+            .getFn = File.get,
+        },
+        names: *const std.StringHashMapUnmanaged(syntax.ast.Decl),
+
+        fn get(scope: *Scope, name: []const u8) ?syntax.pure.Tree.Index {
+            const file = @fieldParentPtr(File, "base", scope);
+            const decl = file.names.get(name) orelse return null;
+            switch (decl) {
+                inline else => |s| return s.tree,
             }
-            const decl = ctx.decls_by_name.get(ident_text) orelse return error.UndefinedIdentifier;
-            return switch (ctx.decls.items[@enumToInt(decl)]) {
-                .structure => |structure| structure.ty,
-                inline else => |variant| {
-                    @panic("TODO: " ++ @typeName(@TypeOf(variant)));
-                },
-            };
+        }
+    };
+};
+
+fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
+    if (ctx.types.getIndex(key)) |i| return @intToEnum(Type.Index, i);
+    switch (key) {
+        .unsigned_integer => |unsigned_integer| {
+            const i = ctx.types.entries.len;
+            try ctx.types.put(ctx.allocator, key, .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } });
+            return @intToEnum(Type.Index, i);
+        },
+        .structure => |structure| {
+            const struct_index = ctx.structures.items.len;
+            try ctx.structures.append(ctx.allocator, .{ .syntax = structure });
+            const type_index = ctx.types.entries.len;
+            try ctx.types.put(ctx.allocator, key, .{ .structure = @intToEnum(Struct.Index, struct_index) });
+            return @intToEnum(Type.Index, type_index);
+        },
+        inline else => |variant| {
+            @panic("TODO: " ++ @typeName(@TypeOf(variant)));
         },
     }
 }
 
-fn genBlock(ctx: *Context, block: ast.Stmt.Block, builder: *ir.Builder) !void {
-    for (ctx.root.treeChildren(block.tree)) |child| {
-        if (child.asTree()) |child_tree| {
-            const stmt = ast.Stmt.cast(ctx.root, child_tree) orelse return error.Syntax;
-            switch (stmt) {
-                .expr => |expr_stmt| {
-                    const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
-                    _ = try ctx.genExpr(expr, builder);
+fn analyzeTypeExpr(ctx: *Context, scope: *Scope, type_expr: syntax.ast.TypeExpr) !Type.Index {
+    switch (type_expr) {
+        .ident => |ident| {
+            const ident_token = ident.ident(ctx.root) orelse return error.Syntax;
+            const ident_text = ctx.root.tokenText(ident_token);
+            if (std.mem.eql(u8, ident_text, "u32"))
+                return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 32 } });
+            const decl_tree = scope.get(ident_text) orelse return error.UndefinedIdentifier;
+            const decl = syntax.ast.Decl.cast(ctx.root, decl_tree) orelse return error.Syntax;
+            switch (decl) {
+                .structure => |structure| {
+                    return ctx.lookUpType(.{ .structure = structure });
                 },
-                .block => |nested_block| {
-                    return ctx.genBlock(nested_block, builder);
-                },
-                .@"return" => |return_stmt| {
-                    const expr = return_stmt.expr(ctx.root) orelse return error.Syntax;
-                    const value = try ctx.genExpr(expr, builder);
-                    try builder.buildRet(value.reg);
+                inline else => |other| {
+                    @panic("TODO: " ++ @typeName(@TypeOf(other)));
                 },
             }
+        },
+    }
+}
+
+fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !void {
+    for (ctx.root.treeChildren(block.tree)) |child| {
+        const child_tree = child.asTree() orelse continue;
+        const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse return error.Syntax;
+        switch (stmt) {
+            .expr => |expr_stmt| {
+                const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
+                _ = try genExpr(ctx, expr, builder);
+            },
+            .block => |nested_block| {
+                return ctx.genBlock(nested_block, builder);
+            },
+            .@"return" => |return_stmt| {
+                const expr = return_stmt.expr(ctx.root) orelse return error.Syntax;
+                const value = try genExpr(ctx, expr, builder);
+                try builder.buildRet(value.reg);
+            },
         }
     }
 }
@@ -306,7 +297,7 @@ const Value = union(enum) {
     reg: ir.Reg,
 };
 
-fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
+fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
     switch (expr) {
         .unary => |unary| {
             _ = unary;
@@ -331,12 +322,12 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
         },
         .paren => |paren| {
             const inner = paren.expr(ctx.root) orelse return error.Syntax;
-            return ctx.genExpr(inner, builder);
+            return genExpr(ctx, inner, builder);
         },
         .call => |call| {
             const inner = call.expr(ctx.root) orelse return error.Syntax;
             // TODO
-            return ctx.genExpr(inner, builder);
+            return genExpr(ctx, inner, builder);
         },
         .ident => |ident| {
             _ = ident;
@@ -346,11 +337,11 @@ fn genExpr(ctx: *Context, expr: ast.Expr, builder: *ir.Builder) !Value {
     }
 }
 
-fn genBinExpr(ctx: *Context, expr: ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem }) !Value {
+fn genBinExpr(ctx: *Context, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem }) !Value {
     const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
-    const lhs_value = try ctx.genExpr(lhs, builder);
-    const rhs_value = try ctx.genExpr(rhs, builder);
+    const lhs_value = try genExpr(ctx, lhs, builder);
+    const rhs_value = try genExpr(ctx, rhs, builder);
     return switch (op) {
         .add => .{ .reg = try builder.buildAdd(lhs_value.reg, rhs_value.reg) },
         .sub => unreachable, //.{ .reg = try builder.buildSub(lhs_value.reg, rhs_value.reg) },

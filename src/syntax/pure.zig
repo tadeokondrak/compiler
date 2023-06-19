@@ -235,8 +235,7 @@ pub const Root = struct {
 
     // Formatting
 
-    pub fn format(root: Root, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
+    pub fn format(root: Root, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         if (fmt.len != 0) @compileError("format string should be empty");
         if (root.trees.len > 0)
             try root.formatTree(@intToEnum(Tree.Index, 0), 0, writer);
