@@ -97,6 +97,7 @@ fn parseFnParam(p: *Parser) void {
     const m = p.builder.open();
     _ = p.eat(.ident);
     parseTypeExpr(p);
+    _ = p.eat(.comma);
     p.builder.close(m, .fn_param);
 }
 
@@ -106,17 +107,8 @@ fn parseFnReturns(p: *Parser) void {
         while (p.at(.ident) or p.atAny(&expr_first))
             parseFnReturnNamed(p);
         _ = p.eat(.r_paren);
-    } else {
-        parseFnReturnAnonymous(p);
     }
     p.builder.close(m, .fn_returns);
-}
-
-fn parseFnReturnAnonymous(p: *Parser) void {
-    std.debug.assert(p.at(.ident) or p.atAny(&type_expr_first));
-    const m = p.builder.open();
-    parseTypeExpr(p);
-    p.builder.close(m, .fn_return);
 }
 
 fn parseFnReturnNamed(p: *Parser) void {

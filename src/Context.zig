@@ -23,7 +23,24 @@ pub fn dumpTypes(ctx: *Context) void {
         std.debug.print("structure({}):\n", .{i});
         var it = structure.fields.iterator();
         while (it.next()) |entry| {
-            std.debug.print("  {s}: (type_index: {})\n", .{ entry.key_ptr.*, @enumToInt(entry.value_ptr.*) });
+            std.debug.print("  {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+        }
+    }
+    for (ctx.functions.items, 0..) |function, i| {
+        std.debug.print("function({}):\n", .{i});
+        {
+            std.debug.print("  params:\n", .{});
+            var it = function.params.iterator();
+            while (it.next()) |entry| {
+                std.debug.print("    {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+            }
+        }
+        {
+            std.debug.print("  returns:\n", .{});
+            var it = function.returns.iterator();
+            while (it.next()) |entry| {
+                std.debug.print("    {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+            }
         }
     }
 }
@@ -66,7 +83,7 @@ const Type = union(enum) {
 };
 
 const Struct = struct {
-    analysis: enum { unanalyzed } = .unanalyzed,
+    analysis: enum { unanalyzed, analyzed } = .unanalyzed,
     syntax: syntax.ast.Decl.Struct,
     fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
@@ -77,8 +94,10 @@ const Struct = struct {
 };
 
 const Fn = struct {
-    analysis: enum { unanalyzed } = .unanalyzed,
+    analysis: enum { unanalyzed, analyzed } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
+    params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
+    returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
     const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
@@ -96,6 +115,10 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
 }
 
 pub fn deinit(ctx: *Context) void {
+    for (ctx.functions.items) |*function| {
+        function.params.deinit(ctx.allocator);
+        function.returns.deinit(ctx.allocator);
+    }
     for (ctx.structures.items) |*structure| {
         structure.fields.deinit(ctx.allocator);
     }
@@ -140,6 +163,10 @@ fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
     return &ctx.structures.items[@enumToInt(i)];
 }
 
+fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
+    return &ctx.functions.items[@enumToInt(i)];
+}
+
 fn analyzeDecl(ctx: *Context, scope: *Scope, decl: syntax.ast.Decl) !void {
     std.debug.print("analyzeDecl: {}\n", .{decl});
     switch (decl) {
@@ -147,18 +174,48 @@ fn analyzeDecl(ctx: *Context, scope: *Scope, decl: syntax.ast.Decl) !void {
             var type_index = try ctx.lookUpType(.{ .structure = struct_syntax });
             var struct_index = typePtr(ctx, type_index).structure;
             var structure = structPtr(ctx, struct_index);
-            std.debug.assert(structure.fields.entries.len == 0);
-            var it = struct_syntax.fields(ctx.root);
-            while (it.next(ctx.root)) |field| {
-                const name_syntax = field.ident(ctx.root) orelse return error.Syntax;
-                const name = ctx.root.tokenText(name_syntax);
-                const type_syntax = field.typeExpr(ctx.root) orelse return error.Syntax;
-                const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-                try structure.fields.put(ctx.allocator, name, ty);
+            if (structure.analysis == .unanalyzed) {
+                std.debug.assert(structure.fields.entries.len == 0);
+                var it = struct_syntax.fields(ctx.root);
+                while (it.next(ctx.root)) |field| {
+                    const name_syntax = field.ident(ctx.root) orelse return error.Syntax;
+                    const name = ctx.root.tokenText(name_syntax);
+                    const type_syntax = field.typeExpr(ctx.root) orelse return error.Syntax;
+                    const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
+                    try structure.fields.put(ctx.allocator, name, ty);
+                }
+                structure.analysis = .analyzed;
             }
         },
-        .function => |function| {
-            _ = function;
+        .function => |function_syntax| {
+            var type_index = try ctx.lookUpType(.{ .function = function_syntax });
+            var function_index = typePtr(ctx, type_index).function;
+            var function = fnPtr(ctx, function_index);
+            if (function.analysis == .unanalyzed) {
+                params: {
+                    const params = function_syntax.params(ctx.root) orelse break :params;
+                    var it = params.params(ctx.root);
+                    while (it.next(ctx.root)) |param| {
+                        const name_syntax = param.ident(ctx.root) orelse return error.Syntax;
+                        const name = ctx.root.tokenText(name_syntax);
+                        const type_syntax = param.typeExpr(ctx.root) orelse return error.Syntax;
+                        const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
+                        try function.params.put(ctx.allocator, name, ty);
+                    }
+                }
+                returns: {
+                    const returns = function_syntax.returns(ctx.root) orelse break :returns;
+                    var it = returns.returns(ctx.root);
+                    while (it.next(ctx.root)) |param| {
+                        const name_syntax = param.ident(ctx.root) orelse return error.Syntax;
+                        const name = ctx.root.tokenText(name_syntax);
+                        const type_syntax = param.typeExpr(ctx.root) orelse return error.Syntax;
+                        const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
+                        try function.returns.put(ctx.allocator, name, ty);
+                    }
+                }
+                function.analysis = .analyzed;
+            }
         },
         .constant => |constant| {
             _ = constant;
@@ -243,6 +300,13 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
             try ctx.structures.append(ctx.allocator, .{ .syntax = structure });
             const type_index = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .structure = @intToEnum(Struct.Index, struct_index) });
+            return @intToEnum(Type.Index, type_index);
+        },
+        .function => |function| {
+            const function_index = ctx.functions.items.len;
+            try ctx.functions.append(ctx.allocator, .{ .syntax = function });
+            const type_index = ctx.types.entries.len;
+            try ctx.types.put(ctx.allocator, key, .{ .function = @intToEnum(Fn.Index, function_index) });
             return @intToEnum(Type.Index, type_index);
         },
         inline else => |variant| {

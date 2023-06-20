@@ -21,8 +21,8 @@ pub fn main() !void {
         \\struct Other {
         \\    field1 Struct;
         \\}
-        \\fn main(x u32) {
-        \\    return x + num;
+        \\fn add(a u32, b u32) (ret u32) {
+        \\    return a + b;
         \\}
     ;
 
