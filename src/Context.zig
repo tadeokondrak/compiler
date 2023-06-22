@@ -267,6 +267,17 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             const root_scope = scope; // TODO
             return typeOfDecl(ctx, root_scope, decl);
         },
+        .binary => |binary_expr| {
+            const lhs_expr = binary_expr.lhs(ctx.root) orelse return error.Syntax;
+            const rhs_expr = binary_expr.rhs(ctx.root) orelse return error.Syntax;
+            const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, expected_type);
+            const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, expected_type);
+            if (binary_expr.plus(ctx.root) != null) {
+                if (lhs_type == rhs_type)
+                    return lhs_type;
+            }
+            return error.TODO;
+        },
         inline else => |variant| {
             @panic("TODO: " ++ @typeName(@TypeOf(variant)));
         },
