@@ -14,6 +14,8 @@ comptime {
 pub fn main() !void {
     const src =
         \\const num u32 = 1;
+        \\const other u64 = 2;
+        \\const third u64 = other;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 u32;

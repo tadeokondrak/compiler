@@ -167,7 +167,7 @@ fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
     return &ctx.functions.items[@enumToInt(i)];
 }
 
-fn analyzeDecl(ctx: *Context, scope: *Scope, decl: syntax.ast.Decl) !void {
+fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void {
     std.debug.print("analyzeDecl: {}\n", .{decl});
     switch (decl) {
         .structure => |struct_syntax| {
@@ -217,42 +217,49 @@ fn analyzeDecl(ctx: *Context, scope: *Scope, decl: syntax.ast.Decl) !void {
                 function.analysis = .analyzed;
             }
         },
-        .constant => |constant| {
-            _ = constant;
+        .constant => |constant_syntax| {
+            const type_expr = constant_syntax.typeExpr(ctx.root) orelse return error.Syntax;
+            const ty = try ctx.analyzeTypeExpr(scope, type_expr);
+            const expr = constant_syntax.expr(ctx.root) orelse return error.Syntax;
+            const expr_ty = try ctx.analyzeExpr(scope, expr, ty);
+            if (ty != expr_ty)
+                return error.TypeMismatch;
         },
     }
+}
 
-    //    .function => |function| {
-    //        var builder = ir.Builder{ .allocator = ctx.allocator };
-    //        defer builder.func.deinit(ctx.allocator);
-    //        const body = function.syntax.body(ctx.root) orelse return error.Syntax;
-    //        builder.switchToBlock(try builder.addBlock());
-    //        try ctx.genBlock(body, &builder);
-    //        std.debug.print("{}\n", .{builder.func});
-    //    },
-    //    .constant => |*constant| {
-    //        std.debug.assert(constant.ty == .invalid);
-    //        const type_syntax = constant.syntax.typeExpr(ctx.root) orelse return error.Syntax;
-    //        const annotated_ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-    //        constant.ty = annotated_ty;
-    //        const expr = constant.syntax.expr(ctx.root) orelse return error.Syntax;
-    //        const actual_ty = try ctx.analyzeExpr(expr, annotated_ty);
-    //        if (actual_ty != annotated_ty) {
-    //            return error.TypeInference;
-    //        }
-    //    },
-    //}
+fn typeOfDecl(ctx: *Context, root_scope: *const Scope, decl: syntax.ast.Decl) !Type.Index {
+    std.debug.print("analyzeDecl: {}\n", .{decl});
+    switch (decl) {
+        .structure => |struct_syntax| {
+            return ctx.lookUpType(.{ .structure = struct_syntax });
+        },
+        .function => |function_syntax| {
+            return ctx.lookUpType(.{ .function = function_syntax });
+        },
+        .constant => |constant_syntax| {
+            const type_expr = constant_syntax.typeExpr(ctx.root) orelse return error.Syntax;
+            return try ctx.analyzeTypeExpr(root_scope, type_expr);
+        },
+    }
 }
 
 // may return a type other than/incompatible with expected_type
-fn analyzeExpr(ctx: *Context, expr: syntax.ast.Expr, expected_type: Type.Index) !Type.Index {
+fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expected_type: Type.Index) !Type.Index {
     switch (expr) {
         .literal => |literal| {
             if (literal.number(ctx.root)) |_| {
-                if (ctx.types.items[@enumToInt(expected_type)] == .integer)
+                if (ctx.typePtr(expected_type).* == .unsigned_integer)
                     return expected_type;
             }
             return error.TypeInference;
+        },
+        .ident => |ident_expr| {
+            const name = ctx.root.tokenText(ident_expr.ident(ctx.root) orelse return error.Syntax);
+            const tree = scope.get(name) orelse return error.UndefinedIdentifier;
+            const decl = syntax.ast.Decl.cast(ctx.root, tree) orelse return error.Syntax;
+            const root_scope = scope; // TODO
+            return typeOfDecl(ctx, root_scope, decl);
         },
         inline else => |variant| {
             @panic("TODO: " ++ @typeName(@TypeOf(variant)));
@@ -262,11 +269,11 @@ fn analyzeExpr(ctx: *Context, expr: syntax.ast.Expr, expected_type: Type.Index) 
 
 const Scope = struct {
     parent: ?*Scope,
-    getFn: *const fn (self: *Scope, name: []const u8) ?syntax.pure.Tree.Index,
+    getFn: *const fn (self: *const Scope, name: []const u8) ?syntax.pure.Tree.Index,
 
-    pub fn get(self: *Scope, name: []const u8) ?syntax.pure.Tree.Index {
-        if (self.getFn(self, name)) |i| return i;
-        if (self.parent) |p| return p.get(name);
+    pub fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
+        if (scope.getFn(scope, name)) |i| return i;
+        if (scope.parent) |p| return p.get(name);
         return null;
     }
 
@@ -277,7 +284,7 @@ const Scope = struct {
         },
         names: *const std.StringHashMapUnmanaged(syntax.ast.Decl),
 
-        fn get(scope: *Scope, name: []const u8) ?syntax.pure.Tree.Index {
+        fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
             const file = @fieldParentPtr(File, "base", scope);
             const decl = file.names.get(name) orelse return null;
             switch (decl) {
@@ -315,13 +322,16 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
     }
 }
 
-fn analyzeTypeExpr(ctx: *Context, scope: *Scope, type_expr: syntax.ast.TypeExpr) !Type.Index {
+fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.TypeExpr) !Type.Index {
     switch (type_expr) {
         .ident => |ident| {
             const ident_token = ident.ident(ctx.root) orelse return error.Syntax;
             const ident_text = ctx.root.tokenText(ident_token);
-            if (std.mem.eql(u8, ident_text, "u32"))
-                return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 32 } });
+            if (ident_text.len > 0 and ident_text[0] == 'u') {
+                if (std.fmt.parseInt(u32, ident_text[1..], 10)) |bits| {
+                    return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = bits } });
+                } else |_| {}
+            }
             const decl_tree = scope.get(ident_text) orelse return error.UndefinedIdentifier;
             const decl = syntax.ast.Decl.cast(ctx.root, decl_tree) orelse return error.Syntax;
             switch (decl) {
