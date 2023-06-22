@@ -20,6 +20,9 @@ pub fn main() !void {
         \\    field1 u32;
         \\    field2 u32;
         \\}
+        \\struct Node {
+        \\    next Node
+        \\}
         \\struct Other {
         \\    field1 Struct;
         \\}

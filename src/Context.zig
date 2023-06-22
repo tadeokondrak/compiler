@@ -20,28 +20,32 @@ pub fn dumpTypes(ctx: *Context) void {
         }
     }
     for (ctx.structures.items, 0..) |structure, i| {
-        std.debug.print("structure({}):\n", .{i});
+        std.debug.print("struct_{} {s} {{\n", .{ i, structure.name });
         var it = structure.fields.iterator();
         while (it.next()) |entry| {
             std.debug.print("  {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
         }
+        std.debug.print("}}\n", .{});
     }
     for (ctx.functions.items, 0..) |function, i| {
-        std.debug.print("function({}):\n", .{i});
+        std.debug.print("fn_{} {s}", .{ i, function.name });
         {
-            std.debug.print("  params:\n", .{});
+            std.debug.print("(\n", .{});
             var it = function.params.iterator();
             while (it.next()) |entry| {
-                std.debug.print("    {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
             }
+            std.debug.print(")", .{});
         }
         {
-            std.debug.print("  returns:\n", .{});
+            std.debug.print(" (\n", .{});
             var it = function.returns.iterator();
             while (it.next()) |entry| {
-                std.debug.print("    {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
             }
+            std.debug.print(")", .{});
         }
+        std.debug.print(";\n", .{});
     }
 }
 
@@ -65,9 +69,9 @@ const Type = union(enum) {
         pub fn format(this: Key, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
             switch (this) {
                 .invalid => try writer.print("invalid", .{}),
-                .unsigned_integer => |unsigned_integer| try writer.print("unsigned_integer(bits: {})", .{unsigned_integer.bits}),
-                .structure => |structure| try writer.print("structure(syntax: {})", .{@enumToInt(structure.tree)}),
-                .function => |function| try writer.print("function(syntax: {})", .{@enumToInt(function.tree)}),
+                .unsigned_integer => |unsigned_integer| try writer.print("uint(bits: {})", .{unsigned_integer.bits}),
+                .structure => |structure| try writer.print("struct(ast: {})", .{@enumToInt(structure.tree)}),
+                .function => |function| try writer.print("fn(ast: {})", .{@enumToInt(function.tree)}),
             }
         }
     };
@@ -75,9 +79,9 @@ const Type = union(enum) {
     pub fn format(this: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (this) {
             .invalid => try writer.print("invalid", .{}),
-            .unsigned_integer => |unsigned_integer| try writer.print("unsigned_integer(bits: {})", .{unsigned_integer.bits}),
-            .structure => |structure| try writer.print("structure(index: {})", .{@enumToInt(structure)}),
-            .function => |function| try writer.print("function(index: {})", .{@enumToInt(function)}),
+            .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
+            .structure => |structure| try writer.print("struct_{}", .{@enumToInt(structure)}),
+            .function => |function| try writer.print("fn_{}", .{@enumToInt(function)}),
         }
     }
 };
@@ -85,6 +89,7 @@ const Type = union(enum) {
 const Struct = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
     syntax: syntax.ast.Decl.Struct,
+    name: []const u8,
     fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
     const Index = enum(usize) {
@@ -96,6 +101,7 @@ const Struct = struct {
 const Fn = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
+    name: []const u8,
     params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
     returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
@@ -304,14 +310,18 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
         },
         .structure => |structure| {
             const struct_index = ctx.structures.items.len;
-            try ctx.structures.append(ctx.allocator, .{ .syntax = structure });
+            const ident = structure.ident(ctx.root) orelse return error.Syntax;
+            const name = ctx.root.tokenText(ident);
+            try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
             const type_index = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .structure = @intToEnum(Struct.Index, struct_index) });
             return @intToEnum(Type.Index, type_index);
         },
         .function => |function| {
             const function_index = ctx.functions.items.len;
-            try ctx.functions.append(ctx.allocator, .{ .syntax = function });
+            const ident = function.ident(ctx.root) orelse return error.Syntax;
+            const name = ctx.root.tokenText(ident);
+            try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
             const type_index = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .function = @intToEnum(Fn.Index, function_index) });
             return @intToEnum(Type.Index, type_index);
