@@ -22,6 +22,28 @@ fn addDiagnostic(ctx: *Context, node: syntax.pure.Node.Index, comptime fmt: []co
     return ctx.diagnostics.append(ctx.allocator, .{ .node = node, .message = try std.fmt.allocPrint(ctx.allocator, fmt, args) });
 }
 
+const FormatType = struct {
+    ctx: *Context,
+    ty: Type.Index,
+
+    pub fn format(this: FormatType, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (this.ctx.typePtr(this.ty).*) {
+            .invalid => try writer.print("invalid", .{}),
+            .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
+            .pointer_to => |pointer_to| try writer.print("*{}", .{this.ctx.formatType(pointer_to)}),
+            .structure => |structure| try writer.print("struct_{}", .{@enumToInt(structure)}),
+            .function => |function| try writer.print("fn_{}", .{@enumToInt(function)}),
+        }
+    }
+};
+
+fn formatType(
+    ctx: *Context,
+    ty: Type.Index,
+) FormatType {
+    return .{ .ctx = ctx, .ty = ty };
+}
+
 pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
     for (ctx.diagnostics.items(.message)) |message| {
         try writer.print("error: {s}\n", .{message});
@@ -255,10 +277,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
                 try ctx.addDiagnostic(
                     syntax.pure.Node.Index.fromTree(constant_syntax.tree),
                     "type mismatch: expected {}, got {}",
-                    .{
-                        ctx.typePtr(ty),
-                        ctx.typePtr(expr_ty),
-                    },
+                    .{ ctx.formatType(ty), ctx.formatType(expr_ty) },
                 );
             }
         },
