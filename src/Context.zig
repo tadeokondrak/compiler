@@ -130,16 +130,6 @@ const Type = union(enum) {
         pointer_to: Type.Index,
         structure: syntax.ast.Decl.Struct,
         function: syntax.ast.Decl.Fn,
-
-        pub fn format(this: Key, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            switch (this) {
-                .invalid => try writer.print("invalid", .{}),
-                .unsigned_integer => |unsigned_integer| try writer.print("uint(bits: {})", .{unsigned_integer.bits}),
-                .pointer_to => |pointer_to| try writer.print("ptr(type: {})", .{@enumToInt(pointer_to)}),
-                .structure => |structure| try writer.print("struct(ast: {})", .{@enumToInt(structure.tree)}),
-                .function => |function| try writer.print("fn(ast: {})", .{@enumToInt(function.tree)}),
-            }
-        }
     };
 };
 
