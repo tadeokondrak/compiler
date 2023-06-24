@@ -61,27 +61,19 @@ const FormatType = struct {
     }
 };
 
-fn formatType(
-    ctx: *Context,
-    ty: Type.Index,
-) FormatType {
+fn formatType(ctx: *Context, ty: Type.Index) FormatType {
     return .{ .ctx = ctx, .ty = ty };
 }
 
 pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
-    for (ctx.diagnostics.items(.message)) |message| {
+    for (ctx.diagnostics.items(.message)) |message|
         try writer.print("error: {s}\n", .{message});
-    }
     return ctx.diagnostics.len > 0;
 }
 
 pub fn dumpTypes(ctx: *Context) void {
-    {
-        var it = ctx.types.iterator();
-        _ = it;
-        for (ctx.types.keys(), 0..) |key, i|
-            std.debug.print("{}: {}\n", .{ key, ctx.formatType(@intToEnum(Type.Index, i)) });
-    }
+    for (ctx.types.keys(), 0..) |key, i|
+        std.debug.print("{}: {}\n", .{ key, ctx.formatType(@intToEnum(Type.Index, i)) });
     for (ctx.structures.items) |structure| {
         std.debug.print("struct {s} {{\n", .{structure.name});
         var it = structure.fields.iterator();
@@ -92,22 +84,20 @@ pub fn dumpTypes(ctx: *Context) void {
     }
     for (ctx.functions.items) |function| {
         std.debug.print("fn {s}", .{function.name});
+        std.debug.print("(\n", .{});
         {
-            std.debug.print("(\n", .{});
             var it = function.params.iterator();
-            while (it.next()) |entry| {
+            while (it.next()) |entry|
                 std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
-            }
-            std.debug.print(")", .{});
         }
+        std.debug.print(")", .{});
+        std.debug.print(" (\n", .{});
         {
-            std.debug.print(" (\n", .{});
             var it = function.returns.iterator();
-            while (it.next()) |entry| {
+            while (it.next()) |entry|
                 std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
-            }
-            std.debug.print(")", .{});
         }
+        std.debug.print(")", .{});
         std.debug.print(";\n", .{});
     }
 }
