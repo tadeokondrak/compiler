@@ -169,6 +169,7 @@ pub const Tree = struct {
         stmt_expr,
         stmt_return,
 
+        type_expr_unary,
         type_expr_ident,
 
         fn_params,

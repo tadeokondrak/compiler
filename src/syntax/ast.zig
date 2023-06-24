@@ -302,9 +302,19 @@ pub const Stmt = union(enum) {
 };
 
 pub const TypeExpr = union(enum) {
+    unary: TypeExpr.Unary,
     ident: TypeExpr.Ident,
 
     pub const cast = unionCastFn(@This());
+
+    pub const Unary = struct {
+        tree: syntax.pure.Tree.Index,
+
+        pub const cast = treeCastFn(@This(), .type_expr_unary);
+        pub const format = treeFormatFn(@This(), .type_expr_unary);
+        pub const star = tokenAccessorFn(@This(), .star);
+        pub const typeExpr = nthTreeAccessorFn(@This(), TypeExpr, 0);
+    };
 
     pub const Ident = struct {
         tree: syntax.pure.Tree.Index,

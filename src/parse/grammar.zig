@@ -28,6 +28,13 @@ fn postfixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     };
 }
 
+fn typePrefixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
+    return switch (tag) {
+        .star => 1,
+        else => null,
+    };
+}
+
 const decl_first = [_]syntax.pure.Token.Tag{
     .kw_fn,
     .kw_struct,
@@ -40,6 +47,7 @@ const expr_first = [_]syntax.pure.Token.Tag{
 };
 
 const type_expr_first = [_]syntax.pure.Token.Tag{
+    .star,
     .ident,
 };
 
@@ -272,13 +280,32 @@ fn parseExprDelimited(p: *Parser) ?syntax.pure.Builder.Mark {
     return null;
 }
 
-pub fn parseTypeExpr(p: *Parser) void {
+fn parseTypeExpr(p: *Parser) void {
+    parseTypeExprPrecedence(p, 0);
+}
+
+fn parseTypeExprPrecedence(p: *Parser, left_precedence: u8) void {
+    _ = left_precedence;
+    if (typePrefixPrecedence(p.nth(0))) |prec| {
+        const m = p.builder.open();
+        p.advance();
+        parseTypeExprPrecedence(p, prec);
+        p.builder.close(m, .type_expr_unary);
+        return;
+    }
+    _ = parseTypeExprDelimited(p);
+    return;
+}
+
+fn parseTypeExprDelimited(p: *Parser) ?syntax.pure.Builder.Mark {
     if (p.at(.ident)) {
         const m = p.builder.open();
         p.bump(.ident);
         p.builder.close(m, .type_expr_ident);
-        return;
+        return m;
     }
+
+    return null;
 }
 
 test parseFnDecl {

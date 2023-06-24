@@ -52,6 +52,7 @@ pub fn dumpTypes(ctx: *Context) void {
 const Type = union(enum) {
     invalid,
     unsigned_integer: struct { bits: u32 },
+    pointer_to: Type.Index,
     structure: Struct.Index,
     function: Fn.Index,
 
@@ -63,6 +64,7 @@ const Type = union(enum) {
     const Key = union(enum) {
         invalid,
         unsigned_integer: struct { bits: u32 },
+        pointer_to: Type.Index,
         structure: syntax.ast.Decl.Struct,
         function: syntax.ast.Decl.Fn,
 
@@ -70,6 +72,7 @@ const Type = union(enum) {
             switch (this) {
                 .invalid => try writer.print("invalid", .{}),
                 .unsigned_integer => |unsigned_integer| try writer.print("uint(bits: {})", .{unsigned_integer.bits}),
+                .pointer_to => |pointer_to| try writer.print("ptr(type: {})", .{@enumToInt(pointer_to)}),
                 .structure => |structure| try writer.print("struct(ast: {})", .{@enumToInt(structure.tree)}),
                 .function => |function| try writer.print("fn(ast: {})", .{@enumToInt(function.tree)}),
             }
@@ -80,6 +83,7 @@ const Type = union(enum) {
         switch (this) {
             .invalid => try writer.print("invalid", .{}),
             .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
+            .pointer_to => |pointer_to| try writer.print("ptr_{}", .{@enumToInt(pointer_to)}),
             .structure => |structure| try writer.print("struct_{}", .{@enumToInt(structure)}),
             .function => |function| try writer.print("fn_{}", .{@enumToInt(function)}),
         }
@@ -257,7 +261,11 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             if (literal.number(ctx.root)) |_| {
                 if (ctx.typePtr(expected_type).* == .unsigned_integer)
                     return expected_type;
+                if (ctx.typePtr(expected_type).* == .pointer_to)
+                    return expected_type;
+                return error.TypeMismatch;
             }
+
             return error.TypeInference;
         },
         .ident => |ident_expr| {
@@ -337,6 +345,11 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
             try ctx.types.put(ctx.allocator, key, .{ .function = @intToEnum(Fn.Index, function_index) });
             return @intToEnum(Type.Index, type_index);
         },
+        .pointer_to => |pointee| {
+            const type_index = ctx.types.entries.len;
+            try ctx.types.put(ctx.allocator, key, .{ .pointer_to = pointee });
+            return @intToEnum(Type.Index, type_index);
+        },
         inline else => |variant| {
             @panic("TODO: " ++ @typeName(@TypeOf(variant)));
         },
@@ -363,6 +376,15 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
                     @panic("TODO: " ++ @typeName(@TypeOf(other)));
                 },
             }
+        },
+        .unary => |unary| {
+            const operand_type_expr = unary.typeExpr(ctx.root) orelse return error.Syntax;
+            const operand_type_index = try analyzeTypeExpr(ctx, scope, operand_type_expr);
+
+            if (unary.star(ctx.root) != null)
+                return ctx.lookUpType(.{ .pointer_to = operand_type_index });
+
+            return error.TODO;
         },
     }
 }
