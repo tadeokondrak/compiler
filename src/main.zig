@@ -14,7 +14,7 @@ comptime {
 pub fn main() !void {
     const src =
         \\const num u32 = 1;
-        \\const ptr *u64 = third;
+        \\const ptr *u64 = 0;
         \\const third u64 = other + 1;
         \\const other u64 = 2;
         \\struct Struct {

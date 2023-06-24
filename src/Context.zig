@@ -372,6 +372,11 @@ const Scope = struct {
 fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
     if (ctx.types.getIndex(key)) |i| return @intToEnum(Type.Index, i);
     switch (key) {
+        .invalid => {
+            const type_index = ctx.types.entries.len;
+            try ctx.types.put(ctx.allocator, key, .invalid);
+            return @intToEnum(Type.Index, type_index);
+        },
         .unsigned_integer => |unsigned_integer| {
             const i = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } });
@@ -399,9 +404,6 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
             const type_index = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .pointer_to = pointee });
             return @intToEnum(Type.Index, type_index);
-        },
-        inline else => |variant| {
-            @panic("TODO: " ++ @typeName(@TypeOf(variant)));
         },
     }
 }
@@ -434,7 +436,9 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
             if (unary.star(ctx.root) != null)
                 return ctx.lookUpType(.{ .pointer_to = operand_type_index });
 
-            return error.TODO;
+            try ctx.addDiagnostic(syntax.pure.Node.Index.fromTree(unary.tree), "unknown binary operator", .{});
+
+            return ctx.lookUpType(.invalid);
         },
     }
 }
