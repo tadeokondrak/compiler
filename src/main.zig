@@ -16,7 +16,7 @@ pub fn main() !void {
         \\const num u32 = 1;
         \\const other u64 = 2;
         \\const third u64 = other + 1;
-        \\const ptr *u64 = 0;
+        \\const ptr *u64 = third;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 *u32;
@@ -39,5 +39,7 @@ pub fn main() !void {
     defer ctx.deinit();
     //std.debug.print("syntax: '{}'\n", .{ctx.root});
     try ctx.analyze();
+    if (try ctx.printDiagnostics(std.io.getStdErr().writer()))
+        return;
     ctx.dumpTypes();
 }

@@ -11,6 +11,23 @@ ast: syntax.ast.File,
 types: std.AutoArrayHashMapUnmanaged(Type.Key, Type) = .{},
 structures: std.ArrayListUnmanaged(Struct) = .{},
 functions: std.ArrayListUnmanaged(Fn) = .{},
+diagnostics: std.MultiArrayList(Diagnostic) = .{},
+
+const Diagnostic = struct {
+    node: syntax.pure.Node.Index,
+    message: []const u8,
+};
+
+fn addDiagnostic(ctx: *Context, node: syntax.pure.Node.Index, comptime fmt: []const u8, args: anytype) !void {
+    return ctx.diagnostics.append(ctx.allocator, .{ .node = node, .message = try std.fmt.allocPrint(ctx.allocator, fmt, args) });
+}
+
+pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
+    for (ctx.diagnostics.items(.message)) |message| {
+        try writer.print("error: {s}\n", .{message});
+    }
+    return ctx.diagnostics.len > 0;
+}
 
 pub fn dumpTypes(ctx: *Context) void {
     {
@@ -125,13 +142,15 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
 }
 
 pub fn deinit(ctx: *Context) void {
+    for (ctx.diagnostics.items(.message)) |message|
+        ctx.allocator.free(message);
+    ctx.diagnostics.deinit(ctx.allocator);
     for (ctx.functions.items) |*function| {
         function.params.deinit(ctx.allocator);
         function.returns.deinit(ctx.allocator);
     }
-    for (ctx.structures.items) |*structure| {
+    for (ctx.structures.items) |*structure|
         structure.fields.deinit(ctx.allocator);
-    }
     ctx.structures.deinit(ctx.allocator);
     ctx.functions.deinit(ctx.allocator);
     ctx.types.deinit(ctx.allocator);
@@ -232,8 +251,16 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
             const ty = try ctx.analyzeTypeExpr(scope, type_expr);
             const expr = constant_syntax.expr(ctx.root) orelse return error.Syntax;
             const expr_ty = try ctx.analyzeExpr(scope, expr, ty);
-            if (ty != expr_ty)
-                return error.TypeMismatch;
+            if (ty != expr_ty) {
+                try ctx.addDiagnostic(
+                    syntax.pure.Node.Index.fromTree(constant_syntax.tree),
+                    "type mismatch: expected {}, got {}",
+                    .{
+                        ctx.typePtr(ty),
+                        ctx.typePtr(expr_ty),
+                    },
+                );
+            }
         },
     }
 }
