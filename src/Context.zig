@@ -30,9 +30,33 @@ const FormatType = struct {
         switch (this.ctx.typePtr(this.ty).*) {
             .invalid => try writer.print("invalid", .{}),
             .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
-            .pointer_to => |pointer_to| try writer.print("*{}", .{this.ctx.formatType(pointer_to)}),
-            .structure => |structure| try writer.print("struct_{}", .{@enumToInt(structure)}),
-            .function => |function| try writer.print("fn_{}", .{@enumToInt(function)}),
+            .pointer_to => |pointee| try writer.print("*{}", .{this.ctx.formatType(pointee)}),
+            .structure => |structure| try writer.print("{s}", .{this.ctx.structPtr(structure).name}),
+            .function => |function| {
+                try writer.print("fn {s}", .{this.ctx.fnPtr(function).name});
+                {
+                    try writer.print("(", .{});
+                    var it = this.ctx.fnPtr(function).params.iterator();
+                    var i: usize = 0;
+                    while (it.next()) |entry| {
+                        if (i > 0) try writer.print(", ", .{});
+                        i += 1;
+                        try writer.print("{s}: {}", .{ entry.key_ptr.*, this.ctx.formatType(entry.value_ptr.*) });
+                    }
+                    try writer.print(")", .{});
+                }
+                {
+                    try writer.print(" (", .{});
+                    var it = this.ctx.fnPtr(function).returns.iterator();
+                    var i: usize = 0;
+                    while (it.next()) |entry| {
+                        if (i > 0) try writer.print(", ", .{});
+                        i += 1;
+                        try writer.print("{s}: {}", .{ entry.key_ptr.*, this.ctx.formatType(entry.value_ptr.*) });
+                    }
+                    try writer.print(")", .{});
+                }
+            },
         }
     }
 };
@@ -54,25 +78,25 @@ pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
 pub fn dumpTypes(ctx: *Context) void {
     {
         var it = ctx.types.iterator();
-        while (it.next()) |entry| {
-            std.debug.print("{}: {}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
-        }
+        _ = it;
+        for (ctx.types.keys(), 0..) |key, i|
+            std.debug.print("{}: {}\n", .{ key, ctx.formatType(@intToEnum(Type.Index, i)) });
     }
-    for (ctx.structures.items, 0..) |structure, i| {
-        std.debug.print("struct_{} {s} {{\n", .{ i, structure.name });
+    for (ctx.structures.items) |structure| {
+        std.debug.print("struct {s} {{\n", .{structure.name});
         var it = structure.fields.iterator();
         while (it.next()) |entry| {
-            std.debug.print("  {s}: {}\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+            std.debug.print("  {s}: {}\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
         }
         std.debug.print("}}\n", .{});
     }
-    for (ctx.functions.items, 0..) |function, i| {
-        std.debug.print("fn_{} {s}", .{ i, function.name });
+    for (ctx.functions.items) |function| {
+        std.debug.print("fn {s}", .{function.name});
         {
             std.debug.print("(\n", .{});
             var it = function.params.iterator();
             while (it.next()) |entry| {
-                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
             }
             std.debug.print(")", .{});
         }
@@ -80,7 +104,7 @@ pub fn dumpTypes(ctx: *Context) void {
             std.debug.print(" (\n", .{});
             var it = function.returns.iterator();
             while (it.next()) |entry| {
-                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.typePtr(entry.value_ptr.*).* });
+                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
             }
             std.debug.print(")", .{});
         }
@@ -117,16 +141,6 @@ const Type = union(enum) {
             }
         }
     };
-
-    pub fn format(this: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (this) {
-            .invalid => try writer.print("invalid", .{}),
-            .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
-            .pointer_to => |pointer_to| try writer.print("ptr_{}", .{@enumToInt(pointer_to)}),
-            .structure => |structure| try writer.print("struct_{}", .{@enumToInt(structure)}),
-            .function => |function| try writer.print("fn_{}", .{@enumToInt(function)}),
-        }
-    }
 };
 
 const Struct = struct {

@@ -39,7 +39,7 @@ pub fn main() !void {
     defer ctx.deinit();
     //std.debug.print("syntax: '{}'\n", .{ctx.root});
     try ctx.analyze();
+    ctx.dumpTypes();
     if (try ctx.printDiagnostics(std.io.getStdErr().writer()))
         return;
-    ctx.dumpTypes();
 }
