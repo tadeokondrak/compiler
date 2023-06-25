@@ -616,6 +616,7 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
                 const if_body = if_stmt.body(ctx.root) orelse return error.Syntax;
                 try ctx.genBlock(if_body, builder);
                 try builder.buildJump(cont_block);
+                builder.switchToBlock(cont_block);
             },
         }
     }
