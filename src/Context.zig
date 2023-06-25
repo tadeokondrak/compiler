@@ -319,26 +319,24 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             if (binary_expr.plus(ctx.root) != null or
                 binary_expr.minus(ctx.root) != null)
             {
-                if (lhs_type == rhs_type) {
+                if (lhs_type == rhs_type)
                     return lhs_type;
-                } else {
-                    try ctx.addDiagnostic(
-                        syntax.pure.Node.Index.fromTree(binary_expr.tree),
-                        "arithmetic operator type mismatch: lhs {}, rhs {}",
-                        .{ ctx.formatType(lhs_type), ctx.formatType(rhs_type) },
-                    );
-                }
+                try ctx.addDiagnostic(
+                    syntax.pure.Node.Index.fromTree(binary_expr.tree),
+                    "arithmetic operator type mismatch: lhs {}, rhs {}",
+                    .{ ctx.formatType(lhs_type), ctx.formatType(rhs_type) },
+                );
+                return ctx.lookUpType(.invalid);
             }
             if (binary_expr.lt_eq(ctx.root) != null) {
-                if (lhs_type == rhs_type) {
+                if (lhs_type == rhs_type)
                     return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 1 } });
-                } else {
-                    try ctx.addDiagnostic(
-                        syntax.pure.Node.Index.fromTree(binary_expr.tree),
-                        "comparison operator type mismatch: lhs {}, rhs {}",
-                        .{ ctx.formatType(lhs_type), ctx.formatType(rhs_type) },
-                    );
-                }
+                try ctx.addDiagnostic(
+                    syntax.pure.Node.Index.fromTree(binary_expr.tree),
+                    "comparison operator type mismatch: lhs {}, rhs {}",
+                    .{ ctx.formatType(lhs_type), ctx.formatType(rhs_type) },
+                );
+                return ctx.lookUpType(.invalid);
             }
             return error.TODO;
         },
