@@ -13,6 +13,13 @@ pub const Reg = struct {
 
 pub const BlockRef = struct {
     index: u32,
+
+    pub fn format(block: BlockRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        if (fmt.len != 0) @compileError("format string should be empty");
+
+        try writer.print("b{}", .{block.index});
+    }
 };
 
 pub const Value = struct {
@@ -47,7 +54,15 @@ pub const Inst = union(enum) {
     constant: struct { type: Type, value: Value, dst: Reg },
     param: struct { dst: Reg, index: u32 },
     add: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    ret: struct { operand: Reg },
+    sub: struct { lhs: Reg, rhs: Reg, dst: Reg },
+    mul: struct { lhs: Reg, rhs: Reg, dst: Reg },
+    div: struct { lhs: Reg, rhs: Reg, dst: Reg },
+    rem: struct { lhs: Reg, rhs: Reg, dst: Reg },
+    lt_eq: struct { lhs: Reg, rhs: Reg, dst: Reg },
+    ret_void,
+    ret_val: struct { operand: Reg },
+    jump: struct { block: BlockRef },
+    branch: struct { cond: Reg, then_block: BlockRef, else_block: BlockRef },
     unreach,
 };
 
@@ -70,21 +85,21 @@ pub const Func = struct {
         _ = options;
         if (fmt.len != 0) @compileError("format string should be empty");
 
-        try writer.print("func(", .{});
-        for (func.params.items) |param| {
-            try writer.print("{}", .{param});
+        if (func.params.items.len != 0) {
+            try writer.print("params (", .{});
+            for (func.params.items) |param| {
+                try writer.print("{}", .{param});
+            }
+            try writer.print(")\n", .{});
         }
-        try writer.print(")", .{});
 
         if (func.returns.items.len != 0) {
-            try writer.print(" (", .{});
+            try writer.print("returns (", .{});
             for (func.returns.items) |ret| {
                 try writer.print("{}", .{ret});
             }
-            try writer.print(")", .{});
+            try writer.print(")\n", .{});
         }
-
-        try writer.print(" {{\n", .{});
 
         for (func.blocks.items, 0..) |block, i| {
             try writer.print("b{}", .{i});
@@ -95,22 +110,22 @@ pub const Func = struct {
                 }
                 try writer.print(")", .{});
             }
-            try writer.print(":", .{});
+            try writer.print(":\n", .{});
 
             for (block.insts.items) |inst| {
-                try writer.print("\n    ", .{});
+                try writer.print("    {s}", .{@tagName(inst)});
                 switch (inst) {
-                    // bad
-                    .constant => try writer.print("{} = constant {}, {}", .{ inst.constant.dst, inst.constant.type, inst.constant.value }),
-                    .param => try writer.print("{} = param {}", .{ inst.param.dst, inst.param.index }),
-                    .add => try writer.print("{} = add {}, {}", .{ inst.add.dst, inst.add.lhs, inst.add.rhs }),
-                    .ret => try writer.print("ret {}", .{inst.ret.operand}),
-                    .unreach => try writer.print("unreach", .{}),
+                    inline else => |specific| {
+                        if (@TypeOf(specific) == void) continue;
+                        inline for (std.meta.fields(@TypeOf(specific)), 0..) |field, j| {
+                            if (j > 0) try writer.print(",", .{});
+                            try writer.print(" {s}: {any}", .{ field.name, @field(specific, field.name) });
+                        }
+                    },
                 }
+                try writer.print("\n", .{});
             }
         }
-
-        try writer.print("\n}}", .{});
     }
 };
 
@@ -151,21 +166,52 @@ pub const Builder = struct {
         return dst;
     }
 
-    pub fn buildAdd(builder: *Builder, lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
+    pub fn buildArith(builder: *Builder, comptime tag: std.meta.Tag(Inst), lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
         const block = &builder.func.blocks.items[builder.cur_block.index];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
-            .{ .add = .{ .lhs = lhs, .rhs = rhs, .dst = dst } },
+            @unionInit(Inst, @tagName(tag), .{ .lhs = lhs, .rhs = rhs, .dst = dst }),
         );
         return dst;
     }
 
-    pub fn buildRet(builder: *Builder, operand: Reg) error{OutOfMemory}!void {
+    pub fn buildCmp(builder: *Builder, comptime tag: std.meta.Tag(Inst), lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
+        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const dst = builder.addReg();
+        try block.insts.append(
+            builder.allocator,
+            @unionInit(Inst, @tagName(tag), .{ .lhs = lhs, .rhs = rhs, .dst = dst }),
+        );
+        return dst;
+    }
+
+    pub fn buildRetVoid(builder: *Builder) error{OutOfMemory}!void {
+        const block = &builder.func.blocks.items[builder.cur_block.index];
+        try block.insts.append(builder.allocator, .ret_void);
+    }
+
+    pub fn buildRetVal(builder: *Builder, operand: Reg) error{OutOfMemory}!void {
         const block = &builder.func.blocks.items[builder.cur_block.index];
         try block.insts.append(
             builder.allocator,
-            .{ .ret = .{ .operand = operand } },
+            .{ .ret_val = .{ .operand = operand } },
+        );
+    }
+
+    pub fn buildJump(builder: *Builder, to_block: BlockRef) error{OutOfMemory}!void {
+        const block = &builder.func.blocks.items[builder.cur_block.index];
+        try block.insts.append(
+            builder.allocator,
+            .{ .jump = .{ .block = to_block } },
+        );
+    }
+
+    pub fn buildBranch(builder: *Builder, cond: Reg, then_block: BlockRef, else_block: BlockRef) error{OutOfMemory}!void {
+        const block = &builder.func.blocks.items[builder.cur_block.index];
+        try block.insts.append(
+            builder.allocator,
+            .{ .branch = .{ .cond = cond, .then_block = then_block, .else_block = else_block } },
         );
     }
 };

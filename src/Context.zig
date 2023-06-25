@@ -83,7 +83,11 @@ pub fn dumpTypes(ctx: *Context) void {
             if (i > 0) std.debug.print(", ", .{});
             std.debug.print("{s}: {}", .{ key, ctx.formatType(value) });
         }
-        std.debug.print(");\n", .{});
+        std.debug.print(") {{\n", .{});
+        if (function.analysis == .generated) {
+            std.debug.print("{}\n", .{function.func});
+        }
+        std.debug.print("}}\n", .{});
     }
 }
 
@@ -121,11 +125,12 @@ const Struct = struct {
 };
 
 const Fn = struct {
-    analysis: enum { unanalyzed, analyzed } = .unanalyzed,
+    analysis: enum { unanalyzed, analyzed, generated } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
     name: []const u8,
     params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
     returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
+    func: ir.Func = undefined,
 
     const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
@@ -147,6 +152,9 @@ pub fn deinit(ctx: *Context) void {
         ctx.allocator.free(message);
     ctx.diagnostics.deinit(ctx.allocator);
     for (ctx.functions.items) |*function| {
+        if (function.analysis == .generated) {
+            function.func.deinit(ctx.allocator);
+        }
         function.params.deinit(ctx.allocator);
         function.returns.deinit(ctx.allocator);
     }
@@ -158,7 +166,7 @@ pub fn deinit(ctx: *Context) void {
     ctx.root.deinit(ctx.allocator);
 }
 
-pub fn analyze(ctx: *Context) !void {
+pub fn compile(ctx: *Context) !void {
     var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
     defer names.deinit(ctx.allocator);
 
@@ -179,6 +187,27 @@ pub fn analyze(ctx: *Context) !void {
     var scope = Scope.File{ .names = &names };
     for (names.values()) |value|
         try analyzeDecl(ctx, &scope.base, value);
+
+    for (names.values()) |decl| {
+        switch (decl) {
+            .function => |function_syntax| {
+                var type_index = try ctx.lookUpType(.{ .function = function_syntax });
+                var function_index = typePtr(ctx, type_index).function;
+                var function = fnPtr(ctx, function_index);
+                std.debug.assert(function.analysis == .analyzed);
+                const body = function_syntax.body(ctx.root) orelse return error.Syntax;
+                var builder: ir.Builder = .{ .allocator = ctx.allocator };
+                {
+                    errdefer builder.func.deinit(ctx.allocator);
+                    builder.switchToBlock(try builder.addBlock());
+                    try genBlock(ctx, body, &builder);
+                }
+                function.func = builder.func;
+                function.analysis = .generated;
+            },
+            else => {},
+        }
+    }
 }
 
 fn typePtr(ctx: *Context, i: Type.Index) *Type {
@@ -510,7 +539,9 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
                 const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
                 try checkExpr(ctx, scope, function, expr);
             },
-            .block => {},
+            .block => |block_stmt| {
+                try ctx.checkBlock(scope, function, block_stmt);
+            },
             .@"return" => |return_stmt| {
                 const returns = &ctx.fnPtr(function).returns;
                 var exprs = return_stmt.exprs(ctx.root);
@@ -548,10 +579,7 @@ fn checkExpr(ctx: *Context, scope: *const Scope, function: Fn.Index, expr: synta
     _ = scope;
     _ = function;
     switch (expr) {
-        inline else => |other| {
-            _ = other;
-            //@panic("TODO: " ++ @typeName(@TypeOf(other)));
-        },
+        else => {},
     }
 }
 
@@ -568,11 +596,27 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
                 return ctx.genBlock(nested_block, builder);
             },
             .@"return" => |return_stmt| {
-                const expr = return_stmt.expr(ctx.root) orelse return error.Syntax;
-                const value = try genExpr(ctx, expr, builder);
-                try builder.buildRet(value.reg);
+                var exprs = return_stmt.exprs(ctx.root);
+                if (exprs.next(ctx.root)) |expr| {
+                    if (exprs.next(ctx.root) != null)
+                        return error.TODO;
+                    const first_value = try genExpr(ctx, expr, builder);
+                    return builder.buildRetVal(first_value.reg);
+                } else {
+                    return builder.buildRetVoid();
+                }
             },
-            .@"if" => @panic("TODO"),
+            .@"if" => |if_stmt| {
+                const cond = if_stmt.cond(ctx.root) orelse return error.Syntax;
+                const cond_value = try genExpr(ctx, cond, builder);
+                const then_block = try builder.addBlock();
+                const cont_block = try builder.addBlock();
+                try builder.buildBranch(cond_value.reg, then_block, cont_block);
+                builder.switchToBlock(then_block);
+                const if_body = if_stmt.body(ctx.root) orelse return error.Syntax;
+                try ctx.genBlock(if_body, builder);
+                try builder.buildJump(cont_block);
+            },
         }
     }
 }
@@ -593,6 +637,7 @@ fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
             if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .mul);
             if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .div);
             if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .rem);
+            if (binary_expr.lt_eq(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .lt_eq);
             return error.UnknownBinaryOperator;
         },
         .literal => |literal| {
@@ -621,16 +666,17 @@ fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
     }
 }
 
-fn genBinExpr(ctx: *Context, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem }) !Value {
+fn genBinExpr(ctx: *Context, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, lt_eq }) !Value {
     const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
     const lhs_value = try genExpr(ctx, lhs, builder);
     const rhs_value = try genExpr(ctx, rhs, builder);
     return switch (op) {
-        .add => .{ .reg = try builder.buildAdd(lhs_value.reg, rhs_value.reg) },
-        .sub => unreachable, //.{ .reg = try builder.buildSub(lhs_value.reg, rhs_value.reg) },
-        .mul => unreachable, //.{ .reg = try builder.buildMul(lhs_value.reg, rhs_value.reg) },
-        .div => unreachable, //.{ .reg = try builder.buildDiv(lhs_value.reg, rhs_value.reg) },
-        .rem => unreachable, //.{ .reg = try builder.buildRem(lhs_value.reg, rhs_value.reg) },
+        .add => .{ .reg = try builder.buildArith(.add, lhs_value.reg, rhs_value.reg) },
+        .sub => .{ .reg = try builder.buildArith(.sub, lhs_value.reg, rhs_value.reg) },
+        .mul => .{ .reg = try builder.buildArith(.mul, lhs_value.reg, rhs_value.reg) },
+        .div => .{ .reg = try builder.buildArith(.div, lhs_value.reg, rhs_value.reg) },
+        .rem => .{ .reg = try builder.buildArith(.rem, lhs_value.reg, rhs_value.reg) },
+        .lt_eq => .{ .reg = try builder.buildCmp(.lt_eq, lhs_value.reg, rhs_value.reg) },
     };
 }

@@ -42,7 +42,7 @@ pub fn main() !void {
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();
     //std.debug.print("syntax: '{}'\n", .{ctx.root});
-    try ctx.analyze();
+    try ctx.compile();
     ctx.dumpTypes();
     if (try ctx.printDiagnostics(std.io.getStdErr().writer()))
         return;
