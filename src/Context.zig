@@ -158,7 +158,7 @@ pub fn deinit(ctx: *Context) void {
 }
 
 pub fn analyze(ctx: *Context) !void {
-    var names: std.StringHashMapUnmanaged(syntax.ast.Decl) = .{};
+    var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
     defer names.deinit(ctx.allocator);
 
     {
@@ -175,13 +175,9 @@ pub fn analyze(ctx: *Context) !void {
         }
     }
 
-    {
-        var scope = Scope.File{ .names = &names };
-        var it = names.iterator();
-        while (it.next()) |entry| {
-            try analyzeDecl(ctx, &scope.base, entry.value_ptr.*);
-        }
-    }
+    var scope = Scope.File{ .names = &names };
+    for (names.values()) |value|
+        try analyzeDecl(ctx, &scope.base, value);
 }
 
 fn typePtr(ctx: *Context, i: Type.Index) *Type {
@@ -331,7 +327,7 @@ const Scope = struct {
             .parent = null,
             .getFn = File.get,
         },
-        names: *const std.StringHashMapUnmanaged(syntax.ast.Decl),
+        names: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl),
 
         fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
             const file = @fieldParentPtr(File, "base", scope);
