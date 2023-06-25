@@ -32,30 +32,19 @@ const FormatType = struct {
             .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
             .pointer_to => |pointee| try writer.print("*{}", .{this.ctx.formatType(pointee)}),
             .structure => |structure| try writer.print("{s}", .{this.ctx.structPtr(structure).name}),
-            .function => |function| {
-                try writer.print("fn {s}", .{this.ctx.fnPtr(function).name});
-                {
-                    try writer.print("(", .{});
-                    var it = this.ctx.fnPtr(function).params.iterator();
-                    var i: usize = 0;
-                    while (it.next()) |entry| {
-                        if (i > 0) try writer.print(", ", .{});
-                        i += 1;
-                        try writer.print("{s}: {}", .{ entry.key_ptr.*, this.ctx.formatType(entry.value_ptr.*) });
-                    }
-                    try writer.print(")", .{});
+            .function => |function_index| {
+                const function = this.ctx.fnPtr(function_index);
+                try writer.print("fn {s}(", .{function.name});
+                for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
+                    if (i > 0) try writer.print(", ", .{});
+                    try writer.print("{s}: {}", .{ key, this.ctx.formatType(value) });
                 }
-                {
-                    try writer.print(" (", .{});
-                    var it = this.ctx.fnPtr(function).returns.iterator();
-                    var i: usize = 0;
-                    while (it.next()) |entry| {
-                        if (i > 0) try writer.print(", ", .{});
-                        i += 1;
-                        try writer.print("{s}: {}", .{ entry.key_ptr.*, this.ctx.formatType(entry.value_ptr.*) });
-                    }
-                    try writer.print(")", .{});
+                try writer.print(") (", .{});
+                for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
+                    if (i > 0) try writer.print(", ", .{});
+                    try writer.print("{s}: {}", .{ key, this.ctx.formatType(value) });
                 }
+                try writer.print(")", .{});
             },
         }
     }
@@ -83,22 +72,17 @@ pub fn dumpTypes(ctx: *Context) void {
         std.debug.print("}}\n", .{});
     }
     for (ctx.functions.items) |function| {
-        std.debug.print("fn {s}", .{function.name});
-        std.debug.print("(\n", .{});
-        {
-            var it = function.params.iterator();
-            while (it.next()) |entry|
-                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
+        std.debug.print("fn {s}(", .{function.name});
+        for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
+            if (i > 0) std.debug.print(", ", .{});
+            std.debug.print("{s}: {}", .{ key, ctx.formatType(value) });
         }
-        std.debug.print(")", .{});
-        std.debug.print(" (\n", .{});
-        {
-            var it = function.returns.iterator();
-            while (it.next()) |entry|
-                std.debug.print("  {s}: {},\n", .{ entry.key_ptr.*, ctx.formatType(entry.value_ptr.*) });
+        std.debug.print(") (", .{});
+        for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
+            if (i > 0) std.debug.print(", ", .{});
+            std.debug.print("{s}: {}", .{ key, ctx.formatType(value) });
         }
-        std.debug.print(")", .{});
-        std.debug.print(";\n", .{});
+        std.debug.print(");\n", .{});
     }
 }
 
