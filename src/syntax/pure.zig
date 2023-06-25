@@ -139,6 +139,7 @@ pub const Token = struct {
         kw_return,
         kw_struct,
         kw_const,
+        kw_if,
     };
 };
 
@@ -168,6 +169,7 @@ pub const Tree = struct {
         stmt_block,
         stmt_expr,
         stmt_return,
+        stmt_if,
 
         type_expr_unary,
         type_expr_ident,
@@ -176,6 +178,8 @@ pub const Tree = struct {
         fn_param,
         fn_returns,
         fn_return,
+        call_args,
+        call_arg,
 
         struct_field,
     };

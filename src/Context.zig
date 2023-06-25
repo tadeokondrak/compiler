@@ -19,6 +19,7 @@ const Diagnostic = struct {
 };
 
 fn addDiagnostic(ctx: *Context, node: syntax.pure.Node.Index, comptime fmt: []const u8, args: anytype) !void {
+    //std.debug.print(fmt, args);
     return ctx.diagnostics.append(ctx.allocator, .{ .node = node, .message = try std.fmt.allocPrint(ctx.allocator, fmt, args) });
 }
 
@@ -239,6 +240,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
                         try function.returns.put(ctx.allocator, name, ty);
                     }
                 }
+                try ctx.checkFnBody(scope, function_index);
                 function.analysis = .analyzed;
             }
         },
@@ -275,36 +277,74 @@ fn typeOfDecl(ctx: *Context, root_scope: *const Scope, decl: syntax.ast.Decl) !T
 }
 
 // may return a type other than/incompatible with expected_type
-fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expected_type: Type.Index) !Type.Index {
+fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expected_type: ?Type.Index) !Type.Index {
     switch (expr) {
         .literal => |literal| {
             if (literal.number(ctx.root)) |_| {
-                if (ctx.typePtr(expected_type).* == .unsigned_integer)
-                    return expected_type;
-                if (ctx.typePtr(expected_type).* == .pointer_to)
-                    return expected_type;
-                return error.TypeMismatch;
+                if (expected_type) |present_expected_type| {
+                    if (ctx.typePtr(present_expected_type).* == .unsigned_integer)
+                        return present_expected_type;
+                    if (ctx.typePtr(present_expected_type).* == .pointer_to)
+                        return present_expected_type;
+
+                    return error.TypeMismatch;
+                } else {
+                    return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 32 } });
+                }
             }
 
             return error.TypeInference;
         },
         .ident => |ident_expr| {
             const name = ctx.root.tokenText(ident_expr.ident(ctx.root) orelse return error.Syntax);
-            const tree = scope.get(name) orelse return error.UndefinedIdentifier;
-            const decl = syntax.ast.Decl.cast(ctx.root, tree) orelse return error.Syntax;
-            const root_scope = scope; // TODO
-            return typeOfDecl(ctx, root_scope, decl);
+            const tree = scope.get(name) orelse {
+                try ctx.addDiagnostic(syntax.pure.Node.Index.fromTree(ident_expr.tree), "undefined identifier: {s}", .{name});
+                return error.Syntax;
+            };
+            if (syntax.ast.Decl.cast(ctx.root, tree)) |decl| {
+                const root_scope = scope; // TODO
+                return typeOfDecl(ctx, root_scope, decl);
+            }
+            if (syntax.ast.Decl.Fn.Param.cast(ctx.root, tree)) |param| {
+                const type_expr = param.typeExpr(ctx.root) orelse return error.Syntax;
+                return try ctx.analyzeTypeExpr(scope, type_expr);
+            }
+            return error.Syntax;
         },
         .binary => |binary_expr| {
             const lhs_expr = binary_expr.lhs(ctx.root) orelse return error.Syntax;
             const rhs_expr = binary_expr.rhs(ctx.root) orelse return error.Syntax;
             const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, expected_type);
             const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, expected_type);
-            if (binary_expr.plus(ctx.root) != null) {
+            if (binary_expr.plus(ctx.root) != null or
+                binary_expr.minus(ctx.root) != null)
+            {
                 if (lhs_type == rhs_type)
                     return lhs_type;
             }
             return error.TODO;
+        },
+        .call => |call_expr| {
+            const fn_expr = call_expr.expr(ctx.root) orelse return error.Syntax;
+            const fn_type_index = try analyzeExpr(ctx, scope, fn_expr, null);
+            const fn_type = ctx.typePtr(fn_type_index);
+            if (fn_type.* != .function) return error.TODO;
+            const function = ctx.fnPtr(fn_type.function);
+            const params = function.params;
+            const args_wrapper = call_expr.args(ctx.root) orelse return error.Syntax;
+            var args = args_wrapper.args(ctx.root);
+            for (params.values()) |param_type| {
+                const arg = args.next(ctx.root) orelse return error.TODO;
+                const arg_expr = arg.expr(ctx.root) orelse return error.TODO;
+                const arg_type = try analyzeExpr(ctx, scope, arg_expr, null);
+                if (arg_type != param_type) return error.TODO;
+            }
+            if (args.next(ctx.root)) |_| return error.TODO;
+
+            // TODO
+            std.debug.assert(function.returns.values().len == 1);
+            const ret_type = function.returns.values()[0];
+            return ret_type;
         },
         inline else => |variant| {
             @panic("TODO: " ++ @typeName(@TypeOf(variant)));
@@ -313,7 +353,7 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
 }
 
 const Scope = struct {
-    parent: ?*Scope,
+    parent: ?*const Scope,
     getFn: *const fn (self: *const Scope, name: []const u8) ?syntax.pure.Tree.Index,
 
     pub fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
@@ -335,6 +375,20 @@ const Scope = struct {
             switch (decl) {
                 inline else => |s| return s.tree,
             }
+        }
+    };
+
+    const Fn = struct {
+        base: Scope = .{
+            .parent = null,
+            .getFn = Scope.Fn.get,
+        },
+        args: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param),
+
+        fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
+            const function = @fieldParentPtr(Scope.Fn, "base", scope);
+            const param = function.args.get(name) orelse return null;
+            return param.tree;
         }
     };
 };
@@ -413,6 +467,69 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
     }
 }
 
+fn checkFnBody(ctx: *Context, scope: *const Scope, function: Fn.Index) !void {
+    const body = ctx.fnPtr(function).syntax.body(ctx.root) orelse return error.Syntax;
+
+    var args = std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param){};
+    defer args.deinit(ctx.allocator);
+
+    const params = ctx.fnPtr(function).syntax.params(ctx.root) orelse return error.Syntax;
+    var it = params.params(ctx.root);
+    while (it.next(ctx.root)) |param| {
+        const name_syntax = param.ident(ctx.root) orelse return error.Syntax;
+        const name = ctx.root.tokenText(name_syntax);
+        try args.put(ctx.allocator, name, param);
+    }
+
+    const fn_scope: Scope.Fn = .{ .base = .{ .parent = scope, .getFn = Scope.Fn.get }, .args = &args };
+    try ctx.checkBlock(&fn_scope.base, function, body);
+}
+
+fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: syntax.ast.Stmt.Block) !void {
+    for (ctx.root.treeChildren(body.tree)) |child| {
+        const child_tree = child.asTree() orelse continue;
+        const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse return error.Syntax;
+        switch (stmt) {
+            .expr => |expr_stmt| {
+                const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
+                try checkExpr(ctx, scope, function, expr);
+            },
+            .block => {},
+            .@"return" => |return_stmt| {
+                const returns = &ctx.fnPtr(function).returns;
+                var exprs = return_stmt.exprs(ctx.root);
+                for (returns.values()) |declared_type| {
+                    const expr = exprs.next(ctx.root) orelse return error.Syntax;
+                    try checkExpr(ctx, scope, function, expr);
+                    const inferred_type = try ctx.analyzeExpr(scope, expr, null);
+                    if (inferred_type != declared_type)
+                        try ctx.addDiagnostic(undefined, "return type mismatch: declared {}, inferred {}", .{
+                            ctx.formatType(inferred_type),
+                            ctx.formatType(declared_type),
+                        });
+                }
+                if (exprs.next(ctx.root)) |_| {
+                    try ctx.addDiagnostic(undefined, "too many return values", .{});
+                    return;
+                }
+            },
+            .@"if" => {},
+        }
+    }
+}
+
+fn checkExpr(ctx: *Context, scope: *const Scope, function: Fn.Index, expr: syntax.ast.Expr) !void {
+    _ = ctx;
+    _ = scope;
+    _ = function;
+    switch (expr) {
+        inline else => |other| {
+            _ = other;
+            //@panic("TODO: " ++ @typeName(@TypeOf(other)));
+        },
+    }
+}
+
 fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !void {
     for (ctx.root.treeChildren(block.tree)) |child| {
         const child_tree = child.asTree() orelse continue;
@@ -430,6 +547,7 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
                 const value = try genExpr(ctx, expr, builder);
                 try builder.buildRet(value.reg);
             },
+            .@"if" => @panic("TODO"),
         }
     }
 }

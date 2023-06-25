@@ -255,6 +255,24 @@ pub const Expr = union(enum) {
         pub const lParen = tokenAccessorFn(@This(), .l_paren);
         pub const rParen = tokenAccessorFn(@This(), .r_paren);
         pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+        pub const args = nthTreeAccessorFn(@This(), Args, 0);
+
+        pub const Args = struct {
+            tree: syntax.pure.Tree.Index,
+
+            pub const cast = treeCastFn(@This(), .call_args);
+            pub const format = treeFormatFn(@This(), .call_args);
+            pub const args = treeIteratorFn(@This(), Arg);
+        };
+
+        pub const Arg = struct {
+            tree: syntax.pure.Tree.Index,
+
+            pub const cast = treeCastFn(@This(), .call_arg);
+            pub const format = treeFormatFn(@This(), .call_arg);
+            pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
+            pub const comma = tokenAccessorFn(@This(), .comma);
+        };
     };
 
     pub const Ident = struct {
@@ -270,6 +288,7 @@ pub const Stmt = union(enum) {
     expr: Stmt.Expr,
     block: Stmt.Block,
     @"return": Stmt.Return,
+    @"if": Stmt.If,
 
     pub const cast = unionCastFn(@This());
 
@@ -297,7 +316,17 @@ pub const Stmt = union(enum) {
         pub const cast = treeCastFn(@This(), .stmt_return);
         pub const format = treeFormatFn(@This(), .stmt_return);
         pub const returnToken = tokenAccessorFn(@This(), .kw_return);
-        pub const expr = nthTreeAccessorFn(@This(), ast.Expr, 0);
+        pub const exprs = treeIteratorFn(@This(), ast.Expr);
+    };
+
+    pub const If = struct {
+        tree: syntax.pure.Tree.Index,
+
+        pub const cast = treeCastFn(@This(), .stmt_if);
+        pub const format = treeFormatFn(@This(), .stmt_if);
+        pub const ifToken = tokenAccessorFn(@This(), .kw_if);
+        pub const cond = nthTreeAccessorFn(@This(), ast.Expr, 0);
+        pub const body = nthTreeAccessorFn(@This(), Stmt, 0);
     };
 };
 

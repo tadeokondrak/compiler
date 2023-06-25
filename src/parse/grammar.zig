@@ -14,7 +14,7 @@ fn prefixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
 fn infixPrecedence(tag: syntax.pure.Token.Tag) ?[2]u8 {
     return switch (tag) {
         // .eof is zero, but we don't return it here
-        .lt, .gt, .eq2 => .{ 2, 2 },
+        .lt, .lt_eq, .gt, .gt_eq, .eq2 => .{ 2, 2 },
         .plus, .minus => .{ 3, 4 },
         .star, .slash, .percent => .{ 5, 6 },
         else => null,
@@ -165,6 +165,8 @@ fn parseStmt(p: *Parser) void {
         parseExprStmt(p);
     } else if (p.at(.kw_return)) {
         parseReturnStmt(p);
+    } else if (p.at(.kw_if)) {
+        parseIfStmt(p);
     } else {
         @panic("TODO");
         //p.advance();
@@ -202,6 +204,14 @@ fn parseReturnStmt(p: *Parser) void {
     p.builder.close(m, .stmt_return);
 }
 
+fn parseIfStmt(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_if);
+    parseExpr(p);
+    parseBlockStmt(p);
+    p.builder.close(m, .stmt_if);
+}
+
 pub fn parseExpr(p: *Parser) void {
     parseExprPrecedence(p, 0);
 }
@@ -227,8 +237,15 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
             lhs = p.builder.openBefore(lhs);
             p.advance();
             if (tok == .l_paren) {
-                parseExpr(p);
+                const args = p.builder.open();
+                while (!p.at(.r_paren) and !p.at(.eof)) {
+                    const arg = p.builder.open();
+                    parseExpr(p);
+                    _ = p.eat(.comma);
+                    p.builder.close(arg, .call_arg);
+                }
                 _ = p.eat(.r_paren);
+                p.builder.close(args, .call_args);
                 p.builder.close(lhs, .expr_call);
             } else {
                 p.builder.close(lhs, .expr_unary);

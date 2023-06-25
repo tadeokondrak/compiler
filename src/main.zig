@@ -15,8 +15,6 @@ pub fn main() !void {
     const src =
         \\const num u32 = 1;
         \\const ptr *u64 = 0;
-        \\const third u64 = other + 1;
-        \\const other u64 = ptr;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 *u32;
@@ -29,6 +27,12 @@ pub fn main() !void {
         \\}
         \\fn add(a u32, b u32) (ret u32) {
         \\    return a + b;
+        \\}
+        \\fn fib(n u32) (ret u32) {
+        \\    if n <= 1 {
+        \\        return 1;
+        \\    }
+        \\    return fib(n - 1) + fib(n - 2);
         \\}
     ;
 
