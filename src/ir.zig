@@ -119,7 +119,7 @@ pub const Func = struct {
                         if (@TypeOf(specific) == void) continue;
                         inline for (std.meta.fields(@TypeOf(specific)), 0..) |field, j| {
                             if (j > 0) try writer.print(",", .{});
-                            try writer.print(" {s}: {any}", .{ field.name, @field(specific, field.name) });
+                            try writer.print(" {any}", .{@field(specific, field.name)});
                         }
                     },
                 }

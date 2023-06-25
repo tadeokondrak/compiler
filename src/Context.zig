@@ -85,7 +85,7 @@ pub fn dumpTypes(ctx: *Context) void {
         }
         std.debug.print(") {{\n", .{});
         if (function.analysis == .generated) {
-            std.debug.print("{}\n", .{function.func});
+            std.debug.print("{}", .{function.func});
         }
         std.debug.print("}}\n", .{});
     }
