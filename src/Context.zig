@@ -314,13 +314,31 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
         .binary => |binary_expr| {
             const lhs_expr = binary_expr.lhs(ctx.root) orelse return error.Syntax;
             const rhs_expr = binary_expr.rhs(ctx.root) orelse return error.Syntax;
-            const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, expected_type);
-            const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, expected_type);
+            const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, null);
+            const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, null);
             if (binary_expr.plus(ctx.root) != null or
                 binary_expr.minus(ctx.root) != null)
             {
-                if (lhs_type == rhs_type)
+                if (lhs_type == rhs_type) {
                     return lhs_type;
+                } else {
+                    try ctx.addDiagnostic(
+                        syntax.pure.Node.Index.fromTree(binary_expr.tree),
+                        "arithmetic operator type mismatch: lhs {}, rhs {}",
+                        .{ ctx.formatType(lhs_type), ctx.formatType(rhs_type) },
+                    );
+                }
+            }
+            if (binary_expr.lt_eq(ctx.root) != null) {
+                if (lhs_type == rhs_type) {
+                    return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 1 } });
+                } else {
+                    try ctx.addDiagnostic(
+                        syntax.pure.Node.Index.fromTree(binary_expr.tree),
+                        "comparison operator type mismatch: lhs {}, rhs {}",
+                        .{ ctx.formatType(lhs_type), ctx.formatType(rhs_type) },
+                    );
+                }
             }
             return error.TODO;
         },
@@ -513,7 +531,16 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
                     return;
                 }
             },
-            .@"if" => {},
+            .@"if" => |if_stmt| {
+                const cond = if_stmt.cond(ctx.root) orelse return error.Syntax;
+                try checkExpr(ctx, scope, function, cond);
+                const bool_type = try ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 1 } });
+                const cond_type = try ctx.analyzeExpr(scope, cond, bool_type);
+                if (cond_type != bool_type)
+                    try ctx.addDiagnostic(undefined, "condition must be boolean", .{});
+                const if_body = if_stmt.body(ctx.root) orelse return error.Syntax;
+                try ctx.checkBlock(scope, function, if_body);
+            },
         }
     }
 }

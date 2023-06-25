@@ -224,6 +224,7 @@ pub const Expr = union(enum) {
         pub const star = tokenAccessorFn(@This(), .star);
         pub const slash = tokenAccessorFn(@This(), .slash);
         pub const percent = tokenAccessorFn(@This(), .percent);
+        pub const lt_eq = tokenAccessorFn(@This(), .lt_eq);
         pub const lhs = nthTreeAccessorFn(@This(), Expr, 0);
         pub const rhs = nthTreeAccessorFn(@This(), Expr, 1);
     };
@@ -326,7 +327,7 @@ pub const Stmt = union(enum) {
         pub const format = treeFormatFn(@This(), .stmt_if);
         pub const ifToken = tokenAccessorFn(@This(), .kw_if);
         pub const cond = nthTreeAccessorFn(@This(), ast.Expr, 0);
-        pub const body = nthTreeAccessorFn(@This(), Stmt, 0);
+        pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
     };
 };
 
