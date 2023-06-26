@@ -273,8 +273,7 @@ fn build_node(events: Vec<Event>, kinds: Vec<SyntaxKind>, lengths: Vec<TextSize>
         .next()
         .unwrap()
         .into_iter()
-        .filter_map(NodeOrToken::into_node)
-        .next()
+        .find_map(NodeOrToken::into_node)
         .unwrap()
 }
 
