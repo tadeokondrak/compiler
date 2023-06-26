@@ -70,6 +70,7 @@ pub enum SyntaxKind {
     // Contextual token kinds
     FnKeyword,
     IfKeyword,
+    StructKeyword,
 
     // Node kinds
     Error,
@@ -81,6 +82,7 @@ pub enum SyntaxKind {
     Params,
     // Declarations
     FnDecl,
+    StructDecl,
     // Statements
     IfStmt,
 
@@ -166,11 +168,25 @@ macro_rules! T {
     ('}') => { SyntaxKind::RightBrace };
     (if) => { SyntaxKind::IfKeyword };
     (fn) => { SyntaxKind::FnKeyword };
+    (struct) => { SyntaxKind::StructKeyword };
 }
 
 impl SyntaxKind {
+    fn is_contextual_keyword(self) -> bool {
+        matches!(self, T![fn] | T![if] | T![struct])
+    }
+
     fn is_trivia(self) -> bool {
         matches!(self, SyntaxKind::Space | SyntaxKind::Comment)
+    }
+}
+
+fn keyword(s: &str) -> Option<SyntaxKind> {
+    match s {
+        "fn" => Some(T![fn]),
+        "if" => Some(T![if]),
+        "struct" => Some(T![struct]),
+        _ => None,
     }
 }
 
@@ -191,10 +207,9 @@ pub fn parse(s: &str) -> (GreenNode, Vec<String>) {
             non_trivia_kinds.push(kind);
             non_trivia_joins.push(!last_was_trivia);
             let contextual_kind = match kind {
-                SyntaxKind::Ident => match &s[pos..pos + len] {
-                    "fn" => T![fn],
-                    "if" => T![if],
-                    _ => SyntaxKind::Ident,
+                SyntaxKind::Ident => match keyword(&s[pos..pos + len]) {
+                    Some(keyword) => keyword,
+                    None => kind,
                 },
                 _ => kind,
             };
@@ -203,7 +218,6 @@ pub fn parse(s: &str) -> (GreenNode, Vec<String>) {
         last_was_trivia = is_trivia;
         pos += len;
     }
-    kinds.push(SyntaxKind::Eof);
 
     let mut parser = Parser {
         pos: 0,
@@ -236,16 +250,7 @@ fn build_node(
         match event {
             Event::Start => {
                 stack.push(Vec::new());
-                while kinds[token_pos].is_trivia() {
-                    let trivia_kind = kinds[token_pos];
-                    let trivia_len = lengths[token_pos];
-                    let trivia_range = TextRange::new(text_pos, text_pos + trivia_len);
-                    let trivia_text = &s[trivia_range];
-                    let token = GreenToken::new(Language::kind_to_raw(trivia_kind), trivia_text);
-                    stack.last_mut().unwrap().push(NodeOrToken::Token(token));
-                    token_pos += 1;
-                    text_pos += trivia_len;
-                }
+                eat_trivia(&kinds, &mut token_pos, &lengths, &mut text_pos, s, &mut stack);
             }
             Event::Token { kind, consumed } => {
                 let mut len = TextSize::default();
@@ -256,8 +261,10 @@ fn build_node(
                 let range = TextRange::new(text_pos, text_pos + len);
                 let text = &s[range];
                 let token = GreenToken::new(Language::kind_to_raw(kind), text);
+                eprintln!("token: {:?} {:?}", token, text);
                 stack.last_mut().unwrap().push(NodeOrToken::Token(token));
                 text_pos += len;
+                eat_trivia(&kinds, &mut token_pos, &lengths, &mut text_pos, s, &mut stack);
             }
             Event::Finish { kind } => {
                 let node = GreenNode::new(
@@ -272,6 +279,26 @@ fn build_node(
     assert_eq!(stack.len(), 1);
     assert_eq!(stack[0].len(), 1);
     assert!(stack[0][0].as_node().is_some());
+
+    fn eat_trivia(
+        kinds: &[SyntaxKind],
+        token_pos: &mut usize,
+        lengths: &[TextSize],
+        text_pos: &mut TextSize,
+        s: &str,
+        stack: &mut [Vec<NodeOrToken<GreenNode, GreenToken>>],
+    ) {
+        while kinds.get(*token_pos).copied().unwrap_or(SyntaxKind::Eof).is_trivia() {
+            let trivia_kind = kinds[*token_pos];
+            let trivia_len = lengths[*token_pos];
+            let trivia_range = TextRange::new(*text_pos, *text_pos + trivia_len);
+            let trivia_text = &s[trivia_range];
+            let token = GreenToken::new(Language::kind_to_raw(trivia_kind), trivia_text);
+            stack.last_mut().unwrap().push(NodeOrToken::Token(token));
+            *token_pos += 1;
+            *text_pos += trivia_len;
+        }
+    }
 
     stack
         .into_iter()
@@ -289,59 +316,74 @@ fn test() {
             fn main(a u32, b u32, c u32) u32 {
                 if x {}
             }
+
+            struct X {
+            }
         ",
     );
     assert!(errors.is_empty(), "{errors:?}");
     let expected = expect_test::expect![[r#"
-        File@0..84
+        File@0..132
           Space@0..13 "\n            "
-          FnDecl@13..84
+          FnDecl@13..99
             FnKeyword@13..15 "fn"
-            Name@15..20
-              Space@15..16 " "
+            Space@15..16 " "
+            Name@16..20
               Ident@16..20 "main"
-            Params@20..41
+            Params@20..42
               LeftParen@20..21 "("
-              Param@21..27
-                Name@21..22
+              Param@21..28
+                Name@21..23
                   Ident@21..22 "a"
-                Name@22..26
                   Space@22..23 " "
+                Name@23..26
                   Ident@23..26 "u32"
                 Comma@26..27 ","
-              Param@27..34
                 Space@27..28 " "
-                Name@28..29
+              Param@28..35
+                Name@28..30
                   Ident@28..29 "b"
-                Name@29..33
                   Space@29..30 " "
+                Name@30..33
                   Ident@30..33 "u32"
                 Comma@33..34 ","
-              Param@34..40
                 Space@34..35 " "
-                Name@35..36
+              Param@35..40
+                Name@35..37
                   Ident@35..36 "c"
-                Name@36..40
                   Space@36..37 " "
+                Name@37..40
                   Ident@37..40 "u32"
               RightParen@40..41 ")"
-            Name@41..45
               Space@41..42 " "
+            Name@42..46
               Ident@42..45 "u32"
-            Block@45..84
               Space@45..46 " "
+            Block@46..99
               LeftBrace@46..47 "{"
-              IfStmt@47..71
-                Space@47..64 "\n                "
+              Space@47..64 "\n                "
+              IfStmt@64..84
                 IfKeyword@64..66 "if"
-                Name@66..68
-                  Space@66..67 " "
+                Space@66..67 " "
+                Name@67..69
                   Ident@67..68 "x"
-                Block@68..71
                   Space@68..69 " "
+                Block@69..84
                   LeftBrace@69..70 "{"
                   RightBrace@70..71 "}"
-              RightBrace@71..84 "\n            "
+                  Space@71..84 "\n            "
+              RightBrace@84..85 "}"
+              Space@85..99 "\n\n            "
+          StructDecl@99..132
+            StructKeyword@99..105 "struct"
+            Space@105..106 " "
+            Name@106..108
+              Ident@106..107 "X"
+              Space@107..108 " "
+            LeftBrace@108..109 "{"
+            Space@109..122 "\n            "
+            RightBrace@122..123 "}"
+            Space@123..132 "\n        "
 
     "#]];
     expected.assert_debug_eq(&SyntaxNode::new_root(node));
@@ -383,9 +425,10 @@ impl Parser {
     }
 
     fn at(&self, kind: SyntaxKind) -> bool {
-        match kind {
-            T![fn] | T![if] => self.nth(0) == SyntaxKind::Ident && self.nth_contextual(0) == kind,
-            other => self.nth(0) == other,
+        if kind.is_contextual_keyword() {
+            self.nth_contextual(0) == kind
+        } else {
+            self.nth(0) == kind
         }
     }
 
@@ -456,9 +499,31 @@ enum Event {
 fn parse_file(p: &mut Parser) {
     let m = p.start();
     while !p.at(SyntaxKind::Eof) {
-        parse_fn_decl(p);
+        parse_decl(p);
     }
     p.finish(m, SyntaxKind::File);
+}
+
+fn parse_decl(p: &mut Parser) {
+    if p.at(T![fn]) {
+        parse_fn_decl(p);
+    } else if p.at(T![struct]) {
+        parse_struct_decl(p);
+    } else {
+        p.expected("declaration");
+    }
+}
+
+fn parse_struct_decl(p: &mut Parser) {
+    let m = p.start();
+    p.bump(T![struct]);
+    parse_name(p);
+    p.expect(T!['{']);
+    while !p.at(T!['}']) && !p.at(SyntaxKind::Eof) {
+        parse_stmt(p);
+    }
+    p.expect(T!['}']);
+    p.finish(m, SyntaxKind::StructDecl);
 }
 
 fn parse_fn_decl(p: &mut Parser) {
