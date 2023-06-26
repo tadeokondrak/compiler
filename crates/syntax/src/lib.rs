@@ -1,695 +1,544 @@
-use lexer::{lex, Token as LexerToken, TokenKind as LexerTokenKind};
-use std::fmt::{self};
-use text_size::{TextRange, TextSize};
+#![allow(dead_code)]
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TokenKind {
-    /// End of file.
-    Eof,
-    /// Unrecognized text.
+use rowan::{GreenNode, GreenToken, NodeOrToken, TextRange};
+use std::cell::Cell;
+use text_size::TextSize;
+
+type SyntaxNode = rowan::SyntaxNode<Language>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Language {}
+
+impl rowan::Language for Language {
+    type Kind = SyntaxKind;
+
+    fn kind_from_raw(rowan::SyntaxKind(raw): rowan::SyntaxKind) -> SyntaxKind {
+        assert!(raw <= (SyntaxKind::Invalid as u16));
+        unsafe { std::mem::transmute::<u16, SyntaxKind>(raw) }
+    }
+
+    fn kind_to_raw(kind: SyntaxKind) -> rowan::SyntaxKind {
+        rowan::SyntaxKind(kind as u16)
+    }
+}
+
+#[repr(u16)]
+#[allow(non_camel_case_types, clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SyntaxKind {
+    // Token kinds
+    Eof = 0,
+    // Lexer token kinds
     Unknown,
-
-    /// A sequence of `{'\t', '\r', '\n', ' '}`
     Space,
-    /// `// Line comment`
     Comment,
-
-    /// `name`
     Ident,
-    /// `` `name` ``
     RawIdent,
-
-    /// `0`
     Integer,
-    /// `'text'`
     Character,
-    /// `"text"`
     String,
-
-    /// `+`
     Plus,
-    /// `-`
     Minus,
-    /// `*`
     Star,
-    /// `/`
     Slash,
-    /// `%`
     Percent,
-
-    /// `<`
     Less,
-    /// `>`
     Greater,
-    /// `=`
     Equal,
-
-    /// `&`
     Ampersand,
-    /// `|`
     Pipe,
-    /// `^`
     Caret,
-    /// `~`
     Tilde,
-
-    /// `.`
     Period,
-    /// `,`
     Comma,
-    /// `:`
     Colon,
-    /// `;`
     Semi,
-    /// `'`
     Apostrophe,
-    /// `@`
     At,
-    /// `#`
     Pound,
-    /// `?`
     Question,
-    /// `!`
     Bang,
-    /// `$`
     Dollar,
-    /// `\`
     Backslash,
-
-    /// `(`
     LeftParen,
-    /// `)`
     RightParen,
-
-    /// `[`
     LeftBracket,
-    /// `]`
     RightBracket,
-
-    /// `{`
     LeftBrace,
-    /// `}`
     RightBrace,
-
+    // Composite token kinds
+    // Contextual token kinds
     FnKeyword,
-    LetKeyword,
+    IfKeyword,
+
+    // Node kinds
+    Error,
+    // Miscellaneous containers
+    Name,
+    File,
+    Block,
+    Param,
+    Params,
+    // Declarations
+    FnDecl,
+    // Statements
+    IfStmt,
+
+    // Not a node or token kind
+    // Used for conversions and as a placeholder
+    Invalid,
 }
 
-impl TokenKind {
-    fn from_lexer_kind(kind: LexerTokenKind) -> TokenKind {
+impl From<lexer::TokenKind> for SyntaxKind {
+    fn from(x: lexer::TokenKind) -> Self {
+        match x {
+            lexer::TokenKind::Unknown => SyntaxKind::Unknown,
+            lexer::TokenKind::Space => SyntaxKind::Space,
+            lexer::TokenKind::Comment => SyntaxKind::Comment,
+            lexer::TokenKind::Ident => SyntaxKind::Ident,
+            lexer::TokenKind::RawIdent => SyntaxKind::RawIdent,
+            lexer::TokenKind::Integer => SyntaxKind::Integer,
+            lexer::TokenKind::Character => SyntaxKind::Character,
+            lexer::TokenKind::String => SyntaxKind::String,
+            lexer::TokenKind::Plus => SyntaxKind::Plus,
+            lexer::TokenKind::Minus => SyntaxKind::Minus,
+            lexer::TokenKind::Star => SyntaxKind::Star,
+            lexer::TokenKind::Slash => SyntaxKind::Slash,
+            lexer::TokenKind::Percent => SyntaxKind::Percent,
+            lexer::TokenKind::Less => SyntaxKind::Less,
+            lexer::TokenKind::Greater => SyntaxKind::Greater,
+            lexer::TokenKind::Equal => SyntaxKind::Equal,
+            lexer::TokenKind::Ampersand => SyntaxKind::Ampersand,
+            lexer::TokenKind::Pipe => SyntaxKind::Pipe,
+            lexer::TokenKind::Caret => SyntaxKind::Caret,
+            lexer::TokenKind::Tilde => SyntaxKind::Tilde,
+            lexer::TokenKind::Period => SyntaxKind::Period,
+            lexer::TokenKind::Comma => SyntaxKind::Comma,
+            lexer::TokenKind::Colon => SyntaxKind::Colon,
+            lexer::TokenKind::Semi => SyntaxKind::Semi,
+            lexer::TokenKind::Apostrophe => SyntaxKind::Apostrophe,
+            lexer::TokenKind::At => SyntaxKind::At,
+            lexer::TokenKind::Pound => SyntaxKind::Pound,
+            lexer::TokenKind::Question => SyntaxKind::Question,
+            lexer::TokenKind::Bang => SyntaxKind::Bang,
+            lexer::TokenKind::Dollar => SyntaxKind::Dollar,
+            lexer::TokenKind::Backslash => SyntaxKind::Backslash,
+            lexer::TokenKind::LeftParen => SyntaxKind::LeftParen,
+            lexer::TokenKind::RightParen => SyntaxKind::RightParen,
+            lexer::TokenKind::LeftBracket => SyntaxKind::LeftBracket,
+            lexer::TokenKind::RightBracket => SyntaxKind::RightBracket,
+            lexer::TokenKind::LeftBrace => SyntaxKind::LeftBrace,
+            lexer::TokenKind::RightBrace => SyntaxKind::RightBrace,
+        }
+    }
+}
+
+#[rustfmt::skip]
+macro_rules! T {
+    (+) => { SyntaxKind::Plus };
+    (-) => { SyntaxKind::Minus };
+    (*) => { SyntaxKind::Star };
+    (/) => { SyntaxKind::Slash };
+    (%) => { SyntaxKind::Percent };
+    (<) => { SyntaxKind::Less };
+    (>) => { SyntaxKind::Greater };
+    (=) => { SyntaxKind::Equal };
+    (&) => { SyntaxKind::Ampersand };
+    (|) => { SyntaxKind::Pipe };
+    (^) => { SyntaxKind::Caret };
+    (~) => { SyntaxKind::Tilde };
+    (.) => { SyntaxKind::Period };
+    (,) => { SyntaxKind::Comma };
+    (:) => { SyntaxKind::Colon };
+    (;) => { SyntaxKind::Semi };
+    ('\'') => { SyntaxKind::Apostrophe };
+    (@) => { SyntaxKind::At };
+    (#) => { SyntaxKind::Pound };
+    (?) => { SyntaxKind::Question };
+    (!) => { SyntaxKind::Bang };
+    ($) => { SyntaxKind::Dollar };
+    ('\\') => { SyntaxKind::Backslash };
+    ('(') => { SyntaxKind::LeftParen };
+    (')') => { SyntaxKind::RightParen };
+    ('[') => { SyntaxKind::LeftBracket };
+    (']') => { SyntaxKind::RightBracket };
+    ('{') => { SyntaxKind::LeftBrace };
+    ('}') => { SyntaxKind::RightBrace };
+    (if) => { SyntaxKind::IfKeyword };
+    (fn) => { SyntaxKind::FnKeyword };
+}
+
+impl SyntaxKind {
+    fn is_trivia(self) -> bool {
+        matches!(self, SyntaxKind::Space | SyntaxKind::Comment)
+    }
+}
+
+pub fn parse(s: &str) -> (GreenNode, Vec<String>) {
+    let mut kinds: Vec<SyntaxKind> = Vec::new();
+    let mut non_trivia_kinds: Vec<SyntaxKind> = Vec::new();
+    let mut non_trivia_contextual_kinds: Vec<SyntaxKind> = Vec::new();
+    let mut non_trivia_joins: Vec<bool> = Vec::new();
+    let mut lengths: Vec<TextSize> = Vec::new();
+    let mut last_was_trivia = true;
+    let mut pos = 0;
+    for lexer::Token { kind, len } in lexer::lex(s) {
+        let kind: SyntaxKind = kind.into();
+        kinds.push(kind);
+        lengths.push(len.try_into().expect("token too long"));
+        let is_trivia = kind.is_trivia();
+        if !is_trivia {
+            non_trivia_kinds.push(kind);
+            non_trivia_joins.push(!last_was_trivia);
+            let contextual_kind = match kind {
+                SyntaxKind::Ident => match &s[pos..pos + len] {
+                    "fn" => T![fn],
+                    "if" => T![if],
+                    _ => SyntaxKind::Ident,
+                },
+                _ => kind,
+            };
+            non_trivia_contextual_kinds.push(contextual_kind);
+        }
+        last_was_trivia = is_trivia;
+        pos += len;
+    }
+    kinds.push(SyntaxKind::Eof);
+
+    let mut parser = Parser {
+        pos: 0,
+        kinds: non_trivia_kinds,
+        contextual_kinds: non_trivia_contextual_kinds,
+        joins: non_trivia_joins,
+        events: Vec::new(),
+        errors: Vec::new(),
+        fuel: Cell::new(u8::MAX),
+    };
+
+    parse_file(&mut parser);
+
+    let node = build_node(parser.events, kinds, lengths, s);
+
+    (node, parser.errors)
+}
+
+fn build_node(events: Vec<Event>, kinds: Vec<SyntaxKind>, lengths: Vec<TextSize>, s: &str) -> GreenNode {
+    let mut text_pos = TextSize::default();
+    let mut token_pos = 0;
+    let mut stack: Vec<Vec<NodeOrToken<GreenNode, GreenToken>>> = vec![Vec::new()];
+
+    for event in events {
+        match event {
+            Event::Start => {
+                stack.push(Vec::new());
+                while kinds[token_pos].is_trivia() {
+                    let trivia_kind = kinds[token_pos];
+                    let trivia_len = lengths[token_pos];
+                    let trivia_range = TextRange::new(text_pos, text_pos + trivia_len);
+                    let trivia_text = &s[trivia_range];
+                    let token = GreenToken::new(rowan::SyntaxKind(trivia_kind as u16), trivia_text);
+                    stack.last_mut().unwrap().push(NodeOrToken::Token(token));
+                    token_pos += 1;
+                    text_pos += trivia_len;
+                }
+            }
+            Event::Token { kind, consumed } => {
+                let mut len = TextSize::default();
+                for _ in 0..consumed {
+                    len += lengths[token_pos];
+                    token_pos += 1;
+                }
+                let range = TextRange::new(text_pos, text_pos + len);
+                let text = &s[range];
+                let token = GreenToken::new(rowan::SyntaxKind(kind as u16), text);
+                stack.last_mut().unwrap().push(NodeOrToken::Token(token));
+                text_pos += len;
+            }
+            Event::Finish { kind } => {
+                let node = GreenNode::new(
+                    rowan::SyntaxKind(kind as u16),
+                    stack.pop().unwrap().into_iter(),
+                );
+                stack.last_mut().unwrap().push(NodeOrToken::Node(node));
+            }
+        }
+    }
+
+    assert_eq!(stack.len(), 1);
+    assert_eq!(stack[0].len(), 1);
+    assert!(stack[0][0].as_node().is_some());
+
+    stack
+        .into_iter()
+        .next()
+        .unwrap()
+        .into_iter()
+        .filter_map(NodeOrToken::into_node)
+        .next()
+        .unwrap()
+}
+
+#[test]
+fn test() {
+    let (node, errors) = parse(
+        "
+        fn main(a u32, b u32, c u32) u32 {
+            if x {}
+        }
+    ",
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let expected = expect_test::expect![[r#"
+        File@0..72
+          Space@0..9 "\n        "
+          FnDecl@9..72
+            FnKeyword@9..11 "fn"
+            Name@11..16
+              Space@11..12 " "
+              Ident@12..16 "main"
+            Params@16..37
+              LeftParen@16..17 "("
+              Param@17..23
+                Name@17..18
+                  Ident@17..18 "a"
+                Name@18..22
+                  Space@18..19 " "
+                  Ident@19..22 "u32"
+                Comma@22..23 ","
+              Param@23..30
+                Space@23..24 " "
+                Name@24..25
+                  Ident@24..25 "b"
+                Name@25..29
+                  Space@25..26 " "
+                  Ident@26..29 "u32"
+                Comma@29..30 ","
+              Param@30..36
+                Space@30..31 " "
+                Name@31..32
+                  Ident@31..32 "c"
+                Name@32..36
+                  Space@32..33 " "
+                  Ident@33..36 "u32"
+              RightParen@36..37 ")"
+            Name@37..41
+              Space@37..38 " "
+              Ident@38..41 "u32"
+            Block@41..72
+              Space@41..42 " "
+              LeftBrace@42..43 "{"
+              IfStmt@43..63
+                Space@43..56 "\n            "
+                IfKeyword@56..58 "if"
+                Name@58..60
+                  Space@58..59 " "
+                  Ident@59..60 "x"
+                Block@60..63
+                  Space@60..61 " "
+                  LeftBrace@61..62 "{"
+                  RightBrace@62..63 "}"
+              RightBrace@63..72 "\n        "
+
+    "#]];
+    expected.assert_debug_eq(&SyntaxNode::new_root(node));
+}
+
+struct Parser {
+    pos: usize,
+    kinds: Vec<SyntaxKind>,
+    contextual_kinds: Vec<SyntaxKind>,
+    joins: Vec<bool>,
+    events: Vec<Event>,
+    errors: Vec<String>,
+    fuel: Cell<u8>,
+}
+
+impl Parser {
+    fn nth(&self, n: usize) -> SyntaxKind {
+        self.fuel.set(self.fuel.get().saturating_sub(1));
+        if self.fuel.get() == 0 {
+            panic!("out of fuel");
+        }
+
+        self.kinds
+            .get(self.pos + n)
+            .copied()
+            .unwrap_or(SyntaxKind::Eof)
+    }
+
+    fn nth_contextual(&self, n: usize) -> SyntaxKind {
+        self.fuel.set(self.fuel.get().saturating_sub(1));
+        if self.fuel.get() == 0 {
+            panic!("out of fuel");
+        }
+
+        self.contextual_kinds
+            .get(self.pos + n)
+            .copied()
+            .unwrap_or(SyntaxKind::Eof)
+    }
+
+    fn at(&self, kind: SyntaxKind) -> bool {
         match kind {
-            LexerTokenKind::Unknown => TokenKind::Unknown,
-            LexerTokenKind::Space => TokenKind::Space,
-            LexerTokenKind::Comment => TokenKind::Comment,
-            LexerTokenKind::Ident => TokenKind::Ident,
-            LexerTokenKind::RawIdent => TokenKind::RawIdent,
-            LexerTokenKind::Integer => TokenKind::Integer,
-            LexerTokenKind::Character => TokenKind::Character,
-            LexerTokenKind::String => TokenKind::String,
-            LexerTokenKind::Plus => TokenKind::Plus,
-            LexerTokenKind::Minus => TokenKind::Minus,
-            LexerTokenKind::Star => TokenKind::Star,
-            LexerTokenKind::Slash => TokenKind::Slash,
-            LexerTokenKind::Percent => TokenKind::Percent,
-            LexerTokenKind::Less => TokenKind::Less,
-            LexerTokenKind::Greater => TokenKind::Greater,
-            LexerTokenKind::Equal => TokenKind::Equal,
-            LexerTokenKind::Ampersand => TokenKind::Ampersand,
-            LexerTokenKind::Pipe => TokenKind::Pipe,
-            LexerTokenKind::Caret => TokenKind::Caret,
-            LexerTokenKind::Tilde => TokenKind::Tilde,
-            LexerTokenKind::Period => TokenKind::Period,
-            LexerTokenKind::Comma => TokenKind::Comma,
-            LexerTokenKind::Colon => TokenKind::Colon,
-            LexerTokenKind::Semi => TokenKind::Semi,
-            LexerTokenKind::Apostrophe => TokenKind::Apostrophe,
-            LexerTokenKind::At => TokenKind::At,
-            LexerTokenKind::Pound => TokenKind::Pound,
-            LexerTokenKind::Question => TokenKind::Question,
-            LexerTokenKind::Bang => TokenKind::Bang,
-            LexerTokenKind::Dollar => TokenKind::Dollar,
-            LexerTokenKind::Backslash => TokenKind::Backslash,
-            LexerTokenKind::LeftParen => TokenKind::LeftParen,
-            LexerTokenKind::RightParen => TokenKind::RightParen,
-            LexerTokenKind::LeftBracket => TokenKind::LeftBracket,
-            LexerTokenKind::RightBracket => TokenKind::RightBracket,
-            LexerTokenKind::LeftBrace => TokenKind::LeftBrace,
-            LexerTokenKind::RightBrace => TokenKind::RightBrace,
-        }
-    }
-}
-
-pub struct Token {
-    pub kind: TokenKind,
-    pub leading_trivia: String,
-    pub text: String,
-    pub trailing_trivia: String,
-}
-
-impl Token {
-    fn text_len(&self) -> usize {
-        self.leading_trivia.len() + self.text.len() + self.trailing_trivia.len()
-    }
-}
-
-impl fmt::Debug for Token {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:?}({:?}, {:?}, {:?})",
-            self.kind, self.leading_trivia, self.text, self.trailing_trivia
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct Root {
-    pub items: Vec<Item>,
-    pub eof: Token,
-}
-
-#[derive(Debug)]
-pub enum Item {
-    Fn(FnItem),
-}
-
-#[derive(Debug)]
-pub enum Ty {
-    Invalid(Token),
-    Ident(Token),
-    Slice(SliceTy),
-}
-
-#[derive(Debug)]
-pub enum Expr {
-    Ident(Token),
-    Unary(UnaryExpr),
-    Binary(BinaryExpr),
-}
-
-#[derive(Debug)]
-pub enum Stmt {
-    Let(LetStmt),
-    Expr(Expr),
-}
-
-#[derive(Debug)]
-pub struct SliceTy {
-    pub left_bracket: Token,
-    pub right_bracket: Token,
-    pub ty: Box<Ty>,
-}
-
-#[derive(Debug)]
-pub struct LetStmt {
-    pub let_kw: Token,
-    pub name: Token,
-    pub equal: Token,
-    pub expr: Expr,
-    pub semi: Token,
-}
-
-#[derive(Debug)]
-pub struct UnaryExpr {
-    pub operand: Box<Expr>,
-}
-
-#[derive(Debug)]
-pub struct BinaryExpr {
-    pub lhs: Box<Expr>,
-    pub op: Token,
-    pub rhs: Box<Expr>,
-}
-
-#[derive(Debug)]
-pub struct FnItem {
-    pub fn_kw: Token,
-    pub name: Token,
-    pub params: FnParams,
-    pub left_bracket: Token,
-    pub stmts: Vec<Stmt>,
-    pub right_bracket: Token,
-}
-
-#[derive(Debug)]
-pub struct FnParams {
-    pub left_paren: Token,
-    pub params: Vec<FnParam>,
-    pub right_paren: Token,
-}
-
-#[derive(Debug)]
-pub struct FnParam {
-    pub name: Token,
-    pub colon: Token,
-    pub ty: Ty,
-}
-
-fn lexer_token_is_trivia(kind: LexerTokenKind) -> bool {
-    matches!(
-        kind,
-        LexerTokenKind::Unknown | LexerTokenKind::Space | LexerTokenKind::Comment,
-    )
-}
-
-struct Parser<'a> {
-    src: &'a str,
-    cur_idx: usize,
-    text_pos: TextSize,
-    token_kinds: Vec<LexerTokenKind>,
-    token_lengths: Vec<TextSize>,
-    token_joins: Vec<bool>, // TODO: use a bit set
-}
-
-impl<'a> Parser<'a> {
-    fn new(src: &'a str) -> Parser<'a> {
-        let mut kinds = Vec::new();
-        let mut lengths = Vec::new();
-        let mut joins = Vec::new();
-        let mut last_was_space = false;
-        for LexerToken { kind, len } in lex(src) {
-            // TextSize can only store sizes up to about 4 gigabytes.
-            // We don't support tokens that long.
-            let len = TextSize::try_from(len).expect("token too long");
-            kinds.push(kind);
-            lengths.push(len);
-            joins.push(last_was_space);
-            last_was_space = lexer_token_is_trivia(kind);
-        }
-
-        Parser {
-            src,
-            cur_idx: 0,
-            text_pos: TextSize::from(0),
-            token_kinds: kinds,
-            token_lengths: lengths,
-            token_joins: joins,
+            T![fn] | T![if] => self.nth(0) == SyntaxKind::Ident && self.nth_contextual(0) == kind,
+            other => self.nth(0) == other,
         }
     }
 
-    fn is_at(&self, kind: TokenKind) -> bool {
-        if self.cur_idx >= self.token_kinds.len() {
-            return kind == TokenKind::Eof;
-        }
-        let token = self.token_kinds[self.cur_idx];
-        match kind {
-            TokenKind::Eof => false,
-            TokenKind::Unknown => token == LexerTokenKind::Unknown,
-            TokenKind::Space => token == LexerTokenKind::Space,
-            TokenKind::Comment => token == LexerTokenKind::Comment,
-            TokenKind::Ident => token == LexerTokenKind::Ident,
-            TokenKind::RawIdent => token == LexerTokenKind::RawIdent,
-            TokenKind::Integer => token == LexerTokenKind::Integer,
-            TokenKind::Character => token == LexerTokenKind::Character,
-            TokenKind::String => token == LexerTokenKind::String,
-            TokenKind::Plus => token == LexerTokenKind::Plus,
-            TokenKind::Minus => token == LexerTokenKind::Minus,
-            TokenKind::Star => token == LexerTokenKind::Star,
-            TokenKind::Slash => token == LexerTokenKind::Slash,
-            TokenKind::Percent => token == LexerTokenKind::Percent,
-            TokenKind::Less => token == LexerTokenKind::Less,
-            TokenKind::Greater => token == LexerTokenKind::Greater,
-            TokenKind::Equal => token == LexerTokenKind::Equal,
-            TokenKind::Ampersand => token == LexerTokenKind::Ampersand,
-            TokenKind::Pipe => token == LexerTokenKind::Pipe,
-            TokenKind::Caret => token == LexerTokenKind::Caret,
-            TokenKind::Tilde => token == LexerTokenKind::Tilde,
-            TokenKind::Period => token == LexerTokenKind::Period,
-            TokenKind::Comma => token == LexerTokenKind::Comma,
-            TokenKind::Colon => token == LexerTokenKind::Colon,
-            TokenKind::Semi => token == LexerTokenKind::Semi,
-            TokenKind::Apostrophe => token == LexerTokenKind::Apostrophe,
-            TokenKind::At => token == LexerTokenKind::At,
-            TokenKind::Pound => token == LexerTokenKind::Pound,
-            TokenKind::Question => token == LexerTokenKind::Question,
-            TokenKind::Bang => token == LexerTokenKind::Bang,
-            TokenKind::Dollar => token == LexerTokenKind::Dollar,
-            TokenKind::Backslash => token == LexerTokenKind::Backslash,
-            TokenKind::LeftParen => token == LexerTokenKind::LeftParen,
-            TokenKind::RightParen => token == LexerTokenKind::RightParen,
-            TokenKind::LeftBracket => token == LexerTokenKind::LeftBracket,
-            TokenKind::RightBracket => token == LexerTokenKind::RightBracket,
-            TokenKind::LeftBrace => token == LexerTokenKind::LeftBrace,
-            TokenKind::RightBrace => token == LexerTokenKind::RightBrace,
-            // TODO
-            TokenKind::FnKeyword => self.is_at_keyword("fn"),
-            TokenKind::LetKeyword => self.is_at_keyword("let"),
-        }
-    }
-
-    fn is_at_keyword(&self, text: &str) -> bool {
-        if !self.is_at(TokenKind::Ident) {
-            return false;
-        }
-        let pos = self.text_pos;
-        let len = self.token_lengths[self.cur_idx];
-        let src = &self.src[TextRange::at(pos, len)];
-        src == text
-    }
-
-    fn skip_trivia(&mut self) {
-        while self.cur_idx < self.token_kinds.len()
-            && lexer_token_is_trivia(self.token_kinds[self.cur_idx])
-        {
-            self.bump_any();
-        }
-    }
-
-    fn bump(&mut self, trivia_start: TextSize, token_start: TextSize, kind: TokenKind) -> Token {
-        assert!(self.is_at(kind));
-        self.bump_any();
-        let end = self.text_pos;
-        self.make_token(kind, trivia_start, TextRange::new(token_start, end), end)
-    }
-
-    fn expect_with_leading(&mut self, kind: TokenKind) -> Token {
-        let trivia_start = self.text_pos;
-        self.skip_trivia();
-        let token_start = self.text_pos;
-        if self.is_at(kind) {
-            self.bump(trivia_start, token_start, kind)
+    fn eat(&mut self, kind: SyntaxKind) -> bool {
+        if self.at(kind) {
+            self.bump(kind);
+            true
         } else {
-            let end = self.text_pos;
-            self.make_token(kind, trivia_start, TextRange::new(token_start, end), end)
+            false
         }
     }
 
-    fn bump_any_as_unknown(&mut self, trivia_start: TextSize) -> Token {
-        let token_start = self.text_pos;
-        self.bump_any();
-        let end = self.text_pos;
-        self.make_token(
-            TokenKind::from_lexer_kind(self.token_kinds[self.cur_idx]),
-            trivia_start,
-            TextRange::new(token_start, end),
-            end,
-        )
+    fn bump(&mut self, kind: SyntaxKind) {
+        let consumed = 1;
+        self.events.push(Event::Token { kind, consumed });
+        self.pos += consumed;
     }
 
     fn bump_any(&mut self) {
-        if self.cur_idx >= self.token_kinds.len() {
-            return;
-        }
-        self.text_pos += self.token_lengths[self.cur_idx];
-        self.cur_idx += 1;
+        self.bump(self.nth(0));
     }
 
-    fn make_token(
-        &self,
-        kind: TokenKind,
-        trivia_start: TextSize,
-        token: TextRange,
-        trivia_end: TextSize,
-    ) -> Token {
-        Token {
-            kind,
-            leading_trivia: self.src[TextRange::new(trivia_start, token.start())].to_owned(),
-            text: self.src[token].to_owned(),
-            trailing_trivia: self.src[TextRange::new(token.end(), trivia_end)].to_owned(),
+    fn expect(&mut self, kind: SyntaxKind) {
+        if !self.eat(kind) {
+            self.error(format!("expected {:?}, got {:?}", kind, self.nth(0)));
         }
     }
 
-    fn parse_root(&mut self) -> Root {
-        let mut items = Vec::new();
-        loop {
-            match self.parse_item() {
-                Ok(item) => items.push(item),
-                Err(eof) => break Root { items, eof },
-            }
-        }
+    fn expected(&mut self, text: &str) {
+        self.error(format!(
+            "expected {}, got {:?}",
+            text,
+            self.nth_contextual(0)
+        ));
     }
 
-    fn parse_item(&mut self) -> Result<Item, Token> {
-        let start = self.text_pos;
-        self.skip_trivia();
-        while !self.is_at(TokenKind::Eof) {
-            if self.is_at(TokenKind::FnKeyword) {
-                return Ok(Item::Fn(self.parse_fn_item(start)));
-            }
-            self.bump_any();
-            self.skip_trivia();
-        }
-        let end = self.text_pos;
-        Err(self.make_token(TokenKind::Eof, start, TextRange::new(end, end), end))
+    fn error(&mut self, text: String) {
+        self.errors.push(text);
     }
 
-    fn parse_fn_item(&mut self, trivia_start: TextSize) -> FnItem {
-        FnItem {
-            fn_kw: self.bump(trivia_start, self.text_pos, TokenKind::FnKeyword),
-            name: self.expect_with_leading(TokenKind::Ident),
-            params: self.parse_fn_params(),
-            left_bracket: self.expect_with_leading(TokenKind::LeftBrace),
-            stmts: {
-                let mut stmts = Vec::new();
-                while !self.is_at(TokenKind::Eof) && !self.is_at(TokenKind::RightBrace) {
-                    stmts.push(self.parse_stmt());
-                }
-                stmts
-            },
-            right_bracket: self.expect_with_leading(TokenKind::RightBrace),
-        }
+    #[must_use]
+    fn start(&mut self) -> Marker {
+        self.events.push(Event::Start);
+        Marker
     }
 
-    fn parse_fn_params(&mut self) -> FnParams {
-        let left_paren = self.expect_with_leading(TokenKind::LeftParen);
-        let mut params = Vec::new();
-        loop {
-            match self.parse_fn_param() {
-                Ok(param) => params.push(param),
-                Err(right_paren) => {
-                    break FnParams {
-                        left_paren,
-                        params,
-                        right_paren,
-                    }
-                }
-            }
-        }
-    }
-
-    fn parse_fn_param(&mut self) -> Result<FnParam, Token> {
-        let trivia_start = self.text_pos;
-        self.skip_trivia();
-        if self.is_at(TokenKind::RightParen) {
-            return Err(self.bump(trivia_start, self.text_pos, TokenKind::RightParen));
-        }
-        Ok(FnParam {
-            name: self.expect_with_leading(TokenKind::Ident),
-            colon: self.expect_with_leading(TokenKind::Colon),
-            ty: self.parse_ty(),
-        })
-    }
-
-    fn parse_ty(&mut self) -> Ty {
-        let trivia_start = self.text_pos;
-        self.skip_trivia();
-        let token_start = self.text_pos;
-        if self.is_at(TokenKind::LeftBracket) {
-            Ty::Slice(SliceTy {
-                left_bracket: self.bump(trivia_start, token_start, TokenKind::LeftBracket),
-                right_bracket: self.expect_with_leading(TokenKind::RightBracket),
-                ty: Box::new(self.parse_ty()),
-            })
-        } else if self.is_at(TokenKind::Ident) {
-            Ty::Ident(self.bump(trivia_start, token_start, TokenKind::Ident))
-        } else {
-            // TODO: it would be better for error recovery not to eat the next token here,
-            // but that would require us to handle stuff farther up the stack so as not to
-            // infinitely loop.
-            Ty::Invalid(self.bump_any_as_unknown(trivia_start))
-        }
-    }
-
-    fn parse_stmt(&mut self) -> Stmt {
-        let trivia_start = self.text_pos;
-        self.skip_trivia();
-        if self.is_at(TokenKind::LetKeyword) {
-            Stmt::Let(self.parse_let_stmt(trivia_start))
-        } else {
-            Stmt::Expr(self.parse_expr(trivia_start))
-        }
-    }
-
-    fn parse_let_stmt(&mut self, trivia_start: TextSize) -> LetStmt {
-        LetStmt {
-            let_kw: self.bump(trivia_start, self.text_pos, TokenKind::LetKeyword),
-            name: self.expect_with_leading(TokenKind::Ident),
-            equal: self.expect_with_leading(TokenKind::Equal),
-            expr: {
-                let trivia_start = self.text_pos;
-                self.skip_trivia();
-                self.parse_expr(trivia_start)
-            },
-            semi: self.expect_with_leading(TokenKind::Semi),
-        }
-    }
-
-    fn parse_expr(&mut self, trivia_start: TextSize) -> Expr {
-        if self.is_at(TokenKind::Ident) {
-            Expr::Ident(self.bump(trivia_start, self.text_pos, TokenKind::Ident))
-        } else {
-            todo!("{:?}", self.token_kinds[self.cur_idx]);
-        }
+    fn finish(&mut self, marker: Marker, kind: SyntaxKind) {
+        self.events.push(Event::Finish { kind });
+        std::mem::forget(marker);
     }
 }
 
-pub fn parse(src: &str) -> Root {
-    Parser::new(src).parse_root()
+struct Marker;
+
+impl Drop for Marker {
+    fn drop(&mut self) {
+        panic!()
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use expect_test::{expect, Expect};
+#[derive(Debug)]
+enum Event {
+    Start,
+    Token { kind: SyntaxKind, consumed: usize },
+    Finish { kind: SyntaxKind },
+}
 
-    #[test]
-    fn test_parse() {
-        fn check(src: &str, expected: Expect) {
-            let actual = parse(src);
-            expected.assert_debug_eq(&actual);
+fn parse_file(p: &mut Parser) {
+    let m = p.start();
+    while !p.at(SyntaxKind::Eof) {
+        parse_fn_decl(p);
+    }
+    p.finish(m, SyntaxKind::File);
+}
+
+fn parse_fn_decl(p: &mut Parser) {
+    let m = p.start();
+    p.bump(T![fn]);
+    parse_name(p);
+    parse_params(p);
+    parse_type_expr(p);
+    parse_block(p);
+    p.finish(m, SyntaxKind::FnDecl);
+}
+
+fn parse_block(p: &mut Parser) {
+    let m = p.start();
+    p.expect(T!['{']);
+    while !p.at(T!['}']) && !p.at(SyntaxKind::Eof) {
+        parse_stmt(p);
+    }
+    p.expect(T!['}']);
+    p.finish(m, SyntaxKind::Block);
+}
+
+fn parse_stmt(p: &mut Parser) {
+    let m = p.start();
+    if p.at(T![if]) {
+        parse_if_stmt(p, m);
+    } else {
+        p.bump_any();
+        p.expected("statement");
+        p.finish(m, SyntaxKind::Error);
+    }
+}
+
+fn parse_if_stmt(p: &mut Parser, m: Marker) {
+    p.bump(T![if]);
+    parse_expr(p);
+    parse_block(p);
+    p.finish(m, SyntaxKind::IfStmt);
+}
+
+fn parse_expr(p: &mut Parser) {
+    parse_name(p);
+}
+
+fn parse_type_expr(p: &mut Parser) {
+    parse_name(p);
+}
+
+fn parse_params(p: &mut Parser) {
+    let m = p.start();
+    p.expect(T!['(']);
+    while p.at(SyntaxKind::Ident) && !p.at(T![')']) && !p.at(SyntaxKind::Eof) {
+        parse_param(p);
+    }
+    p.expect(T![')']);
+    p.finish(m, SyntaxKind::Params);
+}
+
+fn parse_param(p: &mut Parser) {
+    let m = p.start();
+    parse_name(p);
+    parse_type_expr(p);
+    p.eat(T![,]);
+    p.finish(m, SyntaxKind::Param);
+}
+
+fn parse_name(p: &mut Parser) {
+    let m = p.start();
+    match p.nth(0) {
+        SyntaxKind::Ident => {
+            let contextual = p.nth_contextual(0);
+            if contextual != SyntaxKind::Ident {
+                p.expected("name");
+            }
+            p.bump(SyntaxKind::Ident);
+            p.finish(m, SyntaxKind::Name);
         }
-
-        check(
-            "",
-            expect![[r#"
-                Root {
-                    items: [],
-                    eof: Eof("", "", ""),
-                }
-            "#]],
-        );
-
-        check(
-            "????",
-            expect![[r#"
-                Root {
-                    items: [],
-                    eof: Eof("????", "", ""),
-                }
-            "#]],
-        );
-
-        check(
-            "fn main() {}",
-            expect![[r#"
-                Root {
-                    items: [
-                        Fn(
-                            FnItem {
-                                fn_kw: FnKeyword("", "fn", ""),
-                                name: Ident(" ", "main", ""),
-                                params: FnParams {
-                                    left_paren: LeftParen("", "(", ""),
-                                    params: [],
-                                    right_paren: RightParen("", ")", ""),
-                                },
-                                left_bracket: LeftBrace(" ", "{", ""),
-                                stmts: [],
-                                right_bracket: RightBrace("", "}", ""),
-                            },
-                        ),
-                    ],
-                    eof: Eof("", "", ""),
-                }
-            "#]],
-        );
-
-        check(
-            "fn main(args: ???) {}",
-            expect![[r#"
-                Root {
-                    items: [
-                        Fn(
-                            FnItem {
-                                fn_kw: FnKeyword("", "fn", ""),
-                                name: Ident(" ", "main", ""),
-                                params: FnParams {
-                                    left_paren: LeftParen("", "(", ""),
-                                    params: [
-                                        FnParam {
-                                            name: Ident("", "args", ""),
-                                            colon: Colon("", ":", ""),
-                                            ty: Invalid(
-                                                Question(" ", "?", ""),
-                                            ),
-                                        },
-                                        FnParam {
-                                            name: Ident("", "", ""),
-                                            colon: Colon("", "", ""),
-                                            ty: Invalid(
-                                                Question("", "?", ""),
-                                            ),
-                                        },
-                                        FnParam {
-                                            name: Ident("", "", ""),
-                                            colon: Colon("", "", ""),
-                                            ty: Invalid(
-                                                RightParen("", "?", ""),
-                                            ),
-                                        },
-                                    ],
-                                    right_paren: RightParen("", ")", ""),
-                                },
-                                left_bracket: LeftBrace(" ", "{", ""),
-                                stmts: [],
-                                right_bracket: RightBrace("", "}", ""),
-                            },
-                        ),
-                    ],
-                    eof: Eof("", "", ""),
-                }
-            "#]],
-        );
-
-        check(
-            "fn main(args: []T) { let x = x;} ",
-            expect![[r#"
-                Root {
-                    items: [
-                        Fn(
-                            FnItem {
-                                fn_kw: FnKeyword("", "fn", ""),
-                                name: Ident(" ", "main", ""),
-                                params: FnParams {
-                                    left_paren: LeftParen("", "(", ""),
-                                    params: [
-                                        FnParam {
-                                            name: Ident("", "args", ""),
-                                            colon: Colon("", ":", ""),
-                                            ty: Slice(
-                                                SliceTy {
-                                                    left_bracket: LeftBracket(" ", "[", ""),
-                                                    right_bracket: RightBracket("", "]", ""),
-                                                    ty: Ident(
-                                                        Ident("", "T", ""),
-                                                    ),
-                                                },
-                                            ),
-                                        },
-                                    ],
-                                    right_paren: RightParen("", ")", ""),
-                                },
-                                left_bracket: LeftBrace(" ", "{", ""),
-                                stmts: [
-                                    Let(
-                                        LetStmt {
-                                            let_kw: LetKeyword(" ", "let", ""),
-                                            name: Ident(" ", "x", ""),
-                                            equal: Equal(" ", "=", ""),
-                                            expr: Ident(
-                                                Ident(" ", "x", ""),
-                                            ),
-                                            semi: Semi("", ";", ""),
-                                        },
-                                    ),
-                                ],
-                                right_bracket: RightBrace("", "}", ""),
-                            },
-                        ),
-                    ],
-                    eof: Eof(" ", "", ""),
-                }
-            "#]],
-        );
+        SyntaxKind::RawIdent => {
+            p.bump(SyntaxKind::RawIdent);
+            p.finish(m, SyntaxKind::Name);
+        }
+        _ => {
+            p.expected("name");
+            p.finish(m, SyntaxKind::Error);
+        }
     }
 }
