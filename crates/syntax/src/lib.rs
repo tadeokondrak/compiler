@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use rowan::{GreenNode, GreenToken, NodeOrToken, TextRange};
+use rowan::{GreenNode, GreenToken, Language as _, NodeOrToken, TextRange};
 use std::cell::Cell;
 use text_size::TextSize;
 
@@ -222,7 +222,12 @@ pub fn parse(s: &str) -> (GreenNode, Vec<String>) {
     (node, parser.errors)
 }
 
-fn build_node(events: Vec<Event>, kinds: Vec<SyntaxKind>, lengths: Vec<TextSize>, s: &str) -> GreenNode {
+fn build_node(
+    events: Vec<Event>,
+    kinds: Vec<SyntaxKind>,
+    lengths: Vec<TextSize>,
+    s: &str,
+) -> GreenNode {
     let mut text_pos = TextSize::default();
     let mut token_pos = 0;
     let mut stack: Vec<Vec<NodeOrToken<GreenNode, GreenToken>>> = vec![Vec::new()];
@@ -236,7 +241,7 @@ fn build_node(events: Vec<Event>, kinds: Vec<SyntaxKind>, lengths: Vec<TextSize>
                     let trivia_len = lengths[token_pos];
                     let trivia_range = TextRange::new(text_pos, text_pos + trivia_len);
                     let trivia_text = &s[trivia_range];
-                    let token = GreenToken::new(rowan::SyntaxKind(trivia_kind as u16), trivia_text);
+                    let token = GreenToken::new(Language::kind_to_raw(trivia_kind), trivia_text);
                     stack.last_mut().unwrap().push(NodeOrToken::Token(token));
                     token_pos += 1;
                     text_pos += trivia_len;
@@ -250,7 +255,7 @@ fn build_node(events: Vec<Event>, kinds: Vec<SyntaxKind>, lengths: Vec<TextSize>
                 }
                 let range = TextRange::new(text_pos, text_pos + len);
                 let text = &s[range];
-                let token = GreenToken::new(rowan::SyntaxKind(kind as u16), text);
+                let token = GreenToken::new(Language::kind_to_raw(kind), text);
                 stack.last_mut().unwrap().push(NodeOrToken::Token(token));
                 text_pos += len;
             }
@@ -281,62 +286,62 @@ fn build_node(events: Vec<Event>, kinds: Vec<SyntaxKind>, lengths: Vec<TextSize>
 fn test() {
     let (node, errors) = parse(
         "
-        fn main(a u32, b u32, c u32) u32 {
-            if x {}
-        }
-    ",
+            fn main(a u32, b u32, c u32) u32 {
+                if x {}
+            }
+        ",
     );
     assert!(errors.is_empty(), "{errors:?}");
     let expected = expect_test::expect![[r#"
-        File@0..72
-          Space@0..9 "\n        "
-          FnDecl@9..72
-            FnKeyword@9..11 "fn"
-            Name@11..16
-              Space@11..12 " "
-              Ident@12..16 "main"
-            Params@16..37
-              LeftParen@16..17 "("
-              Param@17..23
-                Name@17..18
-                  Ident@17..18 "a"
-                Name@18..22
-                  Space@18..19 " "
-                  Ident@19..22 "u32"
-                Comma@22..23 ","
-              Param@23..30
-                Space@23..24 " "
-                Name@24..25
-                  Ident@24..25 "b"
-                Name@25..29
-                  Space@25..26 " "
-                  Ident@26..29 "u32"
-                Comma@29..30 ","
-              Param@30..36
-                Space@30..31 " "
-                Name@31..32
-                  Ident@31..32 "c"
-                Name@32..36
-                  Space@32..33 " "
-                  Ident@33..36 "u32"
-              RightParen@36..37 ")"
-            Name@37..41
-              Space@37..38 " "
-              Ident@38..41 "u32"
-            Block@41..72
+        File@0..84
+          Space@0..13 "\n            "
+          FnDecl@13..84
+            FnKeyword@13..15 "fn"
+            Name@15..20
+              Space@15..16 " "
+              Ident@16..20 "main"
+            Params@20..41
+              LeftParen@20..21 "("
+              Param@21..27
+                Name@21..22
+                  Ident@21..22 "a"
+                Name@22..26
+                  Space@22..23 " "
+                  Ident@23..26 "u32"
+                Comma@26..27 ","
+              Param@27..34
+                Space@27..28 " "
+                Name@28..29
+                  Ident@28..29 "b"
+                Name@29..33
+                  Space@29..30 " "
+                  Ident@30..33 "u32"
+                Comma@33..34 ","
+              Param@34..40
+                Space@34..35 " "
+                Name@35..36
+                  Ident@35..36 "c"
+                Name@36..40
+                  Space@36..37 " "
+                  Ident@37..40 "u32"
+              RightParen@40..41 ")"
+            Name@41..45
               Space@41..42 " "
-              LeftBrace@42..43 "{"
-              IfStmt@43..63
-                Space@43..56 "\n            "
-                IfKeyword@56..58 "if"
-                Name@58..60
-                  Space@58..59 " "
-                  Ident@59..60 "x"
-                Block@60..63
-                  Space@60..61 " "
-                  LeftBrace@61..62 "{"
-                  RightBrace@62..63 "}"
-              RightBrace@63..72 "\n        "
+              Ident@42..45 "u32"
+            Block@45..84
+              Space@45..46 " "
+              LeftBrace@46..47 "{"
+              IfStmt@47..71
+                Space@47..64 "\n                "
+                IfKeyword@64..66 "if"
+                Name@66..68
+                  Space@66..67 " "
+                  Ident@67..68 "x"
+                Block@68..71
+                  Space@68..69 " "
+                  LeftBrace@69..70 "{"
+                  RightBrace@70..71 "}"
+              RightBrace@71..84 "\n            "
 
     "#]];
     expected.assert_debug_eq(&SyntaxNode::new_root(node));
@@ -516,7 +521,9 @@ fn parse_param(p: &mut Parser) {
     let m = p.start();
     parse_name(p);
     parse_type_expr(p);
-    p.eat(T![,]);
+    if !p.at(T![')']) {
+        p.eat(T![,]);
+    }
     p.finish(m, SyntaxKind::Param);
 }
 
