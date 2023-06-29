@@ -299,7 +299,13 @@ test Root {
     try root.text.append(std.testing.allocator, '1');
 
     const token_id = @intToEnum(Token.Index, 0);
-    const token_data = Token{ .tag = .number, .text_pos = 0, .text_len = 1 };
+    const token_data = Token{
+        .tag = .number,
+        .text_pos = 0,
+        .text_len = 1,
+        .trivia_start = 0,
+        .trivia_count = 0,
+    };
     try root.tokens.append(std.testing.allocator, token_data);
     try std.testing.expectEqual(token_data, root.tokenData(token_id));
     try std.testing.expectEqual(Token.Tag.number, root.tokenTag(token_id));
