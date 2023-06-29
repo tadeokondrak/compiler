@@ -57,7 +57,6 @@ pub const Node = struct {
         const TREE_FLAG: u16 = 1 << 15;
 
         pub fn isTreeTag(tag: Node.Tag) bool {
-            //return (@enumToInt(tag) & TREE_FLAG) != 0;
             return tag.bits & TREE_FLAG != 0;
         }
 
@@ -87,8 +86,10 @@ pub const Node = struct {
 
 pub const Token = struct {
     tag: Token.Tag,
-    text_pos: u32,
-    text_len: u32,
+    text_pos: usize,
+    text_len: usize,
+    trivia_start: usize,
+    trivia_count: usize,
 
     pub const Index = enum(u32) { _ };
 
@@ -190,17 +191,31 @@ pub const Child = struct {
     tag: Node.Tag,
 };
 
+pub const Trivia = struct {
+    tag: Tag,
+    count: u8,
+
+    const Tag = enum(u8) {
+        tab,
+        space,
+        newline,
+        carriage_return,
+    };
+};
+
 pub const Root = struct {
     tokens: std.MultiArrayList(Token) = .{},
     text: std.ArrayListUnmanaged(u8) = .{},
     trees: std.MultiArrayList(Tree) = .{},
     children: std.MultiArrayList(Child) = .{},
+    trivia: std.MultiArrayList(Trivia) = .{},
 
     pub fn deinit(root: *Root, allocator: std.mem.Allocator) void {
         root.tokens.deinit(allocator);
         root.text.deinit(allocator);
         root.trees.deinit(allocator);
         root.children.deinit(allocator);
+        root.trivia.deinit(allocator);
     }
 
     // Token accessors
@@ -265,6 +280,13 @@ pub const Root = struct {
     pub fn formatToken(root: Root, id: Token.Index, indent: usize, writer: anytype) !void {
         const data = root.tokenData(id);
         const text = root.text.items[data.text_pos .. data.text_pos + data.text_len];
+        if (data.trivia_count != 0) {
+            for (data.trivia_start..data.trivia_start + data.trivia_count) |i| {
+                const trivia = root.trivia.get(i);
+                try writer.writeByteNTimes(' ', indent);
+                try writer.print("// {s}({})\n", .{ @tagName(trivia.tag), trivia.count });
+            }
+        }
         try writer.writeByteNTimes(' ', indent);
         try writer.print("{s}(\"{}\")\n", .{ @tagName(data.tag), std.zig.fmtEscapes(text) });
     }

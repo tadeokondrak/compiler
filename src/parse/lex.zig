@@ -10,19 +10,19 @@ pub const Lexer = struct {
     pos: usize = 0,
     text: []const u8,
 
-    const State = union(enum) {
-        init,
-        ident: struct { start_pos: usize },
-        number: struct { start_pos: usize },
-        space: struct { start_pos: usize },
-    };
-
     pub fn nth(lexer: *Lexer, n: usize) u8 {
         if (lexer.pos + n >= lexer.text.len) return 0;
         return lexer.text[lexer.pos + n];
     }
 
     pub fn next(lexer: *Lexer) ?Token {
+        const State = union(enum) {
+            init,
+            ident: struct { start_pos: usize },
+            number: struct { start_pos: usize },
+            space: struct { start_pos: usize },
+        };
+
         var state: State = .init;
         if (lexer.pos >= lexer.text.len)
             return null;
