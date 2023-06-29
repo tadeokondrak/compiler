@@ -17,8 +17,8 @@ pub const Parse = struct {
 };
 
 pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!Parse {
-    var tokens = std.ArrayList(syntax.pure.Token.Tag).init(allocator);
-    defer tokens.deinit();
+    var tokens = std.ArrayListUnmanaged(syntax.pure.Token.Tag){};
+    defer tokens.deinit(allocator);
 
     var all_tokens = std.MultiArrayList(lex.Token){};
     defer all_tokens.deinit(allocator);
@@ -27,7 +27,7 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
     var pos: usize = 0;
     while (l.next()) |token| {
         if (token.tag != .space)
-            try tokens.append(token.tag);
+            try tokens.append(allocator, token.tag);
         try all_tokens.append(allocator, token);
         pos += token.len;
     }
