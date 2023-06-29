@@ -99,13 +99,12 @@ pub fn build(
     defer stack.deinit(builder.allocator);
     defer std.debug.assert(stack.items.len == 1);
 
-    var child_nodes = std.ArrayListUnmanaged(syntax.pure.Node.Index){};
-    defer child_nodes.deinit(builder.allocator);
-    defer std.debug.assert(child_nodes.items.len == 1);
-
-    var child_tags = std.ArrayListUnmanaged(syntax.pure.Node.Tag){};
-    defer child_tags.deinit(builder.allocator);
-    defer std.debug.assert(child_tags.items.len == 1);
+    var children = std.MultiArrayList(struct {
+        node: syntax.pure.Node.Index,
+        tag: syntax.pure.Node.Tag,
+    }){};
+    defer children.deinit(builder.allocator);
+    defer std.debug.assert(children.len == 1);
 
     try stack.append(builder.allocator, .{ .tree_id = undefined, .tag = undefined, .num_children = 0 });
     defer std.debug.assert(stack.items[0].num_children == 1);
@@ -127,8 +126,10 @@ pub fn build(
                 .children_pos = undefined,
                 .children_len = 0,
             });
-            try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTree(tree_id));
-            try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTreeTag(open_event.tag));
+            try children.append(builder.allocator, .{
+                .node = syntax.pure.Node.Index.fromTree(tree_id),
+                .tag = syntax.pure.Node.Tag.fromTreeTag(open_event.tag),
+            });
             stack.items[stack.items.len - 1].num_children += 1;
             try stack.append(builder.allocator, .{ .tree_id = tree_id, .tag = open_event.tag, .num_children = 0 });
 
@@ -178,8 +179,10 @@ pub fn build(
                 .trivia_count = trivia_count,
             });
 
-            try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
-            try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(token_event.tag));
+            try children.append(builder.allocator, .{
+                .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)),
+                .tag = syntax.pure.Node.Tag.fromTokenTag(token_event.tag),
+            });
             stack.items[stack.items.len - 1].num_children += 1;
         },
         .close => {
@@ -205,8 +208,10 @@ pub fn build(
                     .trivia_count = trivia_count,
                 });
 
-                try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
-                try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(.eof));
+                try children.append(builder.allocator, .{
+                    .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)),
+                    .tag = syntax.pure.Node.Tag.fromTokenTag(.eof),
+                });
                 stack.items[stack.items.len - 1].num_children += 1;
             }
 
@@ -221,15 +226,14 @@ pub fn build(
             std.mem.copy(
                 syntax.pure.Node.Index,
                 root.children.items(.node)[children_start..],
-                child_nodes.items[child_nodes.items.len - stack_element.num_children ..],
+                children.items(.node)[children.len - stack_element.num_children ..],
             );
             std.mem.copy(
                 syntax.pure.Node.Tag,
                 root.children.items(.tag)[children_start..],
-                child_tags.items[child_tags.items.len - stack_element.num_children ..],
+                children.items(.tag)[children.len - stack_element.num_children ..],
             );
-            child_nodes.items.len -= stack_element.num_children;
-            child_tags.items.len -= stack_element.num_children;
+            children.len -= stack_element.num_children;
         },
     };
 
