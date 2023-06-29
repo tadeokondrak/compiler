@@ -119,40 +119,73 @@ pub fn build(
     var pending_trivia_start: usize = undefined;
     var pending_trivia_count: usize = 0;
 
-    for (builder.events.items) |event| {
-        switch (event) {
-            .open => |open_event| {
-                const tree_id = @intToEnum(syntax.pure.Tree.Index, std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory);
-                try root.trees.append(tree_allocator, syntax.pure.Tree{
-                    .tag = open_event.tag,
-                    .children_pos = undefined,
-                    .children_len = 0,
-                });
-                try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTree(tree_id));
-                try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTreeTag(open_event.tag));
-                stack.items[stack.items.len - 1].num_children += 1;
-                try stack.append(builder.allocator, .{ .tree_id = tree_id, .tag = open_event.tag, .num_children = 0 });
+    for (builder.events.items) |event| switch (event) {
+        .open => |open_event| {
+            const tree_id = @intToEnum(syntax.pure.Tree.Index, std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory);
+            try root.trees.append(tree_allocator, syntax.pure.Tree{
+                .tag = open_event.tag,
+                .children_pos = undefined,
+                .children_len = 0,
+            });
+            try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTree(tree_id));
+            try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTreeTag(open_event.tag));
+            stack.items[stack.items.len - 1].num_children += 1;
+            try stack.append(builder.allocator, .{ .tree_id = tree_id, .tag = open_event.tag, .num_children = 0 });
 
-                if (stack.items.len == 2) {
-                    // Top level, eat whitespace
-                    while (token_pos < tokens.len and tokens[token_pos] == .space) {
-                        const trivia_text_len = lengths[token_pos];
-                        const trivia_text = text[text_pos..][0..trivia_text_len];
-                        if (pending_trivia_count == 0)
-                            pending_trivia_start = root.trivia.len;
-                        // TODO handle overflow
-                        pending_trivia_count += try appendTrivia(tree_allocator, &root.trivia, trivia_text);
-                        text_pos += lengths[token_pos];
-                        token_pos += 1;
-                    }
+            if (stack.items.len == 2) {
+                // Top level, eat whitespace
+                while (token_pos < tokens.len and tokens[token_pos] == .space) {
+                    const trivia_text_len = lengths[token_pos];
+                    const trivia_text = text[text_pos..][0..trivia_text_len];
+                    if (pending_trivia_count == 0)
+                        pending_trivia_start = root.trivia.len;
+                    // TODO handle overflow
+                    pending_trivia_count += try appendTrivia(tree_allocator, &root.trivia, trivia_text);
+                    text_pos += lengths[token_pos];
+                    token_pos += 1;
                 }
-            },
-            .token => |token_event| {
-                // Eat whitespace
+            }
+        },
+        .token => |token_event| {
+            // Eat whitespace
+            var trivia_count: usize = pending_trivia_count;
+            const trivia_start = if (trivia_count > 0) pending_trivia_start else root.trivia.len;
+            pending_trivia_start = undefined;
+            pending_trivia_count = 0;
+            while (token_pos < tokens.len and tokens[token_pos] == .space) {
+                const trivia_text_len = lengths[token_pos];
+                const trivia_text = text[text_pos..][0..trivia_text_len];
+                // TODO handle overflow
+                trivia_count += try appendTrivia(tree_allocator, &root.trivia, trivia_text);
+                text_pos += lengths[token_pos];
+                token_pos += 1;
+            }
+
+            const token_text_len = lengths[token_pos];
+            const token_text = text[text_pos..][0..token_text_len];
+            text_pos += token_text_len;
+            token_pos += 1;
+
+            const root_text_pos = root.text.items.len;
+            try root.text.appendSlice(tree_allocator, token_text);
+
+            const root_token_pos = root.tokens.len;
+            try root.tokens.append(tree_allocator, syntax.pure.Token{
+                .tag = token_event.tag,
+                .text_pos = root_text_pos,
+                .text_len = token_text_len,
+                .trivia_start = trivia_start,
+                .trivia_count = trivia_count,
+            });
+
+            try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
+            try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(token_event.tag));
+            stack.items[stack.items.len - 1].num_children += 1;
+        },
+        .close => {
+            if (stack.items.len == 2) {
                 var trivia_count: usize = pending_trivia_count;
                 const trivia_start = if (trivia_count > 0) pending_trivia_start else root.trivia.len;
-                pending_trivia_start = undefined;
-                pending_trivia_count = 0;
                 while (token_pos < tokens.len and tokens[token_pos] == .space) {
                     const trivia_text_len = lengths[token_pos];
                     const trivia_text = text[text_pos..][0..trivia_text_len];
@@ -162,78 +195,43 @@ pub fn build(
                     token_pos += 1;
                 }
 
-                const token_text_len = lengths[token_pos];
-                const token_text = text[text_pos..][0..token_text_len];
-                text_pos += token_text_len;
-                token_pos += 1;
-
-                const root_text_pos = root.text.items.len;
-                try root.text.appendSlice(tree_allocator, token_text);
-
+                // Inject EOF token
                 const root_token_pos = root.tokens.len;
                 try root.tokens.append(tree_allocator, syntax.pure.Token{
-                    .tag = token_event.tag,
-                    .text_pos = root_text_pos,
-                    .text_len = token_text_len,
+                    .tag = .eof,
+                    .text_pos = 0,
+                    .text_len = 0,
                     .trivia_start = trivia_start,
                     .trivia_count = trivia_count,
                 });
 
                 try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
-                try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(token_event.tag));
+                try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(.eof));
                 stack.items[stack.items.len - 1].num_children += 1;
-            },
-            .close => {
-                if (stack.items.len == 2) {
-                    var trivia_count: usize = pending_trivia_count;
-                    const trivia_start = if (trivia_count > 0) pending_trivia_start else root.trivia.len;
-                    while (token_pos < tokens.len and tokens[token_pos] == .space) {
-                        const trivia_text_len = lengths[token_pos];
-                        const trivia_text = text[text_pos..][0..trivia_text_len];
-                        // TODO handle overflow
-                        trivia_count += try appendTrivia(tree_allocator, &root.trivia, trivia_text);
-                        text_pos += lengths[token_pos];
-                        token_pos += 1;
-                    }
+            }
 
-                    // Inject EOF token
-                    const root_token_pos = root.tokens.len;
-                    try root.tokens.append(tree_allocator, syntax.pure.Token{
-                        .tag = .eof,
-                        .text_pos = 0,
-                        .text_len = 0,
-                        .trivia_start = trivia_start,
-                        .trivia_count = trivia_count,
-                    });
-
-                    try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
-                    try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(.eof));
-                    stack.items[stack.items.len - 1].num_children += 1;
-                }
-
-                const stack_element = stack.pop();
-                root.trees.items(.children_pos)[@enumToInt(stack_element.tree_id)] =
-                    std.math.cast(u32, root.children.len) orelse return error.OutOfMemory;
-                root.trees.items(.children_len)[@enumToInt(stack_element.tree_id)] =
-                    std.math.cast(u32, stack_element.num_children) orelse return error.OutOfMemory;
-                const children_start = root.children.len;
-                try root.children.ensureUnusedCapacity(tree_allocator, stack_element.num_children);
-                root.children.len += stack_element.num_children;
-                std.mem.copy(
-                    syntax.pure.Node.Index,
-                    root.children.items(.node)[children_start..],
-                    child_nodes.items[child_nodes.items.len - stack_element.num_children ..],
-                );
-                std.mem.copy(
-                    syntax.pure.Node.Tag,
-                    root.children.items(.tag)[children_start..],
-                    child_tags.items[child_tags.items.len - stack_element.num_children ..],
-                );
-                child_nodes.items.len -= stack_element.num_children;
-                child_tags.items.len -= stack_element.num_children;
-            },
-        }
-    }
+            const stack_element = stack.pop();
+            root.trees.items(.children_pos)[@enumToInt(stack_element.tree_id)] =
+                std.math.cast(u32, root.children.len) orelse return error.OutOfMemory;
+            root.trees.items(.children_len)[@enumToInt(stack_element.tree_id)] =
+                std.math.cast(u32, stack_element.num_children) orelse return error.OutOfMemory;
+            const children_start = root.children.len;
+            try root.children.ensureUnusedCapacity(tree_allocator, stack_element.num_children);
+            root.children.len += stack_element.num_children;
+            std.mem.copy(
+                syntax.pure.Node.Index,
+                root.children.items(.node)[children_start..],
+                child_nodes.items[child_nodes.items.len - stack_element.num_children ..],
+            );
+            std.mem.copy(
+                syntax.pure.Node.Tag,
+                root.children.items(.tag)[children_start..],
+                child_tags.items[child_tags.items.len - stack_element.num_children ..],
+            );
+            child_nodes.items.len -= stack_element.num_children;
+            child_tags.items.len -= stack_element.num_children;
+        },
+    };
 
     return root;
 }
