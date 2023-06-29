@@ -91,23 +91,23 @@ pub fn build(
 
     var root: syntax.pure.Root = .{};
 
-    var stack = std.ArrayList(struct {
+    var stack = std.ArrayListUnmanaged(struct {
         tree_id: syntax.pure.Tree.Index,
         tag: syntax.pure.Tree.Tag,
         num_children: usize,
-    }).init(builder.allocator);
+    }){};
+    defer stack.deinit(builder.allocator);
     defer std.debug.assert(stack.items.len == 1);
-    defer stack.deinit();
 
-    var child_nodes = std.ArrayList(syntax.pure.Node.Index).init(builder.allocator);
+    var child_nodes = std.ArrayListUnmanaged(syntax.pure.Node.Index){};
+    defer child_nodes.deinit(builder.allocator);
     defer std.debug.assert(child_nodes.items.len == 1);
-    defer child_nodes.deinit();
 
-    var child_tags = std.ArrayList(syntax.pure.Node.Tag).init(builder.allocator);
+    var child_tags = std.ArrayListUnmanaged(syntax.pure.Node.Tag){};
+    defer child_tags.deinit(builder.allocator);
     defer std.debug.assert(child_tags.items.len == 1);
-    defer child_tags.deinit();
 
-    try stack.append(.{ .tree_id = undefined, .tag = undefined, .num_children = 0 });
+    try stack.append(builder.allocator, .{ .tree_id = undefined, .tag = undefined, .num_children = 0 });
     defer std.debug.assert(stack.items[0].num_children == 1);
 
     var token_pos: usize = 0;
@@ -128,10 +128,10 @@ pub fn build(
                     .children_pos = undefined,
                     .children_len = 0,
                 });
-                try child_nodes.append(syntax.pure.Node.Index.fromTree(tree_id));
-                try child_tags.append(syntax.pure.Node.Tag.fromTreeTag(open_event.tag));
+                try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTree(tree_id));
+                try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTreeTag(open_event.tag));
                 stack.items[stack.items.len - 1].num_children += 1;
-                try stack.append(.{ .tree_id = tree_id, .tag = open_event.tag, .num_children = 0 });
+                try stack.append(builder.allocator, .{ .tree_id = tree_id, .tag = open_event.tag, .num_children = 0 });
 
                 if (stack.items.len == 2) {
                     // Top level, eat whitespace
@@ -179,8 +179,8 @@ pub fn build(
                     .trivia_count = trivia_count,
                 });
 
-                try child_nodes.append(syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
-                try child_tags.append(syntax.pure.Node.Tag.fromTokenTag(token_event.tag));
+                try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
+                try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(token_event.tag));
                 stack.items[stack.items.len - 1].num_children += 1;
             },
             .close => {
@@ -206,8 +206,8 @@ pub fn build(
                         .trivia_count = trivia_count,
                     });
 
-                    try child_nodes.append(syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
-                    try child_tags.append(syntax.pure.Node.Tag.fromTokenTag(.eof));
+                    try child_nodes.append(builder.allocator, syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)));
+                    try child_tags.append(builder.allocator, syntax.pure.Node.Tag.fromTokenTag(.eof));
                     stack.items[stack.items.len - 1].num_children += 1;
                 }
 
