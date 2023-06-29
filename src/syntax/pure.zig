@@ -272,9 +272,10 @@ pub const Root = struct {
                 try root.formatTree(tree, indent + 2, writer)
             else
                 unreachable;
+            try writer.writeByte('\n');
         }
         try writer.writeByteNTimes(' ', indent);
-        try writer.writeAll(")\n");
+        try writer.writeAll(")");
     }
 
     pub fn formatToken(root: Root, id: Token.Index, indent: usize, writer: anytype) !void {
@@ -288,7 +289,7 @@ pub const Root = struct {
             }
         }
         try writer.writeByteNTimes(' ', indent);
-        try writer.print("{s}(\"{}\")\n", .{ @tagName(data.tag), std.zig.fmtEscapes(text) });
+        try writer.print("{s}(\"{}\")", .{ @tagName(data.tag), std.zig.fmtEscapes(text) });
     }
 };
 
