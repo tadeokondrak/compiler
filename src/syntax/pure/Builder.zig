@@ -9,7 +9,7 @@ oom: bool = false,
 
 pub const Event = union(enum) {
     open: struct { tag: syntax.pure.Tree.Tag },
-    token: struct { tag: syntax.pure.Token.Tag },
+    token,
     close,
 };
 
@@ -48,9 +48,9 @@ pub fn close(builder: *Builder, mark: Mark, tag: syntax.pure.Tree.Tag) void {
     };
 }
 
-pub fn token(builder: *Builder, tag: syntax.pure.Token.Tag) void {
+pub fn token(builder: *Builder) void {
     if (builder.oom) return;
-    builder.events.append(builder.allocator, Event{ .token = .{ .tag = tag } }) catch {
+    builder.events.append(builder.allocator, Event.token) catch {
         builder.oom = true;
     };
 }
@@ -147,7 +147,7 @@ pub fn build(
                 }
             }
         },
-        .token => |token_event| {
+        .token => {
             // Eat whitespace
             var trivia_count: usize = pending_trivia_count;
             const trivia_start = if (trivia_count > 0) pending_trivia_start else root.trivia.len;
@@ -162,6 +162,7 @@ pub fn build(
                 token_pos += 1;
             }
 
+            const token_tag = tokens[token_pos];
             const token_text_len = lengths[token_pos];
             const token_text = text[text_pos..][0..token_text_len];
             text_pos += token_text_len;
@@ -172,7 +173,7 @@ pub fn build(
 
             const root_token_pos = root.tokens.len;
             try root.tokens.append(tree_allocator, syntax.pure.Token{
-                .tag = token_event.tag,
+                .tag = token_tag,
                 .text_pos = root_text_pos,
                 .text_len = token_text_len,
                 .trivia_start = trivia_start,
@@ -181,7 +182,7 @@ pub fn build(
 
             try children.append(builder.allocator, .{
                 .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(root_token_pos)),
-                .tag = syntax.pure.Node.Tag.fromTokenTag(token_event.tag),
+                .tag = syntax.pure.Node.Tag.fromTokenTag(token_tag),
             });
             stack.items[stack.items.len - 1].num_children += 1;
         },

@@ -44,8 +44,7 @@ pub fn bump(p: *Parser, tag: syntax.pure.Token.Tag) void {
 }
 
 pub fn advance(p: *Parser) void {
-    const token = p.tokens[p.token_pos];
-    p.builder.token(token);
+    p.builder.token();
     p.token_pos += 1;
     p.fuel = 255;
 }
