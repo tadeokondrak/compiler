@@ -37,7 +37,7 @@ fn treeFormatFn(comptime This: type, comptime tag: syntax.pure.Tree.Tag) fn (Thi
     return struct {
         fn format(this: This, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
             try writer.writeAll(@tagName(tag) ++ "(");
-            try writer.print("{}", .{@enumToInt(this.tree)});
+            try writer.print("{}", .{@intFromEnum(this.tree)});
             try writer.writeAll(")");
         }
     }.format;

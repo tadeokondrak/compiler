@@ -149,7 +149,7 @@ pub const Builder = struct {
     pub fn addBlock(builder: *Builder) error{OutOfMemory}!BlockRef {
         try builder.func.blocks.append(builder.allocator, .{});
         // TODO: remove intCast
-        return .{ .index = @intCast(u32, builder.func.blocks.items.len - 1) };
+        return .{ .index = @intCast(builder.func.blocks.items.len - 1) };
     }
 
     pub fn switchToBlock(builder: *Builder, block: BlockRef) void {

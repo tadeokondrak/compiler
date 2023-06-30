@@ -50,7 +50,7 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
             all_tokens.items(.len),
         ),
         .ast = syntax.ast.File{
-            .tree = @intToEnum(syntax.pure.Tree.Index, 0),
+            .tree = @enumFromInt(0),
         },
     };
 }

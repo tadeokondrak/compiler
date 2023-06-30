@@ -63,7 +63,7 @@ pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
 
 pub fn dumpTypes(ctx: *Context) void {
     for (ctx.types.keys(), 0..) |key, i|
-        std.debug.print("{}: {}\n", .{ key, ctx.formatType(@intToEnum(Type.Index, i)) });
+        std.debug.print("{}: {}\n", .{ key, ctx.formatType(@enumFromInt(i)) });
     for (ctx.structures.items) |structure| {
         std.debug.print("struct {s} {{\n", .{structure.name});
         var it = structure.fields.iterator();
@@ -211,15 +211,15 @@ pub fn compile(ctx: *Context) !void {
 }
 
 fn typePtr(ctx: *Context, i: Type.Index) *Type {
-    return &ctx.types.values()[@enumToInt(i)];
+    return &ctx.types.values()[@intFromEnum(i)];
 }
 
 fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
-    return &ctx.structures.items[@enumToInt(i)];
+    return &ctx.structures.items[@intFromEnum(i)];
 }
 
 fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
-    return &ctx.functions.items[@enumToInt(i)];
+    return &ctx.functions.items[@intFromEnum(i)];
 }
 
 fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void {
@@ -439,17 +439,17 @@ const Scope = struct {
 };
 
 fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
-    if (ctx.types.getIndex(key)) |i| return @intToEnum(Type.Index, i);
+    if (ctx.types.getIndex(key)) |i| return @enumFromInt(i);
     switch (key) {
         .invalid => {
             const type_index = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .invalid);
-            return @intToEnum(Type.Index, type_index);
+            return @enumFromInt(type_index);
         },
         .unsigned_integer => |unsigned_integer| {
             const i = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } });
-            return @intToEnum(Type.Index, i);
+            return @enumFromInt(i);
         },
         .structure => |structure| {
             const struct_index = ctx.structures.items.len;
@@ -457,8 +457,8 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
             const name = ctx.root.tokenText(ident);
             try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
             const type_index = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .{ .structure = @intToEnum(Struct.Index, struct_index) });
-            return @intToEnum(Type.Index, type_index);
+            try ctx.types.put(ctx.allocator, key, .{ .structure = @enumFromInt(struct_index) });
+            return @enumFromInt(type_index);
         },
         .function => |function| {
             const function_index = ctx.functions.items.len;
@@ -466,13 +466,13 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
             const name = ctx.root.tokenText(ident);
             try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
             const type_index = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .{ .function = @intToEnum(Fn.Index, function_index) });
-            return @intToEnum(Type.Index, type_index);
+            try ctx.types.put(ctx.allocator, key, .{ .function = @enumFromInt(function_index) });
+            return @enumFromInt(type_index);
         },
         .pointer_to => |pointee| {
             const type_index = ctx.types.entries.len;
             try ctx.types.put(ctx.allocator, key, .{ .pointer_to = pointee });
-            return @intToEnum(Type.Index, type_index);
+            return @enumFromInt(type_index);
         },
     }
 }

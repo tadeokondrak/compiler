@@ -22,11 +22,11 @@ pub const Node = struct {
 
         pub fn asTree(node: Node.Index) ?Tree.Index {
             if (!isTree(node)) return null;
-            return @intToEnum(Tree.Index, node.bits & ~TREE_FLAG);
+            return @enumFromInt(node.bits & ~TREE_FLAG);
         }
 
         pub fn fromTree(tree: Tree.Index) Node.Index {
-            return Node.Index{ .bits = @enumToInt(tree) | TREE_FLAG };
+            return Node.Index{ .bits = @intFromEnum(tree) | TREE_FLAG };
         }
 
         pub fn fromTreeIndex(id: u32) Node.Index {
@@ -39,11 +39,11 @@ pub const Node = struct {
 
         pub fn asToken(node: Node.Index) ?Token.Index {
             if (!isToken(node)) return null;
-            return @intToEnum(Token.Index, node.bits);
+            return @enumFromInt(node.bits);
         }
 
         pub fn fromToken(token: Token.Index) Node.Index {
-            return Node.Index{ .bits = @enumToInt(token) };
+            return Node.Index{ .bits = @intFromEnum(token) };
         }
 
         pub fn fromTokenIndex(id: u32) Node.Index {
@@ -62,11 +62,11 @@ pub const Node = struct {
 
         pub fn asTreeTag(tag: Node.Tag) ?Tree.Tag {
             if (!isTreeTag(tag)) return null;
-            return @intToEnum(Tree.Tag, tag.bits & ~TREE_FLAG);
+            return @enumFromInt(tag.bits & ~TREE_FLAG);
         }
 
         pub fn fromTreeTag(tag: Tree.Tag) Node.Tag {
-            return Node.Tag{ .bits = @as(u16, @enumToInt(tag)) | TREE_FLAG };
+            return Node.Tag{ .bits = @as(u16, @intFromEnum(tag)) | TREE_FLAG };
         }
 
         pub fn isTokenTag(tag: Node.Tag) bool {
@@ -75,11 +75,11 @@ pub const Node = struct {
 
         pub fn asTokenTag(tag: Node.Tag) ?Token.Tag {
             if (!isTokenTag(tag)) return null;
-            return @intToEnum(Token.Tag, tag.bits);
+            return @enumFromInt(tag.bits);
         }
 
         pub fn fromTokenTag(tag: Token.Tag) Node.Tag {
-            return Node.Tag{ .bits = @enumToInt(tag) };
+            return Node.Tag{ .bits = @intFromEnum(tag) };
         }
     };
 };
@@ -221,7 +221,7 @@ pub const Root = struct {
     // Token accessors
 
     pub fn tokenData(root: Root, id: Token.Index) Token {
-        return root.tokens.get(@enumToInt(id));
+        return root.tokens.get(@intFromEnum(id));
     }
 
     pub fn tokenTag(root: Root, id: Token.Index) Token.Tag {
@@ -236,7 +236,7 @@ pub const Root = struct {
     // Tree accessors
 
     pub fn treeData(root: Root, id: Tree.Index) Tree {
-        return root.trees.get(@enumToInt(id));
+        return root.trees.get(@intFromEnum(id));
     }
 
     pub fn treeTag(root: Root, id: Tree.Index) Tree.Tag {
@@ -258,7 +258,7 @@ pub const Root = struct {
     pub fn format(root: Root, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         if (fmt.len != 0) @compileError("format string should be empty");
         if (root.trees.len > 0)
-            try root.formatTree(@intToEnum(Tree.Index, 0), 0, writer);
+            try root.formatTree(@enumFromInt(0), 0, writer);
     }
 
     pub fn formatTree(root: Root, id: Tree.Index, indent: usize, writer: anytype) !void {
@@ -299,7 +299,7 @@ test Root {
 
     try root.text.append(std.testing.allocator, '1');
 
-    const token_id = @intToEnum(Token.Index, 0);
+    const token_id: Token.Index = @enumFromInt(0);
     const token_data = Token{
         .tag = .number,
         .text_pos = 0,
@@ -312,7 +312,7 @@ test Root {
     try std.testing.expectEqual(Token.Tag.number, root.tokenTag(token_id));
     try std.testing.expectEqualSlices(u8, "1", root.tokenText(token_id));
 
-    const tree_id = @intToEnum(Tree.Index, @intCast(u32, root.trees.len));
+    const tree_id: Tree.Index = @enumFromInt(@as(u32, @intCast(root.trees.len)));
     const tree_data = Tree{ .tag = .expr_literal, .children_pos = 0, .children_len = 1 };
     try root.trees.append(std.testing.allocator, tree_data);
     try root.children.append(std.testing.allocator, .{

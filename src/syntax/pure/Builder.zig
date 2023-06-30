@@ -120,7 +120,7 @@ pub fn build(
 
     for (builder.events.items) |event| switch (event) {
         .open => |open_event| {
-            const tree_id = @intToEnum(syntax.pure.Tree.Index, std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory);
+            const tree_id: syntax.pure.Tree.Index = @enumFromInt(std.math.cast(u32, root.trees.len) orelse return error.OutOfMemory);
             try root.trees.append(tree_allocator, syntax.pure.Tree{
                 .tag = open_event.tag,
                 .children_pos = undefined,
@@ -180,7 +180,7 @@ pub fn build(
             });
 
             try children.append(builder.allocator, .{
-                .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)),
+                .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(root_token_pos)),
                 .tag = syntax.pure.Node.Tag.fromTokenTag(token_event.tag),
             });
             stack.items[stack.items.len - 1].num_children += 1;
@@ -209,16 +209,16 @@ pub fn build(
                 });
 
                 try children.append(builder.allocator, .{
-                    .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(u32, root_token_pos)),
+                    .node = syntax.pure.Node.Index.fromTokenIndex(@intCast(root_token_pos)),
                     .tag = syntax.pure.Node.Tag.fromTokenTag(.eof),
                 });
                 stack.items[stack.items.len - 1].num_children += 1;
             }
 
             const stack_element = stack.pop();
-            root.trees.items(.children_pos)[@enumToInt(stack_element.tree_id)] =
+            root.trees.items(.children_pos)[@intFromEnum(stack_element.tree_id)] =
                 std.math.cast(u32, root.children.len) orelse return error.OutOfMemory;
-            root.trees.items(.children_len)[@enumToInt(stack_element.tree_id)] =
+            root.trees.items(.children_len)[@intFromEnum(stack_element.tree_id)] =
                 std.math.cast(u32, stack_element.num_children) orelse return error.OutOfMemory;
             const children_start = root.children.len;
             try root.children.ensureUnusedCapacity(tree_allocator, stack_element.num_children);
