@@ -291,6 +291,39 @@ pub const Root = struct {
         try writer.writeByteNTimes(' ', indent);
         try writer.print("{s}(\"{}\")", .{ @tagName(data.tag), std.zig.fmtEscapes(text) });
     }
+
+    pub fn format2(root: Root, writer: anytype) !void {
+        try root.formatTree2(@enumFromInt(0), writer);
+    }
+
+    pub fn formatTree2(root: Root, id: Tree.Index, writer: anytype) !void {
+        for (root.treeChildren(id)) |node| {
+            if (node.asToken()) |token|
+                try root.formatToken2(token, writer)
+            else if (node.asTree()) |tree|
+                try root.formatTree2(tree, writer)
+            else
+                unreachable;
+        }
+    }
+
+    pub fn formatToken2(root: Root, id: Token.Index, writer: anytype) !void {
+        const data = root.tokenData(id);
+        const text = root.text.items[data.text_pos .. data.text_pos + data.text_len];
+        if (data.trivia_count != 0) {
+            for (data.trivia_start..data.trivia_start + data.trivia_count) |i| {
+                const trivia = root.trivia.get(i);
+                const byte: u8 = switch (trivia.tag) {
+                    .tab => '\t',
+                    .space => ' ',
+                    .newline => '\n',
+                    .carriage_return => '\r',
+                };
+                try writer.writeByteNTimes(byte, trivia.count);
+            }
+        }
+        try writer.writeAll(text);
+    }
 };
 
 test Root {
