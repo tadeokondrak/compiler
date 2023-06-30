@@ -37,7 +37,7 @@ pub fn main() !void {
     ;
 
     //std.debug.print("source: '{s}'\n", .{src});
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
     defer _ = gpa.deinit();
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();

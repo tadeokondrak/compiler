@@ -515,7 +515,7 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
 fn checkFnBody(ctx: *Context, scope: *const Scope, function: Fn.Index) !void {
     const body = ctx.fnPtr(function).syntax.body(ctx.root) orelse return error.Syntax;
 
-    var args = std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param){};
+    var args: std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param) = .{};
     defer args.deinit(ctx.allocator);
 
     const params = ctx.fnPtr(function).syntax.params(ctx.root) orelse return error.Syntax;

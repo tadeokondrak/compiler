@@ -91,18 +91,18 @@ pub fn build(
 
     var root: syntax.pure.Root = .{};
 
-    var stack = std.ArrayListUnmanaged(struct {
+    var stack: std.ArrayListUnmanaged(struct {
         tree_id: syntax.pure.Tree.Index,
         tag: syntax.pure.Tree.Tag,
         num_children: usize,
-    }){};
+    }) = .{};
     defer stack.deinit(builder.allocator);
     defer std.debug.assert(stack.items.len == 1);
 
-    var children = std.MultiArrayList(struct {
+    var children: std.MultiArrayList(struct {
         node: syntax.pure.Node.Index,
         tag: syntax.pure.Node.Tag,
-    }){};
+    }) = .{};
     defer children.deinit(builder.allocator);
     defer std.debug.assert(children.len == 1);
 
