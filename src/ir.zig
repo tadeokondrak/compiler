@@ -258,15 +258,13 @@ pub const Builder = struct {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
-            .{
-                .call = .{
-                    .func = func,
-                    .arg_extra = @intCast(arg_extra),
-                    .arg_count = @intCast(args.len),
-                    .dst_extra = @intCast(dst_extra),
-                    .dst_count = @intCast(return_count),
-                },
-            },
+            .{ .call = .{
+                .func = func,
+                .arg_extra = @intCast(arg_extra),
+                .arg_count = @intCast(args.len),
+                .dst_extra = @intCast(dst_extra),
+                .dst_count = @intCast(return_count),
+            } },
         );
         return @ptrCast(builder.func.extra.items[arg_extra..][0..args.len]);
     }

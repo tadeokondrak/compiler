@@ -36,9 +36,7 @@ fn treeCastFn(comptime This: type, comptime tag: syntax.pure.Tree.Tag) fn (synta
 fn treeIteratorFn(comptime This: type, comptime Tree: type) fn (This, syntax.pure.Root) ast.TreeIterator(Tree) {
     return struct {
         fn iter(this: This, root: syntax.pure.Root) ast.TreeIterator(Tree) {
-            return ast.TreeIterator(Tree){
-                .nodes = root.treeChildren(this.tree),
-            };
+            return .{ .nodes = root.treeChildren(this.tree) };
         }
     }.iter;
 }
