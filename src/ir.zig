@@ -3,10 +3,7 @@ const std = @import("std");
 pub const Reg = struct {
     index: u32,
 
-    pub fn format(reg: Reg, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
-        if (fmt.len != 0) @compileError("format string should be empty");
-
+    pub fn format(reg: Reg, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("%{}", .{reg.index});
     }
 };
@@ -14,10 +11,7 @@ pub const Reg = struct {
 pub const BlockRef = struct {
     index: u32,
 
-    pub fn format(block: BlockRef, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
-        if (fmt.len != 0) @compileError("format string should be empty");
-
+    pub fn format(block: BlockRef, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("b{}", .{block.index});
     }
 };
@@ -25,10 +19,7 @@ pub const BlockRef = struct {
 pub const Value = struct {
     bits: u64,
 
-    pub fn format(value: Value, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
-        if (fmt.len != 0) @compileError("format string should be empty");
-
+    pub fn format(value: Value, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("{}", .{value.bits});
     }
 };
@@ -38,10 +29,7 @@ pub const Type = enum {
     i64,
     ptr,
 
-    pub fn format(@"type": Type, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
-        if (fmt.len != 0) @compileError("format string should be empty");
-
+    pub fn format(@"type": Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (@"type") {
             .i32 => try writer.print("i32", .{}),
             .i64 => try writer.print("i64", .{}),
@@ -81,10 +69,7 @@ pub const Func = struct {
         func.blocks.deinit(allocator);
     }
 
-    pub fn format(func: Func, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = options;
-        if (fmt.len != 0) @compileError("format string should be empty");
-
+    pub fn format(func: Func, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         if (func.params.items.len != 0) {
             try writer.print("params (", .{});
             for (func.params.items) |param| {
