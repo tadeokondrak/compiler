@@ -549,11 +549,16 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
                     const expr = exprs.next(ctx.root) orelse return error.Syntax;
                     try checkExpr(ctx, scope, function, expr);
                     const inferred_type = try ctx.analyzeExpr(scope, expr, null);
-                    if (inferred_type != declared_type)
-                        try ctx.addDiagnostic(undefined, "return type mismatch: declared {}, inferred {}", .{
-                            ctx.formatType(inferred_type),
-                            ctx.formatType(declared_type),
-                        });
+                    if (inferred_type != declared_type) {
+                        try ctx.addDiagnostic(
+                            syntax.pure.Node.Index.fromTree(return_stmt.tree),
+                            "return type mismatch: declared {}, inferred {}",
+                            .{
+                                ctx.formatType(inferred_type),
+                                ctx.formatType(declared_type),
+                            },
+                        );
+                    }
                 }
                 if (exprs.next(ctx.root)) |_| {
                     try ctx.addDiagnostic(undefined, "too many return values", .{});
@@ -601,6 +606,10 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
                     if (exprs.next(ctx.root) != null)
                         return error.TODO;
                     const first_value = try genExpr(ctx, expr, builder);
+                    if (first_value != .reg) {
+                        try ctx.addDiagnostic(syntax.pure.Node.Index.fromTree(expr.tree()), "cannot use void value", .{});
+                        return;
+                    }
                     return builder.buildRet(&.{first_value.reg});
                 } else {
                     return builder.buildRet(&.{});
@@ -623,6 +632,7 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
 }
 
 const Value = union(enum) {
+    invalid,
     void,
     reg: ir.Reg,
 };
@@ -683,6 +693,12 @@ fn genBinExpr(ctx: *Context, expr: syntax.ast.Expr.Binary, builder: *ir.Builder,
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
     const lhs_value = try genExpr(ctx, lhs, builder);
     const rhs_value = try genExpr(ctx, rhs, builder);
+    if (lhs_value != .reg or rhs_value != .reg) {
+        if (lhs_value == .void or rhs_value == .void)
+            try ctx.addDiagnostic(undefined, "cannot use void value", .{});
+        return .invalid;
+    }
+
     return switch (op) {
         .add => .{ .reg = try builder.buildArith(.add, lhs_value.reg, rhs_value.reg) },
         .sub => .{ .reg = try builder.buildArith(.sub, lhs_value.reg, rhs_value.reg) },
