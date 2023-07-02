@@ -14,7 +14,7 @@ fn prefixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
 fn infixPrecedence(tag: syntax.pure.Token.Tag) ?[2]u8 {
     return switch (tag) {
         // .eof is zero, but we don't return it here
-        .lt, .lt_eq, .gt, .gt_eq, .eq2 => .{ 2, 2 },
+        .lt, .lt_eq, .gt, .gt_eq, .eq2, .bang_eq => .{ 2, 2 },
         .plus, .minus => .{ 3, 4 },
         .star, .slash, .percent => .{ 5, 6 },
         else => null,

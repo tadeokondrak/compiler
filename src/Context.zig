@@ -357,7 +357,13 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
                 );
                 return ctx.lookUpType(.invalid);
             }
-            if (binary_expr.lt_eq(ctx.root) != null) {
+            if (binary_expr.eq2(ctx.root) != null or
+                binary_expr.bangEq(ctx.root) != null or
+                binary_expr.lt(ctx.root) != null or
+                binary_expr.ltEq(ctx.root) != null or
+                binary_expr.gt(ctx.root) != null or
+                binary_expr.gtEq(ctx.root) != null)
+            {
                 if (lhs_type == rhs_type)
                     return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 1 } });
                 try ctx.addDiagnostic(
@@ -649,7 +655,12 @@ fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *
             if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .mul);
             if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .div);
             if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .rem);
-            if (binary_expr.lt_eq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .lt_eq);
+            if (binary_expr.eq2(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .eq);
+            if (binary_expr.bangEq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .neq);
+            if (binary_expr.lt(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .lt);
+            if (binary_expr.ltEq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .lte);
+            if (binary_expr.gt(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .gt);
+            if (binary_expr.gtEq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .gte);
             return error.UnknownBinaryOperator;
         },
         .literal => |literal| {
@@ -700,7 +711,7 @@ fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *
     }
 }
 
-fn genBinExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, lt_eq }) !Value {
+fn genBinExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, eq, neq, lt, lte, gt, gte }) !Value {
     const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
     const lhs_value = try genExpr(ctx, scope, lhs, builder);
@@ -717,7 +728,12 @@ fn genBinExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr.Binary, 
         .mul => .{ .reg = try builder.buildArith(.mul, lhs_value.reg, rhs_value.reg) },
         .div => .{ .reg = try builder.buildArith(.div, lhs_value.reg, rhs_value.reg) },
         .rem => .{ .reg = try builder.buildArith(.rem, lhs_value.reg, rhs_value.reg) },
-        .lt_eq => .{ .reg = try builder.buildCmp(.lt_eq, lhs_value.reg, rhs_value.reg) },
+        .eq => .{ .reg = try builder.buildCmp(.eq, lhs_value.reg, rhs_value.reg) },
+        .neq => .{ .reg = try builder.buildCmp(.neq, lhs_value.reg, rhs_value.reg) },
+        .lt => .{ .reg = try builder.buildCmp(.lt, lhs_value.reg, rhs_value.reg) },
+        .lte => .{ .reg = try builder.buildCmp(.lte, lhs_value.reg, rhs_value.reg) },
+        .gt => .{ .reg = try builder.buildCmp(.gt, lhs_value.reg, rhs_value.reg) },
+        .gte => .{ .reg = try builder.buildCmp(.gte, lhs_value.reg, rhs_value.reg) },
     };
 }
 
@@ -735,8 +751,7 @@ fn irType(ctx: *Context, type_index: Type.Index) !ir.Type {
 fn irTypes(ctx: *Context, allocator: std.mem.Allocator, types: []const Type.Index) ![]ir.Type {
     var list = try std.ArrayListUnmanaged(ir.Type).initCapacity(allocator, types.len);
     defer list.deinit(allocator);
-    for (types) |ty| {
+    for (types) |ty|
         list.appendAssumeCapacity(try irType(ctx, ty));
-    }
     return list.toOwnedSlice(allocator);
 }

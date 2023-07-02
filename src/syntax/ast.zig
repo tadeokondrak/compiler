@@ -236,7 +236,12 @@ pub const Expr = union(enum) {
         pub const star = tokenAccessorFn(@This(), .star);
         pub const slash = tokenAccessorFn(@This(), .slash);
         pub const percent = tokenAccessorFn(@This(), .percent);
-        pub const lt_eq = tokenAccessorFn(@This(), .lt_eq);
+        pub const eq2 = tokenAccessorFn(@This(), .eq);
+        pub const bangEq = tokenAccessorFn(@This(), .bang_eq);
+        pub const lt = tokenAccessorFn(@This(), .lt);
+        pub const gt = tokenAccessorFn(@This(), .gt);
+        pub const ltEq = tokenAccessorFn(@This(), .lt_eq);
+        pub const gtEq = tokenAccessorFn(@This(), .gt_eq);
         pub const lhs = nthTreeAccessorFn(@This(), Expr, 0);
         pub const rhs = nthTreeAccessorFn(@This(), Expr, 1);
     };

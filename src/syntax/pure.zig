@@ -114,6 +114,7 @@ pub const Token = struct {
 
         lt_eq,
         gt_eq,
+        bang_eq,
 
         lt2,
         gt2,
