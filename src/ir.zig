@@ -29,8 +29,8 @@ pub const Type = enum {
     i64,
     ptr,
 
-    pub fn format(@"type": Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (@"type") {
+    pub fn format(ty: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (ty) {
             .i32 => try writer.print("i32", .{}),
             .i64 => try writer.print("i64", .{}),
             .ptr => try writer.print("ptr", .{}),
@@ -180,12 +180,12 @@ pub const Builder = struct {
         builder.cur_block = block;
     }
 
-    pub fn buildConstant(builder: *Builder, @"type": Type, value: Value) error{OutOfMemory}!Reg {
+    pub fn buildConstant(builder: *Builder, ty: Type, value: Value) error{OutOfMemory}!Reg {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
-            .{ .constant = .{ .type = @"type", .value = value, .dst = dst } },
+            .{ .constant = .{ .type = ty, .value = value, .dst = dst } },
         );
         return dst;
     }
