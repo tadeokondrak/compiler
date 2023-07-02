@@ -601,9 +601,9 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
                     if (exprs.next(ctx.root) != null)
                         return error.TODO;
                     const first_value = try genExpr(ctx, expr, builder);
-                    return builder.buildRetVal(first_value.reg);
+                    return builder.buildRet(&.{first_value.reg});
                 } else {
-                    return builder.buildRetVoid();
+                    return builder.buildRet(&.{});
                 }
             },
             .@"if" => |if_stmt| {
@@ -623,6 +623,7 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
 }
 
 const Value = union(enum) {
+    void,
     reg: ir.Reg,
 };
 
@@ -656,8 +657,18 @@ fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
         },
         .call => |call| {
             const inner = call.expr(ctx.root) orelse return error.Syntax;
-            // TODO
-            return genExpr(ctx, inner, builder);
+            const ident = syntax.ast.Expr.Ident.cast(ctx.root, inner.tree()) orelse return error.CannotCallNonIdentifier;
+            const name = ctx.root.tokenText(ident.ident(ctx.root) orelse return error.Syntax);
+            const dname = try builder.allocator.dupe(u8, name);
+            const params = try builder.allocator.dupe(ir.Type, &.{});
+            const returns = try builder.allocator.dupe(ir.Type, &.{});
+            const extern_func = try builder.declareExternFunc(dname, params, returns);
+            const return_regs = try builder.buildCall(extern_func, &.{});
+            return switch (return_regs.len) {
+                0 => .void,
+                1 => .{ .reg = return_regs[0] },
+                else => @panic("TODO"),
+            };
         },
         .ident => |ident| {
             _ = ident;

@@ -47,17 +47,39 @@ pub const Inst = union(enum) {
     div: struct { lhs: Reg, rhs: Reg, dst: Reg },
     rem: struct { lhs: Reg, rhs: Reg, dst: Reg },
     lt_eq: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    ret_void,
-    ret_val: struct { operand: Reg },
+    ret: struct { reg_extra: u32, reg_count: u32 },
     jump: struct { block: BlockRef },
     branch: struct { cond: Reg, then_block: BlockRef, else_block: BlockRef },
     unreach,
+    call: struct { func: ExternFunc.Index, arg_extra: u32, arg_count: u32, dst_extra: u32, dst_count: u32 },
+};
+
+pub const ExternFunc = struct {
+    name: []const u8,
+    params: []Type,
+    returns: []Type,
+
+    const Index = enum(usize) {
+        _,
+
+        pub fn format(index: ExternFunc.Index, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.print("{}", .{@intFromEnum(index)});
+        }
+    };
+
+    pub fn deinit(func: *ExternFunc, allocator: std.mem.Allocator) void {
+        allocator.free(func.name);
+        allocator.free(func.params);
+        allocator.free(func.returns);
+    }
 };
 
 pub const Func = struct {
     params: std.ArrayListUnmanaged(Type) = .{},
     returns: std.ArrayListUnmanaged(Type) = .{},
     blocks: std.ArrayListUnmanaged(Block) = .{},
+    extra: std.ArrayListUnmanaged(u32) = .{},
+    extern_funcs: std.ArrayListUnmanaged(ExternFunc) = .{},
 
     pub fn deinit(func: *Func, allocator: std.mem.Allocator) void {
         func.params.deinit(allocator);
@@ -67,6 +89,10 @@ pub const Func = struct {
             block.insts.deinit(allocator);
         }
         func.blocks.deinit(allocator);
+        func.extra.deinit(allocator);
+        for (func.extern_funcs.items) |*extern_func|
+            extern_func.deinit(allocator);
+        func.extern_funcs.deinit(allocator);
     }
 
     pub fn format(func: Func, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -84,6 +110,19 @@ pub const Func = struct {
                 try writer.print("{}", .{ret});
             }
             try writer.print(")\n", .{});
+        }
+
+        if (func.extern_funcs.items.len != 0) {
+            try writer.print("extern_funcs:\n", .{});
+            for (func.extern_funcs.items, 0..) |extern_func, i| {
+                try writer.print("    {}: {s}(", .{ i, extern_func.name });
+                for (extern_func.params) |param|
+                    try writer.print("{}", .{param});
+                try writer.print(") -> (", .{});
+                for (extern_func.returns) |ret|
+                    try writer.print("{}", .{ret});
+                try writer.print(")\n", .{});
+            }
         }
 
         for (func.blocks.items, 0..) |block, i| {
@@ -171,16 +210,13 @@ pub const Builder = struct {
         return dst;
     }
 
-    pub fn buildRetVoid(builder: *Builder) error{OutOfMemory}!void {
-        const block = &builder.func.blocks.items[builder.cur_block.index];
-        try block.insts.append(builder.allocator, .ret_void);
-    }
-
-    pub fn buildRetVal(builder: *Builder, operand: Reg) error{OutOfMemory}!void {
+    pub fn buildRet(builder: *Builder, values: []const Reg) error{OutOfMemory}!void {
+        const reg_extra = builder.func.extra.items.len;
+        try builder.func.extra.appendSlice(builder.allocator, @ptrCast(values));
         const block = &builder.func.blocks.items[builder.cur_block.index];
         try block.insts.append(
             builder.allocator,
-            .{ .ret_val = .{ .operand = operand } },
+            .{ .ret = .{ .reg_extra = @intCast(reg_extra), .reg_count = @intCast(values.len) } },
         );
     }
 
@@ -198,5 +234,37 @@ pub const Builder = struct {
             builder.allocator,
             .{ .branch = .{ .cond = cond, .then_block = then_block, .else_block = else_block } },
         );
+    }
+
+    pub fn buildCall(builder: *Builder, func: ExternFunc.Index, args: []const Reg) error{OutOfMemory}![]Reg {
+        const return_count = builder.func.extern_funcs.items[@intFromEnum(func)].returns.len;
+        const arg_extra = builder.func.extra.items.len;
+        try builder.func.extra.appendSlice(builder.allocator, @ptrCast(args));
+        const dst_extra = builder.func.extra.items.len;
+        for (try builder.func.extra.addManyAsSlice(builder.allocator, return_count)) |*return_reg| {
+            return_reg.* = builder.addReg().index;
+        }
+        const block = &builder.func.blocks.items[builder.cur_block.index];
+        try block.insts.append(
+            builder.allocator,
+            .{
+                .call = .{
+                    .func = func,
+                    .arg_extra = @intCast(arg_extra),
+                    .arg_count = @intCast(args.len),
+                    .dst_extra = @intCast(dst_extra),
+                    .dst_count = @intCast(return_count),
+                },
+            },
+        );
+        return @ptrCast(builder.func.extra.items[arg_extra..][0..args.len]);
+    }
+
+    pub fn declareExternFunc(builder: *Builder, name: []u8, params: []Type, returns: []Type) error{OutOfMemory}!ExternFunc.Index {
+        try builder.func.extern_funcs.append(
+            builder.allocator,
+            .{ .name = name, .params = params, .returns = returns },
+        );
+        return @enumFromInt(builder.func.extern_funcs.items.len - 1);
     }
 };
