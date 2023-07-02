@@ -1,18 +1,18 @@
 const std = @import("std");
 
-pub const Reg = struct {
-    index: u32,
+pub const Reg = enum(u32) {
+    _,
 
     pub fn format(reg: Reg, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("%{}", .{reg.index});
+        try writer.print("%{}", .{@intFromEnum(reg)});
     }
 };
 
-pub const BlockRef = struct {
-    index: u32,
+pub const BlockRef = enum(u32) {
+    _,
 
     pub fn format(block: BlockRef, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("b{}", .{block.index});
+        try writer.print("b{}", .{@intFromEnum(block)});
     }
 };
 
@@ -161,19 +161,19 @@ pub const Block = struct {
 pub const Builder = struct {
     allocator: std.mem.Allocator,
     func: Func = .{},
-    cur_block: BlockRef = .{ .index = ~@as(u32, 0) },
+    cur_block: BlockRef = @enumFromInt(~@as(u32, 0)),
     next_reg: u32 = 0,
 
     pub fn addReg(builder: *Builder) Reg {
         const reg = builder.next_reg;
         builder.next_reg += 1;
-        return .{ .index = reg };
+        return @enumFromInt(reg);
     }
 
     pub fn addBlock(builder: *Builder) error{OutOfMemory}!BlockRef {
+        const block: u32 = @intCast(builder.func.blocks.items.len);
         try builder.func.blocks.append(builder.allocator, .{});
-        // TODO: remove intCast
-        return .{ .index = @intCast(builder.func.blocks.items.len - 1) };
+        return @enumFromInt(block);
     }
 
     pub fn switchToBlock(builder: *Builder, block: BlockRef) void {
@@ -181,7 +181,7 @@ pub const Builder = struct {
     }
 
     pub fn buildConstant(builder: *Builder, @"type": Type, value: Value) error{OutOfMemory}!Reg {
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
@@ -191,7 +191,7 @@ pub const Builder = struct {
     }
 
     pub fn buildArith(builder: *Builder, comptime tag: std.meta.Tag(Inst), lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
@@ -201,7 +201,7 @@ pub const Builder = struct {
     }
 
     pub fn buildCmp(builder: *Builder, comptime tag: std.meta.Tag(Inst), lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
@@ -213,7 +213,7 @@ pub const Builder = struct {
     pub fn buildRet(builder: *Builder, values: []const Reg) error{OutOfMemory}!void {
         const reg_extra = builder.func.extra.items.len;
         try builder.func.extra.appendSlice(builder.allocator, @ptrCast(values));
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
             .{ .ret = .{ .reg_extra = @intCast(reg_extra), .reg_count = @intCast(values.len) } },
@@ -221,7 +221,7 @@ pub const Builder = struct {
     }
 
     pub fn buildJump(builder: *Builder, to_block: BlockRef) error{OutOfMemory}!void {
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
             .{ .jump = .{ .block = to_block } },
@@ -229,7 +229,7 @@ pub const Builder = struct {
     }
 
     pub fn buildBranch(builder: *Builder, cond: Reg, then_block: BlockRef, else_block: BlockRef) error{OutOfMemory}!void {
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
             .{ .branch = .{ .cond = cond, .then_block = then_block, .else_block = else_block } },
@@ -242,9 +242,9 @@ pub const Builder = struct {
         try builder.func.extra.appendSlice(builder.allocator, @ptrCast(args));
         const dst_extra = builder.func.extra.items.len;
         for (try builder.func.extra.addManyAsSlice(builder.allocator, return_count)) |*return_reg| {
-            return_reg.* = builder.addReg().index;
+            return_reg.* = @intFromEnum(builder.addReg());
         }
-        const block = &builder.func.blocks.items[builder.cur_block.index];
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
             .{
