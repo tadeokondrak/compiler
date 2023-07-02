@@ -608,18 +608,17 @@ fn genBlock(ctx: *Context, scope: *const Scope, block: syntax.ast.Stmt.Block, bu
             },
             .@"return" => |return_stmt| {
                 var exprs = return_stmt.exprs(ctx.root);
-                if (exprs.next(ctx.root)) |expr| {
-                    if (exprs.next(ctx.root) != null)
-                        return error.TODO;
-                    const first_value = try genExpr(ctx, scope, expr, builder);
-                    if (first_value != .reg) {
+                var regs: std.ArrayListUnmanaged(ir.Reg) = .{};
+                defer regs.deinit(ctx.allocator);
+                while (exprs.next(ctx.root)) |expr| {
+                    const value = try genExpr(ctx, scope, expr, builder);
+                    if (value != .reg) {
                         try ctx.addDiagnostic(syntax.pure.Node.Index.fromTree(expr.tree()), "cannot use void value", .{});
                         return;
                     }
-                    return builder.buildRet(&.{first_value.reg});
-                } else {
-                    return builder.buildRet(&.{});
+                    try regs.append(ctx.allocator, value.reg);
                 }
+                return builder.buildRet(regs.items);
             },
             .@"if" => |if_stmt| {
                 const cond = if_stmt.cond(ctx.root) orelse return error.Syntax;
