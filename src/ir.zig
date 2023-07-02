@@ -140,19 +140,50 @@ pub const Func = struct {
             try writer.print(":\n", .{});
 
             for (block.insts.items) |inst| {
-                try writer.print("    {s}", .{@tagName(inst)});
+                try writer.writeByteNTimes(' ', 4);
+
+                var printed_lhs = false;
                 switch (inst) {
-                    inline else => |specific| {
-                        if (@TypeOf(specific) == void) continue;
-                        inline for (std.meta.fields(@TypeOf(specific)), 0..) |field, j| {
+                    inline else => |specific| blk: {
+                        if (@TypeOf(specific) == void) break :blk;
+                        var first = true;
+                        inline for (std.meta.fields(@TypeOf(specific))) |field| {
+                            if (!comptime std.mem.startsWith(u8, field.name, "dst"))
+                                continue;
                             if (comptime std.mem.endsWith(u8, field.name, "_count"))
                                 continue;
-                            if (j > 0) try writer.print(",", .{});
+                            if (!first) {
+                                try writer.print(", ", .{});
+                                first = false;
+                            }
+                            printed_lhs = true;
                             if (comptime std.mem.endsWith(u8, field.name, "_extra")) {
                                 const extra = func.extra.items[@field(specific, field.name)..][0..@field(specific, field.name[0 .. field.name.len - 5] ++ "count")];
-                                try writer.print(" {any}", .{extra});
+                                try writer.print("{any}", .{extra});
                             } else {
-                                try writer.print(" {any}", .{@field(specific, field.name)});
+                                try writer.print("{any}", .{@field(specific, field.name)});
+                            }
+                        }
+                    },
+                }
+                if (printed_lhs) {
+                    try writer.print(" = ", .{});
+                }
+                try writer.print("{s} ", .{@tagName(inst)});
+                switch (inst) {
+                    inline else => |specific| blk: {
+                        if (@TypeOf(specific) == void) break :blk;
+                        inline for (std.meta.fields(@TypeOf(specific)), 0..) |field, j| {
+                            if (comptime std.mem.startsWith(u8, field.name, "dst"))
+                                continue;
+                            if (comptime std.mem.endsWith(u8, field.name, "_count"))
+                                continue;
+                            if (j > 0) try writer.print(", ", .{});
+                            if (comptime std.mem.endsWith(u8, field.name, "_extra")) {
+                                const extra = func.extra.items[@field(specific, field.name)..][0..@field(specific, field.name[0 .. field.name.len - 5] ++ "count")];
+                                try writer.print("{any}", .{extra});
+                            } else {
+                                try writer.print("{any}", .{@field(specific, field.name)});
                             }
                         }
                     },
