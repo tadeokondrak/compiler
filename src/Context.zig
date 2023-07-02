@@ -200,7 +200,7 @@ pub fn compile(ctx: *Context) !void {
                 {
                     errdefer builder.func.deinit(ctx.allocator);
                     builder.switchToBlock(try builder.addBlock());
-                    try genBlock(ctx, body, &builder);
+                    try genBlock(ctx, &scope.base, body, &builder);
                 }
                 function.func = builder.func;
                 function.analysis = .generated;
@@ -588,24 +588,24 @@ fn checkExpr(ctx: *Context, scope: *const Scope, function: Fn.Index, expr: synta
     }
 }
 
-fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !void {
+fn genBlock(ctx: *Context, scope: *const Scope, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !void {
     for (ctx.root.treeChildren(block.tree)) |child| {
         const child_tree = child.asTree() orelse continue;
         const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse return error.Syntax;
         switch (stmt) {
             .expr => |expr_stmt| {
                 const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
-                _ = try genExpr(ctx, expr, builder);
+                _ = try genExpr(ctx, scope, expr, builder);
             },
             .block => |nested_block| {
-                return ctx.genBlock(nested_block, builder);
+                return ctx.genBlock(scope, nested_block, builder);
             },
             .@"return" => |return_stmt| {
                 var exprs = return_stmt.exprs(ctx.root);
                 if (exprs.next(ctx.root)) |expr| {
                     if (exprs.next(ctx.root) != null)
                         return error.TODO;
-                    const first_value = try genExpr(ctx, expr, builder);
+                    const first_value = try genExpr(ctx, scope, expr, builder);
                     if (first_value != .reg) {
                         try ctx.addDiagnostic(syntax.pure.Node.Index.fromTree(expr.tree()), "cannot use void value", .{});
                         return;
@@ -617,13 +617,13 @@ fn genBlock(ctx: *Context, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !
             },
             .@"if" => |if_stmt| {
                 const cond = if_stmt.cond(ctx.root) orelse return error.Syntax;
-                const cond_value = try genExpr(ctx, cond, builder);
+                const cond_value = try genExpr(ctx, scope, cond, builder);
                 const then_block = try builder.addBlock();
                 const cont_block = try builder.addBlock();
                 try builder.buildBranch(cond_value.reg, then_block, cont_block);
                 builder.switchToBlock(then_block);
                 const if_body = if_stmt.body(ctx.root) orelse return error.Syntax;
-                try ctx.genBlock(if_body, builder);
+                try ctx.genBlock(scope, if_body, builder);
                 try builder.buildJump(cont_block);
                 builder.switchToBlock(cont_block);
             },
@@ -637,19 +637,19 @@ const Value = union(enum) {
     reg: ir.Reg,
 };
 
-fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
+fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
     switch (expr) {
         .unary => |unary| {
             _ = unary;
             return error.UnknownUnaryOperator;
         },
         .binary => |binary_expr| {
-            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .add);
-            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .sub);
-            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .mul);
-            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .div);
-            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .rem);
-            if (binary_expr.lt_eq(ctx.root) != null) return genBinExpr(ctx, binary_expr, builder, .lt_eq);
+            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .add);
+            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .sub);
+            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .mul);
+            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .div);
+            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .rem);
+            if (binary_expr.lt_eq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .lt_eq);
             return error.UnknownBinaryOperator;
         },
         .literal => |literal| {
@@ -663,17 +663,29 @@ fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
         },
         .paren => |paren| {
             const inner = paren.expr(ctx.root) orelse return error.Syntax;
-            return genExpr(ctx, inner, builder);
+            return genExpr(ctx, scope, inner, builder);
         },
         .call => |call| {
             const inner = call.expr(ctx.root) orelse return error.Syntax;
             const ident = syntax.ast.Expr.Ident.cast(ctx.root, inner.tree()) orelse return error.CannotCallNonIdentifier;
             const name = ctx.root.tokenText(ident.ident(ctx.root) orelse return error.Syntax);
+            const decl_syntax = scope.get(name) orelse return error.UndefinedIdentifier;
+            const fn_syntax = syntax.ast.Decl.Fn.cast(ctx.root, decl_syntax) orelse return error.TODO;
+            const function_ty = try ctx.lookUpType(.{ .function = fn_syntax });
+            const function = ctx.fnPtr(ctx.typePtr(function_ty).function);
             const dname = try builder.allocator.dupe(u8, name);
-            const params = try builder.allocator.dupe(ir.Type, &.{});
-            const returns = try builder.allocator.dupe(ir.Type, &.{});
+            const params = try ctx.irTypes(builder.allocator, function.params.values());
+            const returns = try ctx.irTypes(builder.allocator, function.returns.values());
             const extern_func = try builder.declareExternFunc(dname, params, returns);
-            const return_regs = try builder.buildCall(extern_func, &.{});
+            var arg_regs = try std.ArrayListUnmanaged(ir.Reg).initCapacity(ctx.allocator, params.len);
+            defer arg_regs.deinit(ctx.allocator);
+            var it = (call.args(ctx.root) orelse return error.Syntax).args(ctx.root);
+            while (it.next(ctx.root)) |arg_syntax| {
+                const arg_expr = arg_syntax.expr(ctx.root) orelse return error.Syntax;
+                const arg_reg = try genExpr(ctx, scope, arg_expr, builder);
+                arg_regs.appendAssumeCapacity(arg_reg.reg);
+            }
+            const return_regs = try builder.buildCall(extern_func, arg_regs.items);
             return switch (return_regs.len) {
                 0 => .void,
                 1 => .{ .reg = return_regs[0] },
@@ -688,11 +700,11 @@ fn genExpr(ctx: *Context, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
     }
 }
 
-fn genBinExpr(ctx: *Context, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, lt_eq }) !Value {
+fn genBinExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, lt_eq }) !Value {
     const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
-    const lhs_value = try genExpr(ctx, lhs, builder);
-    const rhs_value = try genExpr(ctx, rhs, builder);
+    const lhs_value = try genExpr(ctx, scope, lhs, builder);
+    const rhs_value = try genExpr(ctx, scope, rhs, builder);
     if (lhs_value != .reg or rhs_value != .reg) {
         if (lhs_value == .void or rhs_value == .void)
             try ctx.addDiagnostic(undefined, "cannot use void value", .{});
@@ -707,4 +719,24 @@ fn genBinExpr(ctx: *Context, expr: syntax.ast.Expr.Binary, builder: *ir.Builder,
         .rem => .{ .reg = try builder.buildArith(.rem, lhs_value.reg, rhs_value.reg) },
         .lt_eq => .{ .reg = try builder.buildCmp(.lt_eq, lhs_value.reg, rhs_value.reg) },
     };
+}
+
+fn irType(ctx: *Context, type_index: Type.Index) !ir.Type {
+    const ty = ctx.typePtr(type_index);
+    return switch (ty.*) {
+        .invalid => @panic("TODO"),
+        .unsigned_integer => .i64,
+        .pointer_to => @panic("TODO"),
+        .structure => @panic("TODO"),
+        .function => @panic("TODO"),
+    };
+}
+
+fn irTypes(ctx: *Context, allocator: std.mem.Allocator, types: []const Type.Index) ![]ir.Type {
+    var list = try std.ArrayListUnmanaged(ir.Type).initCapacity(allocator, types.len);
+    defer list.deinit(allocator);
+    for (types) |ty| {
+        list.appendAssumeCapacity(try irType(ctx, ty));
+    }
+    return list.toOwnedSlice(allocator);
 }

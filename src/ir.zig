@@ -25,13 +25,11 @@ pub const Value = struct {
 };
 
 pub const Type = enum {
-    i32,
     i64,
     ptr,
 
     pub fn format(ty: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (ty) {
-            .i32 => try writer.print("i32", .{}),
             .i64 => try writer.print("i64", .{}),
             .ptr => try writer.print("ptr", .{}),
         }
@@ -142,8 +140,15 @@ pub const Func = struct {
                     inline else => |specific| {
                         if (@TypeOf(specific) == void) continue;
                         inline for (std.meta.fields(@TypeOf(specific)), 0..) |field, j| {
+                            if (comptime std.mem.endsWith(u8, field.name, "_count"))
+                                continue;
                             if (j > 0) try writer.print(",", .{});
-                            try writer.print(" {any}", .{@field(specific, field.name)});
+                            if (comptime std.mem.endsWith(u8, field.name, "_extra")) {
+                                const extra = func.extra.items[@field(specific, field.name)..][0..@field(specific, field.name[0 .. field.name.len - 5] ++ "count")];
+                                try writer.print(" {any}", .{extra});
+                            } else {
+                                try writer.print(" {any}", .{@field(specific, field.name)});
+                            }
                         }
                     },
                 }
@@ -237,13 +242,14 @@ pub const Builder = struct {
     }
 
     pub fn buildCall(builder: *Builder, func: ExternFunc.Index, args: []const Reg) error{OutOfMemory}![]Reg {
-        const return_count = builder.func.extern_funcs.items[@intFromEnum(func)].returns.len;
+        const extern_func = builder.func.extern_funcs.items[@intFromEnum(func)];
+        std.debug.assert(args.len == extern_func.params.len);
+        const return_count = extern_func.returns.len;
         const arg_extra = builder.func.extra.items.len;
         try builder.func.extra.appendSlice(builder.allocator, @ptrCast(args));
         const dst_extra = builder.func.extra.items.len;
-        for (try builder.func.extra.addManyAsSlice(builder.allocator, return_count)) |*return_reg| {
+        for (try builder.func.extra.addManyAsSlice(builder.allocator, return_count)) |*return_reg|
             return_reg.* = @intFromEnum(builder.addReg());
-        }
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
