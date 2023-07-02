@@ -14,6 +14,16 @@ fn unionCastFn(comptime This: type) fn (syntax.pure.Root, syntax.pure.Tree.Index
     }.cast;
 }
 
+fn unionTreeFn(comptime This: type) fn (This) syntax.pure.Tree.Index {
+    return struct {
+        pub fn tree(this: This) syntax.pure.Tree.Index {
+            return switch (this) {
+                inline else => |variant| variant.tree,
+            };
+        }
+    }.tree;
+}
+
 fn treeCastFn(comptime This: type, comptime tag: syntax.pure.Tree.Tag) fn (syntax.pure.Root, syntax.pure.Tree.Index) ?This {
     return struct {
         fn cast(root: syntax.pure.Root, tree: syntax.pure.Tree.Index) ?This {
@@ -105,6 +115,7 @@ pub const Decl = union(enum) {
     constant: Decl.Const,
 
     pub const cast = unionCastFn(@This());
+    pub const tree = unionTreeFn(@This());
 
     pub const Fn = struct {
         tree: syntax.pure.Tree.Index,
@@ -203,6 +214,7 @@ pub const Expr = union(enum) {
     ident: Expr.Ident,
 
     pub const cast = unionCastFn(@This());
+    pub const tree = unionTreeFn(@This());
 
     pub const Unary = struct {
         tree: syntax.pure.Tree.Index,
@@ -292,6 +304,7 @@ pub const Stmt = union(enum) {
     @"if": Stmt.If,
 
     pub const cast = unionCastFn(@This());
+    pub const tree = unionTreeFn(@This());
 
     pub const Expr = struct {
         tree: syntax.pure.Tree.Index,
@@ -336,6 +349,7 @@ pub const TypeExpr = union(enum) {
     ident: TypeExpr.Ident,
 
     pub const cast = unionCastFn(@This());
+    pub const tree = unionTreeFn(@This());
 
     pub const Unary = struct {
         tree: syntax.pure.Tree.Index,
