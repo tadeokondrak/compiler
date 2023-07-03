@@ -63,7 +63,6 @@ pub const CmpOp = enum {
 
 pub const Inst = union(enum) {
     constant: struct { type: Type, value: Value, dst: Reg },
-    param: struct { dst: Reg, index: u32 },
     arith: struct { op: ArithOp, lhs: Reg, rhs: Reg, dst: Reg },
     cmp: struct { op: CmpOp, lhs: Reg, rhs: Reg, dst: Reg },
     ret: struct { reg_extra: u32, reg_count: u32 },
