@@ -34,6 +34,11 @@ pub const ArithOp = enum {
     mul,
     div,
     rem,
+    shl,
+    shr,
+    band,
+    bor,
+    bxor,
 
     pub fn format(op: ArithOp, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.writeAll(@tagName(op));

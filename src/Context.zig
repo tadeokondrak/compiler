@@ -363,7 +363,15 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, null);
             const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, null);
             if (binary_expr.plus(ctx.root) != null or
-                binary_expr.minus(ctx.root) != null)
+                binary_expr.minus(ctx.root) != null or
+                binary_expr.star(ctx.root) != null or
+                binary_expr.slash(ctx.root) != null or
+                binary_expr.percent(ctx.root) != null or
+                binary_expr.lt2(ctx.root) != null or
+                binary_expr.gt2(ctx.root) != null or
+                binary_expr.ampersand(ctx.root) != null or
+                binary_expr.pipe(ctx.root) != null or
+                binary_expr.caret(ctx.root) != null)
             {
                 if (lhs_type == rhs_type)
                     return lhs_type;
@@ -675,6 +683,11 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
             if (binary_expr.star(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .mul);
             if (binary_expr.slash(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .div);
             if (binary_expr.percent(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .rem);
+            if (binary_expr.lt2(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .shl);
+            if (binary_expr.gt2(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .shr);
+            if (binary_expr.ampersand(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .band);
+            if (binary_expr.pipe(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .bor);
+            if (binary_expr.caret(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .bxor);
             if (binary_expr.eq2(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .eq);
             if (binary_expr.bangEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .neq);
             if (binary_expr.lt(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .lt);
