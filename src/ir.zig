@@ -61,15 +61,20 @@ pub const CmpOp = enum {
     }
 };
 
+pub const Regs = struct {
+    index: u32,
+    count: u32,
+};
+
 pub const Inst = union(enum) {
     constant: struct { type: Type, value: Value, dst: Reg },
     arith: struct { op: ArithOp, lhs: Reg, rhs: Reg, dst: Reg },
     cmp: struct { op: CmpOp, lhs: Reg, rhs: Reg, dst: Reg },
-    ret: struct { reg_extra: u32, reg_count: u32 },
+    ret: struct { regs: Regs },
     jump: struct { block: BlockRef },
     branch: struct { cond: Reg, then_block: BlockRef, else_block: BlockRef },
     unreach,
-    call: struct { func: ExternFunc.Index, arg_extra: u32, arg_count: u32, dst_extra: u32, dst_count: u32 },
+    call: struct { func: ExternFunc.Index, args: Regs, dsts: Regs },
 };
 
 pub const ExternFunc = struct {
@@ -170,16 +175,18 @@ pub const Func = struct {
                         inline for (std.meta.fields(@TypeOf(specific))) |field| {
                             if (!comptime std.mem.startsWith(u8, field.name, "dst"))
                                 continue;
-                            if (comptime std.mem.endsWith(u8, field.name, "_count"))
-                                continue;
                             if (!first) {
                                 try writer.print(", ", .{});
                                 first = false;
                             }
                             printed_lhs = true;
-                            if (comptime std.mem.endsWith(u8, field.name, "_extra")) {
-                                const extra = func.extra.items[@field(specific, field.name)..][0..@field(specific, field.name[0 .. field.name.len - 5] ++ "count")];
-                                try writer.print("{any}", .{extra});
+                            if (field.type == Regs) {
+                                const regs = @field(specific, field.name);
+                                for (func.extra.items[regs.index..][0..regs.count], 0..) |reg_index, j| {
+                                    if (j > 0) try writer.writeAll(", ");
+                                    const reg: Reg = @enumFromInt(reg_index);
+                                    try writer.print("{any}", .{reg});
+                                }
                             } else {
                                 try writer.print("{any}", .{@field(specific, field.name)});
                             }
@@ -196,12 +203,16 @@ pub const Func = struct {
                         inline for (std.meta.fields(@TypeOf(specific)), 0..) |field, j| {
                             if (comptime std.mem.startsWith(u8, field.name, "dst"))
                                 continue;
-                            if (comptime std.mem.endsWith(u8, field.name, "_count"))
-                                continue;
                             if (j > 0) try writer.print(", ", .{});
-                            if (comptime std.mem.endsWith(u8, field.name, "_extra")) {
-                                const extra = func.extra.items[@field(specific, field.name)..][0..@field(specific, field.name[0 .. field.name.len - 5] ++ "count")];
-                                try writer.print("{any}", .{extra});
+                            if (field.type == Regs) {
+                                const regs = @field(specific, field.name);
+                                if (regs.count > 1) try writer.writeAll("(");
+                                for (func.extra.items[regs.index..][0..regs.count], 0..) |reg_index, k| {
+                                    if (k > 0) try writer.writeAll(", ");
+                                    const reg: Reg = @enumFromInt(reg_index);
+                                    try writer.print("{any}", .{reg});
+                                }
+                                if (regs.count > 1) try writer.writeAll(")");
                             } else {
                                 try writer.print("{any}", .{@field(specific, field.name)});
                             }
@@ -285,7 +296,7 @@ pub const Builder = struct {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
-            .{ .ret = .{ .reg_extra = @intCast(reg_extra), .reg_count = @intCast(values.len) } },
+            .{ .ret = .{ .regs = .{ .index = @intCast(reg_extra), .count = @intCast(values.len) } } },
         );
     }
 
@@ -308,6 +319,7 @@ pub const Builder = struct {
     pub fn buildCall(builder: *Builder, func: ExternFunc.Index, args: []const Reg) error{OutOfMemory}![]Reg {
         const extern_func = builder.func.extern_funcs.items[@intFromEnum(func)];
         std.debug.assert(args.len == extern_func.params.len);
+        std.debug.assert(extern_func.returns.len == 1);
         const return_count = extern_func.returns.len;
         const arg_extra = builder.func.extra.items.len;
         try builder.func.extra.appendSlice(builder.allocator, @ptrCast(args));
@@ -319,13 +331,17 @@ pub const Builder = struct {
             builder.allocator,
             .{ .call = .{
                 .func = func,
-                .arg_extra = @intCast(arg_extra),
-                .arg_count = @intCast(args.len),
-                .dst_extra = @intCast(dst_extra),
-                .dst_count = @intCast(return_count),
+                .args = .{
+                    .index = @intCast(arg_extra),
+                    .count = @intCast(args.len),
+                },
+                .dsts = .{
+                    .index = @intCast(dst_extra),
+                    .count = @intCast(return_count),
+                },
             } },
         );
-        return @ptrCast(builder.func.extra.items[arg_extra..][0..args.len]);
+        return @ptrCast(builder.func.extra.items[dst_extra..][0..return_count]);
     }
 
     pub fn declareExternFunc(builder: *Builder, name: []u8, params: []Type, returns: []Type) error{OutOfMemory}!ExternFunc.Index {
