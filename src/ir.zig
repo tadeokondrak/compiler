@@ -101,7 +101,8 @@ pub const Func = struct {
     pub fn format(func: Func, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         if (func.params.items.len != 0) {
             try writer.print("params (", .{});
-            for (func.params.items) |param| {
+            for (func.params.items, 0..) |param, i| {
+                if (i > 0) try writer.writeAll(", ");
                 try writer.print("{}", .{param});
             }
             try writer.print(")\n", .{});
@@ -109,7 +110,8 @@ pub const Func = struct {
 
         if (func.returns.items.len != 0) {
             try writer.print("returns (", .{});
-            for (func.returns.items) |ret| {
+            for (func.returns.items, 0..) |ret, i| {
+                if (i > 0) try writer.writeAll(", ");
                 try writer.print("{}", .{ret});
             }
             try writer.print(")\n", .{});
@@ -132,7 +134,8 @@ pub const Func = struct {
             try writer.print("b{}", .{i});
             if (block.params.len > 0) {
                 try writer.print("(", .{});
-                for (block.params.items(.reg), block.params.items(.ty)) |reg, ty| {
+                for (block.params.items(.reg), block.params.items(.ty), 0..) |reg, ty, j| {
+                    if (j > 0) try writer.writeAll(", ");
                     try writer.print("{}: {}", .{ reg, ty });
                 }
                 try writer.print(")", .{});
