@@ -36,14 +36,13 @@ pub fn main() !void {
         \\}
     ;
 
-    //std.debug.print("source: '{s}'\n", .{src});
     var gpa: std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 32 }) = .{};
     defer _ = gpa.deinit();
     var ctx = try Context.init(gpa.allocator(), src);
     defer ctx.deinit();
     //std.debug.print("syntax: {}\n", .{ctx.root});
     try ctx.compile();
-    ctx.dumpTypes();
+    ctx.dump();
     if (try ctx.printDiagnostics(std.io.getStdErr().writer()))
         return;
 }

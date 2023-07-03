@@ -136,8 +136,10 @@ pub const Func = struct {
             try writer.print("extern_funcs:\n", .{});
             for (func.extern_funcs.items, 0..) |extern_func, i| {
                 try writer.print("    {}: {s}(", .{ i, extern_func.name });
-                for (extern_func.params) |param|
+                for (extern_func.params, 0..) |param, j| {
+                    if (j > 0) try writer.writeAll(", ");
                     try writer.print("{}", .{param});
+                }
                 try writer.print(") -> (", .{});
                 for (extern_func.returns) |ret|
                     try writer.print("{}", .{ret});

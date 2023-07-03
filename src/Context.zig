@@ -61,7 +61,7 @@ pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
     return ctx.diagnostics.len > 0;
 }
 
-pub fn dumpTypes(ctx: *Context) void {
+pub fn dump(ctx: *Context) void {
     for (ctx.types.keys(), 0..) |key, i|
         std.debug.print("{}: {}\n", .{ key, ctx.formatType(@enumFromInt(i)) });
     for (ctx.structures.items) |structure| {
@@ -239,7 +239,6 @@ fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
 }
 
 fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void {
-    std.debug.print("analyzeDecl: {}\n", .{decl});
     switch (decl) {
         .structure => |struct_syntax| {
             var type_index = try ctx.lookUpType(.{ .structure = struct_syntax });
@@ -312,7 +311,6 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
 }
 
 fn typeOfDecl(ctx: *Context, root_scope: *const Scope, decl: syntax.ast.Decl) !Type.Index {
-    std.debug.print("analyzeDecl: {}\n", .{decl});
     switch (decl) {
         .structure => |struct_syntax| {
             return ctx.lookUpType(.{ .structure = struct_syntax });
@@ -729,7 +727,7 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
             return switch (return_regs.len) {
                 0 => .void,
                 1 => .{ .reg = return_regs[0] },
-                else => @panic("TODO"),
+                else => std.debug.panic("TODO: {}", .{return_regs.len}),
             };
         },
         .ident => |ident| {
