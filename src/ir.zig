@@ -4,7 +4,7 @@ pub const Reg = enum(u32) {
     _,
 
     pub fn format(reg: Reg, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("%{}", .{@intFromEnum(reg)});
+        try writer.print("v{}", .{@intFromEnum(reg)});
     }
 };
 
@@ -130,10 +130,10 @@ pub const Func = struct {
 
         for (func.blocks.items, 0..) |block, i| {
             try writer.print("b{}", .{i});
-            if (block.params.items.len > 0) {
+            if (block.params.len > 0) {
                 try writer.print("(", .{});
-                for (block.params.items) |param| {
-                    try writer.print("{}", .{param});
+                for (block.params.items(.reg), block.params.items(.ty)) |reg, ty| {
+                    try writer.print("{}: {}", .{ reg, ty });
                 }
                 try writer.print(")", .{});
             }
@@ -195,8 +195,13 @@ pub const Func = struct {
 };
 
 pub const Block = struct {
-    params: std.ArrayListUnmanaged(Type) = .{},
+    params: std.MultiArrayList(Param) = .{},
     insts: std.ArrayListUnmanaged(Inst) = .{},
+
+    pub const Param = struct {
+        ty: Type,
+        reg: Reg,
+    };
 };
 
 pub const Builder = struct {
@@ -211,10 +216,13 @@ pub const Builder = struct {
         return @enumFromInt(reg);
     }
 
-    pub fn addBlock(builder: *Builder) error{OutOfMemory}!BlockRef {
-        const block: u32 = @intCast(builder.func.blocks.items.len);
-        try builder.func.blocks.append(builder.allocator, .{});
-        return @enumFromInt(block);
+    pub fn addBlock(builder: *Builder, params: []const Block.Param) error{OutOfMemory}!BlockRef {
+        const block_ref: u32 = @intCast(builder.func.blocks.items.len);
+        const block = try builder.func.blocks.addOne(builder.allocator);
+        block.* = .{};
+        for (params) |param|
+            try block.params.append(builder.allocator, param);
+        return @enumFromInt(block_ref);
     }
 
     pub fn switchToBlock(builder: *Builder, block: BlockRef) void {

@@ -38,12 +38,12 @@ const FormatType = struct {
                 try writer.print("fn {s}(", .{function.name});
                 for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
                     if (i > 0) try writer.print(", ", .{});
-                    try writer.print("{s}: {}", .{ key, this.ctx.formatType(value) });
+                    try writer.print("{s}: {}", .{ key, this.ctx.formatType(value.ty) });
                 }
                 try writer.print(") (", .{});
                 for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
                     if (i > 0) try writer.print(", ", .{});
-                    try writer.print("{s}: {}", .{ key, this.ctx.formatType(value) });
+                    try writer.print("{s}: {}", .{ key, this.ctx.formatType(value.ty) });
                 }
                 try writer.print(")", .{});
             },
@@ -76,12 +76,12 @@ pub fn dumpTypes(ctx: *Context) void {
         std.debug.print("fn {s}(", .{function.name});
         for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
             if (i > 0) std.debug.print(", ", .{});
-            std.debug.print("{s}: {}", .{ key, ctx.formatType(value) });
+            std.debug.print("{s}: {}", .{ key, ctx.formatType(value.ty) });
         }
         std.debug.print(") (", .{});
         for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
             if (i > 0) std.debug.print(", ", .{});
-            std.debug.print("{s}: {}", .{ key, ctx.formatType(value) });
+            std.debug.print("{s}: {}", .{ key, ctx.formatType(value.ty) });
         }
         std.debug.print(") {{\n", .{});
         if (function.analysis == .generated) {
@@ -128,8 +128,8 @@ const Fn = struct {
     analysis: enum { unanalyzed, analyzed, generated } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
     name: []const u8,
-    params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
-    returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
+    params: std.StringArrayHashMapUnmanaged(struct { syntax: syntax.pure.Tree.Index, ty: Type.Index }) = .{},
+    returns: std.StringArrayHashMapUnmanaged(struct { syntax: syntax.pure.Tree.Index, ty: Type.Index }) = .{},
     func: ir.Func = undefined,
 
     const Index = enum(usize) {
@@ -197,10 +197,26 @@ pub fn compile(ctx: *Context) !void {
                 std.debug.assert(function.analysis == .analyzed);
                 const body = function_syntax.body(ctx.root) orelse return error.Syntax;
                 var builder: ir.Builder = .{ .allocator = ctx.allocator };
+                var args: std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index) = .{};
+                defer args.deinit(ctx.allocator);
+                var fn_scope = Scope.Fn{ .base = .{ .parent = &scope.base, .getFn = Scope.Fn.get }, .args = &args };
+                var gen = Gen{};
+                defer gen.vars.deinit(ctx.allocator);
                 {
                     errdefer builder.func.deinit(ctx.allocator);
-                    builder.switchToBlock(try builder.addBlock());
-                    try genBlock(ctx, &scope.base, body, &builder);
+                    var params: std.ArrayListUnmanaged(ir.Block.Param) = .{};
+                    defer params.deinit(ctx.allocator);
+                    for (function.params.keys(), function.params.values()) |name, param| {
+                        const reg = builder.addReg();
+                        try params.append(ctx.allocator, .{
+                            .ty = try ctx.irType(param.ty),
+                            .reg = reg,
+                        });
+                        try args.put(ctx.allocator, name, param.syntax);
+                        try gen.vars.put(ctx.allocator, param.syntax, reg);
+                    }
+                    builder.switchToBlock(try builder.addBlock(params.items));
+                    try genBlock(ctx, &gen, &fn_scope.base, body, &builder);
                 }
                 function.func = builder.func;
                 function.analysis = .generated;
@@ -255,7 +271,10 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
                         const name = ctx.root.tokenText(name_syntax);
                         const type_syntax = param.typeExpr(ctx.root) orelse return error.Syntax;
                         const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-                        try function.params.put(ctx.allocator, name, ty);
+                        try function.params.put(ctx.allocator, name, .{
+                            .syntax = param.tree,
+                            .ty = ty,
+                        });
                     }
                 }
                 returns: {
@@ -266,7 +285,10 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
                         const name = ctx.root.tokenText(name_syntax);
                         const type_syntax = param.typeExpr(ctx.root) orelse return error.Syntax;
                         const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-                        try function.returns.put(ctx.allocator, name, ty);
+                        try function.returns.put(ctx.allocator, name, .{
+                            .syntax = param.tree,
+                            .ty = ty,
+                        });
                     }
                 }
                 try ctx.checkFnBody(scope, function_index);
@@ -384,17 +406,17 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             const params = function.params;
             const args_wrapper = call_expr.args(ctx.root) orelse return error.Syntax;
             var args = args_wrapper.args(ctx.root);
-            for (params.values()) |param_type| {
+            for (params.values()) |param| {
                 const arg = args.next(ctx.root) orelse return error.TODO;
                 const arg_expr = arg.expr(ctx.root) orelse return error.TODO;
                 const arg_type = try analyzeExpr(ctx, scope, arg_expr, null);
-                if (arg_type != param_type) return error.TODO;
+                if (arg_type != param.ty) return error.TODO;
             }
             if (args.next(ctx.root)) |_| return error.TODO;
 
             // TODO
             std.debug.assert(function.returns.values().len == 1);
-            const ret_type = function.returns.values()[0];
+            const ret_type = function.returns.values()[0].ty;
             return ret_type;
         },
         inline else => |variant| {
@@ -434,12 +456,12 @@ const Scope = struct {
             .parent = null,
             .getFn = Scope.Fn.get,
         },
-        args: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param),
+        args: *const std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index),
 
         fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
             const function = @fieldParentPtr(Scope.Fn, "base", scope);
             const param = function.args.get(name) orelse return null;
-            return param.tree;
+            return param;
         }
     };
 };
@@ -521,7 +543,7 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
 fn checkFnBody(ctx: *Context, scope: *const Scope, function: Fn.Index) !void {
     const body = ctx.fnPtr(function).syntax.body(ctx.root) orelse return error.Syntax;
 
-    var args: std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param) = .{};
+    var args: std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index) = .{};
     defer args.deinit(ctx.allocator);
 
     const params = ctx.fnPtr(function).syntax.params(ctx.root) orelse return error.Syntax;
@@ -529,7 +551,7 @@ fn checkFnBody(ctx: *Context, scope: *const Scope, function: Fn.Index) !void {
     while (it.next(ctx.root)) |param| {
         const name_syntax = param.ident(ctx.root) orelse return error.Syntax;
         const name = ctx.root.tokenText(name_syntax);
-        try args.put(ctx.allocator, name, param);
+        try args.put(ctx.allocator, name, param.tree);
     }
 
     const fn_scope: Scope.Fn = .{ .base = .{ .parent = scope, .getFn = Scope.Fn.get }, .args = &args };
@@ -551,17 +573,17 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
             .@"return" => |return_stmt| {
                 const returns = &ctx.fnPtr(function).returns;
                 var exprs = return_stmt.exprs(ctx.root);
-                for (returns.values()) |declared_type| {
+                for (returns.values()) |ret| {
                     const expr = exprs.next(ctx.root) orelse return error.Syntax;
                     try checkExpr(ctx, scope, function, expr);
                     const inferred_type = try ctx.analyzeExpr(scope, expr, null);
-                    if (inferred_type != declared_type) {
+                    if (inferred_type != ret.ty) {
                         try ctx.addDiagnostic(
                             syntax.pure.Node.Index.fromTree(return_stmt.tree),
                             "return type mismatch: declared {}, inferred {}",
                             .{
                                 ctx.formatType(inferred_type),
-                                ctx.formatType(declared_type),
+                                ctx.formatType(ret.ty),
                             },
                         );
                     }
@@ -594,24 +616,28 @@ fn checkExpr(ctx: *Context, scope: *const Scope, function: Fn.Index, expr: synta
     }
 }
 
-fn genBlock(ctx: *Context, scope: *const Scope, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !void {
+const Gen = struct {
+    vars: std.AutoHashMapUnmanaged(syntax.pure.Tree.Index, ir.Reg) = .{},
+};
+
+fn genBlock(ctx: *Context, gen: *Gen, scope: *const Scope, block: syntax.ast.Stmt.Block, builder: *ir.Builder) !void {
     for (ctx.root.treeChildren(block.tree)) |child| {
         const child_tree = child.asTree() orelse continue;
         const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse return error.Syntax;
         switch (stmt) {
             .expr => |expr_stmt| {
                 const expr = expr_stmt.expr(ctx.root) orelse return error.Syntax;
-                _ = try genExpr(ctx, scope, expr, builder);
+                _ = try genExpr(ctx, gen, scope, expr, builder);
             },
             .block => |nested_block| {
-                return ctx.genBlock(scope, nested_block, builder);
+                return ctx.genBlock(gen, scope, nested_block, builder);
             },
             .@"return" => |return_stmt| {
                 var exprs = return_stmt.exprs(ctx.root);
                 var regs: std.ArrayListUnmanaged(ir.Reg) = .{};
                 defer regs.deinit(ctx.allocator);
                 while (exprs.next(ctx.root)) |expr| {
-                    const value = try genExpr(ctx, scope, expr, builder);
+                    const value = try genExpr(ctx, gen, scope, expr, builder);
                     if (value != .reg) {
                         try ctx.addDiagnostic(syntax.pure.Node.Index.fromTree(expr.tree()), "cannot use void value", .{});
                         return;
@@ -622,13 +648,13 @@ fn genBlock(ctx: *Context, scope: *const Scope, block: syntax.ast.Stmt.Block, bu
             },
             .@"if" => |if_stmt| {
                 const cond = if_stmt.cond(ctx.root) orelse return error.Syntax;
-                const cond_value = try genExpr(ctx, scope, cond, builder);
-                const then_block = try builder.addBlock();
-                const cont_block = try builder.addBlock();
+                const cond_value = try genExpr(ctx, gen, scope, cond, builder);
+                const then_block = try builder.addBlock(&.{});
+                const cont_block = try builder.addBlock(&.{});
                 try builder.buildBranch(cond_value.reg, then_block, cont_block);
                 builder.switchToBlock(then_block);
                 const if_body = if_stmt.body(ctx.root) orelse return error.Syntax;
-                try ctx.genBlock(scope, if_body, builder);
+                try ctx.genBlock(gen, scope, if_body, builder);
                 try builder.buildJump(cont_block);
                 builder.switchToBlock(cont_block);
             },
@@ -642,24 +668,24 @@ const Value = union(enum) {
     reg: ir.Reg,
 };
 
-fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
+fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr, builder: *ir.Builder) !Value {
     switch (expr) {
         .unary => |unary| {
             _ = unary;
             return error.UnknownUnaryOperator;
         },
         .binary => |binary_expr| {
-            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .add);
-            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .sub);
-            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .mul);
-            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .div);
-            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .rem);
-            if (binary_expr.eq2(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .eq);
-            if (binary_expr.bangEq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .neq);
-            if (binary_expr.lt(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .lt);
-            if (binary_expr.ltEq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .lte);
-            if (binary_expr.gt(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .gt);
-            if (binary_expr.gtEq(ctx.root) != null) return genBinExpr(ctx, scope, binary_expr, builder, .gte);
+            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .add);
+            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .sub);
+            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .mul);
+            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .div);
+            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .rem);
+            if (binary_expr.eq2(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .eq);
+            if (binary_expr.bangEq(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .neq);
+            if (binary_expr.lt(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .lt);
+            if (binary_expr.ltEq(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .lte);
+            if (binary_expr.gt(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .gt);
+            if (binary_expr.gtEq(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .gte);
             return error.UnknownBinaryOperator;
         },
         .literal => |literal| {
@@ -673,7 +699,7 @@ fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *
         },
         .paren => |paren| {
             const inner = paren.expr(ctx.root) orelse return error.Syntax;
-            return genExpr(ctx, scope, inner, builder);
+            return genExpr(ctx, gen, scope, inner, builder);
         },
         .call => |call| {
             const inner = call.expr(ctx.root) orelse return error.Syntax;
@@ -684,16 +710,20 @@ fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *
             const function_ty = try ctx.lookUpType(.{ .function = fn_syntax });
             const function = ctx.fnPtr(ctx.typePtr(function_ty).function);
             const dname = try builder.allocator.dupe(u8, name);
-            const params = try ctx.irTypes(builder.allocator, function.params.values());
-            const returns = try ctx.irTypes(builder.allocator, function.returns.values());
-            const extern_func = try builder.declareExternFunc(dname, params, returns);
-            var arg_regs = try std.ArrayListUnmanaged(ir.Reg).initCapacity(ctx.allocator, params.len);
+            var params = try std.ArrayListUnmanaged(ir.Type).initCapacity(builder.allocator, function.params.entries.len);
+            defer params.deinit(builder.allocator);
+            for (function.params.values()) |param| params.appendAssumeCapacity(try irType(ctx, param.ty));
+            var returns = try std.ArrayListUnmanaged(ir.Type).initCapacity(builder.allocator, function.returns.entries.len);
+            defer returns.deinit(builder.allocator);
+            for (function.returns.values()) |ret| returns.appendAssumeCapacity(try irType(ctx, ret.ty));
+            const extern_func = try builder.declareExternFunc(dname, try params.toOwnedSlice(builder.allocator), try returns.toOwnedSlice(builder.allocator));
+            var arg_regs = try std.ArrayListUnmanaged(ir.Reg).initCapacity(ctx.allocator, params.items.len);
             defer arg_regs.deinit(ctx.allocator);
             var it = (call.args(ctx.root) orelse return error.Syntax).args(ctx.root);
             while (it.next(ctx.root)) |arg_syntax| {
                 const arg_expr = arg_syntax.expr(ctx.root) orelse return error.Syntax;
-                const arg_reg = try genExpr(ctx, scope, arg_expr, builder);
-                arg_regs.appendAssumeCapacity(arg_reg.reg);
+                const arg_reg = try genExpr(ctx, gen, scope, arg_expr, builder);
+                try arg_regs.append(ctx.allocator, arg_reg.reg);
             }
             const return_regs = try builder.buildCall(extern_func, arg_regs.items);
             return switch (return_regs.len) {
@@ -703,18 +733,21 @@ fn genExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, builder: *
             };
         },
         .ident => |ident| {
-            _ = ident;
-            //ctx.lookUpScope(.{ .decl = decl });
-            return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
+            const inner = ident.ident(ctx.root) orelse return error.Syntax;
+            const text = ctx.root.tokenText(inner);
+            const tree = scope.get(text) orelse return error.UndefinedIdentifier;
+            if (gen.vars.get(tree)) |reg|
+                return .{ .reg = reg };
+            return error.TODO;
         },
     }
 }
 
-fn genBinExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, eq, neq, lt, lte, gt, gte }) !Value {
+fn genBinExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, eq, neq, lt, lte, gt, gte }) !Value {
     const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
-    const lhs_value = try genExpr(ctx, scope, lhs, builder);
-    const rhs_value = try genExpr(ctx, scope, rhs, builder);
+    const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
+    const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
     if (lhs_value != .reg or rhs_value != .reg) {
         if (lhs_value == .void or rhs_value == .void)
             try ctx.addDiagnostic(undefined, "cannot use void value", .{});
@@ -745,12 +778,4 @@ fn irType(ctx: *Context, type_index: Type.Index) !ir.Type {
         .structure => @panic("TODO"),
         .function => @panic("TODO"),
     };
-}
-
-fn irTypes(ctx: *Context, allocator: std.mem.Allocator, types: []const Type.Index) ![]ir.Type {
-    var list = try std.ArrayListUnmanaged(ir.Type).initCapacity(allocator, types.len);
-    defer list.deinit(allocator);
-    for (types) |ty|
-        list.appendAssumeCapacity(try irType(ctx, ty));
-    return list.toOwnedSlice(allocator);
 }
