@@ -8,14 +8,6 @@ pub const Reg = enum(u32) {
     }
 };
 
-pub const BlockRef = enum(u32) {
-    _,
-
-    pub fn format(block: BlockRef, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("b{}", .{@intFromEnum(block)});
-    }
-};
-
 pub const Value = struct {
     bits: u64,
 
@@ -67,12 +59,15 @@ pub const Regs = struct {
 };
 
 pub const Inst = union(enum) {
+    load: struct { type: Type, src: Reg, dst: Reg },
+    store: struct { src: Reg, dst: Reg },
+    local: struct { local: Local.Index, dst: Reg },
     constant: struct { type: Type, value: Value, dst: Reg },
     arith: struct { op: ArithOp, lhs: Reg, rhs: Reg, dst: Reg },
     cmp: struct { op: CmpOp, lhs: Reg, rhs: Reg, dst: Reg },
     ret: struct { regs: Regs },
-    jump: struct { block: BlockRef },
-    branch: struct { cond: Reg, then_block: BlockRef, else_block: BlockRef },
+    jump: struct { block: Block.Index },
+    branch: struct { cond: Reg, then_block: Block.Index, else_block: Block.Index },
     unreach,
     call: struct { func: ExternFunc.Index, args: Regs, dsts: Regs },
 };
@@ -101,6 +96,7 @@ pub const Func = struct {
     params: std.ArrayListUnmanaged(Type) = .{},
     returns: std.ArrayListUnmanaged(Type) = .{},
     blocks: std.ArrayListUnmanaged(Block) = .{},
+    locals: std.ArrayListUnmanaged(Local) = .{},
     extra: std.ArrayListUnmanaged(u32) = .{},
     extern_funcs: std.ArrayListUnmanaged(ExternFunc) = .{},
 
@@ -233,12 +229,28 @@ pub const Block = struct {
         ty: Type,
         reg: Reg,
     };
+
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn format(block: Index, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.print("b{}", .{@intFromEnum(block)});
+        }
+    };
+};
+
+pub const Local = struct {
+    ty: Type,
+
+    pub const Index = enum(u32) {
+        _,
+    };
 };
 
 pub const Builder = struct {
     allocator: std.mem.Allocator,
     func: Func = .{},
-    cur_block: BlockRef = @enumFromInt(~@as(u32, 0)),
+    cur_block: Block.Index = @enumFromInt(~@as(u32, 0)),
     next_reg: u32 = 0,
 
     pub fn addReg(builder: *Builder) Reg {
@@ -247,7 +259,7 @@ pub const Builder = struct {
         return @enumFromInt(reg);
     }
 
-    pub fn addBlock(builder: *Builder, params: []const Block.Param) error{OutOfMemory}!BlockRef {
+    pub fn addBlock(builder: *Builder, params: []const Block.Param) error{OutOfMemory}!Block.Index {
         const block_ref: u32 = @intCast(builder.func.blocks.items.len);
         const block = try builder.func.blocks.addOne(builder.allocator);
         block.* = .{};
@@ -256,8 +268,43 @@ pub const Builder = struct {
         return @enumFromInt(block_ref);
     }
 
-    pub fn switchToBlock(builder: *Builder, block: BlockRef) void {
+    pub fn switchToBlock(builder: *Builder, block: Block.Index) void {
         builder.cur_block = block;
+    }
+
+    pub fn addLocal(builder: *Builder, ty: Type) !Local.Index {
+        builder.func.locals.append(builder.allocator, .{ .ty = ty });
+        return @enumFromInt(builder.func.locals.items.len - 1);
+    }
+
+    pub fn buildLoad(builder: *Builder, ty: Type, ptr: Reg) error{OutOfMemory}!Reg {
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
+        const dst = builder.addReg();
+        try block.insts.append(
+            builder.allocator,
+            .{ .local = .{ .ty = ty, .ptr = ptr, .dst = dst } },
+        );
+        return dst;
+    }
+
+    pub fn buildStore(builder: *Builder, ptr: Reg) error{OutOfMemory}!Reg {
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
+        const dst = builder.addReg();
+        try block.insts.append(
+            builder.allocator,
+            .{ .local = .{ .ptr = ptr, .dst = dst } },
+        );
+        return dst;
+    }
+
+    pub fn buildLocal(builder: *Builder, local: Local.Index) error{OutOfMemory}!Reg {
+        const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
+        const dst = builder.addReg();
+        try block.insts.append(
+            builder.allocator,
+            .{ .local = .{ .local = local, .dst = dst } },
+        );
+        return dst;
     }
 
     pub fn buildConstant(builder: *Builder, ty: Type, value: Value) error{OutOfMemory}!Reg {
@@ -300,7 +347,7 @@ pub const Builder = struct {
         );
     }
 
-    pub fn buildJump(builder: *Builder, to_block: BlockRef) error{OutOfMemory}!void {
+    pub fn buildJump(builder: *Builder, to_block: Block.Index) error{OutOfMemory}!void {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
@@ -308,7 +355,7 @@ pub const Builder = struct {
         );
     }
 
-    pub fn buildBranch(builder: *Builder, cond: Reg, then_block: BlockRef, else_block: BlockRef) error{OutOfMemory}!void {
+    pub fn buildBranch(builder: *Builder, cond: Reg, then_block: Block.Index, else_block: Block.Index) error{OutOfMemory}!void {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         try block.insts.append(
             builder.allocator,
