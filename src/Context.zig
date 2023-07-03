@@ -675,17 +675,17 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
             return error.UnknownUnaryOperator;
         },
         .binary => |binary_expr| {
-            if (binary_expr.plus(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .add);
-            if (binary_expr.minus(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .sub);
-            if (binary_expr.star(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .mul);
-            if (binary_expr.slash(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .div);
-            if (binary_expr.percent(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .rem);
-            if (binary_expr.eq2(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .eq);
-            if (binary_expr.bangEq(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .neq);
-            if (binary_expr.lt(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .lt);
-            if (binary_expr.ltEq(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .lte);
-            if (binary_expr.gt(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .gt);
-            if (binary_expr.gtEq(ctx.root) != null) return genBinExpr(ctx, gen, scope, binary_expr, builder, .gte);
+            if (binary_expr.plus(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .add);
+            if (binary_expr.minus(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .sub);
+            if (binary_expr.star(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .mul);
+            if (binary_expr.slash(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .div);
+            if (binary_expr.percent(ctx.root) != null) return genArithExpr(ctx, gen, scope, binary_expr, builder, .rem);
+            if (binary_expr.eq2(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .eq);
+            if (binary_expr.bangEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .neq);
+            if (binary_expr.lt(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .lt);
+            if (binary_expr.ltEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .lte);
+            if (binary_expr.gt(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .gt);
+            if (binary_expr.gtEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, binary_expr, builder, .gte);
             return error.UnknownBinaryOperator;
         },
         .literal => |literal| {
@@ -743,7 +743,7 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
     }
 }
 
-fn genBinExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: enum { add, sub, mul, div, rem, eq, neq, lt, lte, gt, gte }) !Value {
+fn genArithExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: ir.ArithOp) !Value {
     const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
     const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
     const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
@@ -754,19 +754,21 @@ fn genBinExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Ex
         return .invalid;
     }
 
-    return switch (op) {
-        .add => .{ .reg = try builder.buildArith(.add, lhs_value.reg, rhs_value.reg) },
-        .sub => .{ .reg = try builder.buildArith(.sub, lhs_value.reg, rhs_value.reg) },
-        .mul => .{ .reg = try builder.buildArith(.mul, lhs_value.reg, rhs_value.reg) },
-        .div => .{ .reg = try builder.buildArith(.div, lhs_value.reg, rhs_value.reg) },
-        .rem => .{ .reg = try builder.buildArith(.rem, lhs_value.reg, rhs_value.reg) },
-        .eq => .{ .reg = try builder.buildCmp(.eq, lhs_value.reg, rhs_value.reg) },
-        .neq => .{ .reg = try builder.buildCmp(.neq, lhs_value.reg, rhs_value.reg) },
-        .lt => .{ .reg = try builder.buildCmp(.lt, lhs_value.reg, rhs_value.reg) },
-        .lte => .{ .reg = try builder.buildCmp(.lte, lhs_value.reg, rhs_value.reg) },
-        .gt => .{ .reg = try builder.buildCmp(.gt, lhs_value.reg, rhs_value.reg) },
-        .gte => .{ .reg = try builder.buildCmp(.gte, lhs_value.reg, rhs_value.reg) },
-    };
+    return .{ .reg = try builder.buildArith(op, lhs_value.reg, rhs_value.reg) };
+}
+
+fn genCmpExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: ir.CmpOp) !Value {
+    const lhs = expr.lhs(ctx.root) orelse return error.Syntax;
+    const rhs = expr.rhs(ctx.root) orelse return error.Syntax;
+    const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
+    const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
+    if (lhs_value != .reg or rhs_value != .reg) {
+        if (lhs_value == .void or rhs_value == .void)
+            try ctx.addDiagnostic(undefined, "cannot use void value", .{});
+        return .invalid;
+    }
+
+    return .{ .reg = try builder.buildCmp(op, lhs_value.reg, rhs_value.reg) };
 }
 
 fn irType(ctx: *Context, type_index: Type.Index) !ir.Type {

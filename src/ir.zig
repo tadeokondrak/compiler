@@ -36,20 +36,36 @@ pub const Type = enum {
     }
 };
 
+pub const ArithOp = enum {
+    add,
+    sub,
+    mul,
+    div,
+    rem,
+
+    pub fn format(op: ArithOp, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.writeAll(@tagName(op));
+    }
+};
+
+pub const CmpOp = enum {
+    eq,
+    neq,
+    lt,
+    lte,
+    gt,
+    gte,
+
+    pub fn format(op: CmpOp, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.writeAll(@tagName(op));
+    }
+};
+
 pub const Inst = union(enum) {
     constant: struct { type: Type, value: Value, dst: Reg },
     param: struct { dst: Reg, index: u32 },
-    add: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    sub: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    mul: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    div: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    rem: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    eq: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    neq: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    lt: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    lte: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    gt: struct { lhs: Reg, rhs: Reg, dst: Reg },
-    gte: struct { lhs: Reg, rhs: Reg, dst: Reg },
+    arith: struct { op: ArithOp, lhs: Reg, rhs: Reg, dst: Reg },
+    cmp: struct { op: CmpOp, lhs: Reg, rhs: Reg, dst: Reg },
     ret: struct { reg_extra: u32, reg_count: u32 },
     jump: struct { block: BlockRef },
     branch: struct { cond: Reg, then_block: BlockRef, else_block: BlockRef },
@@ -242,22 +258,22 @@ pub const Builder = struct {
         return dst;
     }
 
-    pub fn buildArith(builder: *Builder, comptime tag: std.meta.Tag(Inst), lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
+    pub fn buildArith(builder: *Builder, op: ArithOp, lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
-            @unionInit(Inst, @tagName(tag), .{ .lhs = lhs, .rhs = rhs, .dst = dst }),
+            .{ .arith = .{ .op = op, .lhs = lhs, .rhs = rhs, .dst = dst } },
         );
         return dst;
     }
 
-    pub fn buildCmp(builder: *Builder, comptime tag: std.meta.Tag(Inst), lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
+    pub fn buildCmp(builder: *Builder, op: CmpOp, lhs: Reg, rhs: Reg) error{OutOfMemory}!Reg {
         const block = &builder.func.blocks.items[@intFromEnum(builder.cur_block)];
         const dst = builder.addReg();
         try block.insts.append(
             builder.allocator,
-            @unionInit(Inst, @tagName(tag), .{ .lhs = lhs, .rhs = rhs, .dst = dst }),
+            .{ .cmp = .{ .op = op, .lhs = lhs, .rhs = rhs, .dst = dst } },
         );
         return dst;
     }
