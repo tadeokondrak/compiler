@@ -173,14 +173,11 @@ pub fn compile(ctx: *Context) !void {
     {
         var it = ctx.ast.decls(ctx.root);
         while (it.next(ctx.root)) |decl_syntax| {
-            const tree = switch (decl_syntax) {
-                inline else => |s| syntax.ast.Decl.cast(ctx.root, s.tree),
-            } orelse return error.Syntax;
             const ident = switch (decl_syntax) {
                 inline else => |s| s.ident(ctx.root),
             } orelse return error.Syntax;
             const name = ctx.root.tokenText(ident);
-            try names.put(ctx.allocator, name, tree);
+            try names.put(ctx.allocator, name, decl_syntax);
         }
     }
 
