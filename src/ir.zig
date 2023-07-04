@@ -154,6 +154,7 @@ pub const Func = struct {
         }
 
         for (func.blocks.items, 0..) |block, i| {
+            if (i > 0) try writer.writeByte('\n');
             try writer.print("b{}", .{i});
             if (block.params.len > 0) {
                 try writer.print("(", .{});
@@ -163,9 +164,10 @@ pub const Func = struct {
                 }
                 try writer.print(")", .{});
             }
-            try writer.print(":\n", .{});
+            try writer.print(":", .{});
 
             for (block.insts.items) |inst| {
+                try writer.print("\n", .{});
                 try writer.writeByteNTimes(' ', 4);
 
                 var printed_lhs = false;
@@ -220,7 +222,6 @@ pub const Func = struct {
                         }
                     },
                 }
-                try writer.print("\n", .{});
             }
         }
     }

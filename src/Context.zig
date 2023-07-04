@@ -20,35 +20,42 @@ const Diagnostic = struct {
 };
 
 fn addDiagnostic(ctx: *Context, pos: syntax.pure.Pos, comptime fmt: []const u8, args: anytype) !void {
-    //std.debug.print(fmt, args);
     return ctx.diagnostics.append(ctx.allocator, .{ .pos = pos, .message = try std.fmt.allocPrint(ctx.allocator, fmt, args) });
 }
 
-const FormatTypeData = struct {
-    ctx: *Context,
-    ty: Type.Index,
-};
+const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
 
-pub fn formatType(this: FormatTypeData, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-    switch (this.ctx.typePtr(this.ty).*) {
+fn formatFn(args: FormatFnArgs, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    const function = args.ctx.fnPtr(args.function);
+    try writer.print("fn {s}(", .{function.name});
+    for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
+        if (i > 0) try writer.print(", ", .{});
+        try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
+    }
+    try writer.print(") (", .{});
+    for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
+        if (i > 0) try writer.print(", ", .{});
+        try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
+    }
+    try writer.print(")", .{});
+    if (function.analysis == .generated) {
+        try writer.print(" {{\n{}\n}}", .{function.func});
+    }
+}
+
+fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
+    return .{ .data = .{ .ctx = ctx, .function = function } };
+}
+
+const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
+
+fn formatType(args: FormatTypeArgs, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    switch (args.ctx.typePtr(args.ty).*) {
         .invalid => try writer.print("invalid", .{}),
         .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
-        .pointer_to => |pointee| try writer.print("*{}", .{this.ctx.fmtType(pointee)}),
-        .structure => |structure| try writer.print("{s}", .{this.ctx.structPtr(structure).name}),
-        .function => |function_index| {
-            const function = this.ctx.fnPtr(function_index);
-            try writer.print("fn {s}(", .{function.name});
-            for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
-                if (i > 0) try writer.print(", ", .{});
-                try writer.print("{s}: {}", .{ key, this.ctx.fmtType(value.ty) });
-            }
-            try writer.print(") (", .{});
-            for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
-                if (i > 0) try writer.print(", ", .{});
-                try writer.print("{s}: {}", .{ key, this.ctx.fmtType(value.ty) });
-            }
-            try writer.print(")", .{});
-        },
+        .pointer_to => |pointee| try writer.print("*{}", .{args.ctx.fmtType(pointee)}),
+        .structure => |structure| try writer.print("{s}", .{args.ctx.structPtr(structure).name}),
+        .function => |function| try writer.print("{}", .{args.ctx.fmtFn(function)}),
     }
 }
 
@@ -73,23 +80,8 @@ pub fn dump(ctx: *Context, writer: anytype) !void {
             try writer.print("  {s}: {}\n", .{ key, ctx.fmtType(value) });
         try writer.print("}}\n", .{});
     }
-    for (ctx.functions.items) |function| {
-        try writer.print("fn {s}(", .{function.name});
-        for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
-            try if (i > 0) writer.print(", ", .{});
-            try writer.print("{s}: {}", .{ key, ctx.fmtType(value.ty) });
-        }
-        try writer.print(") (", .{});
-        for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
-            try if (i > 0) writer.print(", ", .{});
-            try writer.print("{s}: {}", .{ key, ctx.fmtType(value.ty) });
-        }
-        try writer.print(") {{\n", .{});
-        if (function.analysis == .generated) {
-            try writer.print("{}", .{function.func});
-        }
-        try writer.print("}}\n", .{});
-    }
+    for (0..ctx.functions.items.len) |function|
+        try writer.print("{}\n", .{ctx.fmtFn(@enumFromInt(function))});
 }
 
 const Type = union(enum) {
@@ -175,9 +167,8 @@ pub fn deinit(ctx: *Context) void {
         ctx.allocator.free(message);
     ctx.diagnostics.deinit(ctx.allocator);
     for (ctx.functions.items) |*function| {
-        if (function.analysis == .generated) {
+        if (function.analysis == .generated)
             function.func.deinit(ctx.allocator);
-        }
         function.params.deinit(ctx.allocator);
         function.returns.deinit(ctx.allocator);
     }
