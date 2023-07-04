@@ -4,6 +4,15 @@
 
 const std = @import("std");
 
+pub const Pos = struct {
+    offset: u32,
+};
+
+pub const Range = struct {
+    start: Pos,
+    end: Pos,
+};
+
 pub const Builder = @import("pure/Builder.zig");
 
 comptime {
@@ -86,10 +95,11 @@ pub const Node = struct {
 
 pub const Token = struct {
     tag: Token.Tag,
-    text_pos: usize,
-    text_len: usize,
-    trivia_start: usize,
-    trivia_count: usize,
+    pos: Pos,
+    text_pos: u32,
+    text_len: u32,
+    trivia_start: u32,
+    trivia_count: u32,
 
     pub const Index = enum(u32) { _ };
 
@@ -229,6 +239,10 @@ pub const Root = struct {
         return root.tokenData(id).tag;
     }
 
+    pub fn tokenPos(root: Root, id: Token.Index) Pos {
+        return root.tokenData(id).pos;
+    }
+
     pub fn tokenText(root: Root, id: Token.Index) []const u8 {
         const data = root.tokenData(id);
         return root.text.items[data.text_pos .. data.text_pos + data.text_len];
@@ -242,6 +256,13 @@ pub const Root = struct {
 
     pub fn treeTag(root: Root, id: Tree.Index) Tree.Tag {
         return root.treeData(id).tag;
+    }
+
+    pub fn treePos(root: Root, id: Tree.Index) Pos {
+        for (root.treeChildren(id)) |child|
+            if (child.asToken()) |token|
+                return root.tokenPos(token);
+        unreachable;
     }
 
     pub fn treeChildren(root: Root, id: Tree.Index) []const Node.Index {

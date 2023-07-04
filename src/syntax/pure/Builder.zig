@@ -174,10 +174,11 @@ pub fn build(
             const root_token_pos = root.tokens.len;
             try root.tokens.append(tree_allocator, syntax.pure.Token{
                 .tag = token_tag,
-                .text_pos = root_text_pos,
-                .text_len = token_text_len,
-                .trivia_start = trivia_start,
-                .trivia_count = trivia_count,
+                .pos = .{ .offset = @intCast(text_pos) },
+                .text_pos = @intCast(root_text_pos),
+                .text_len = @intCast(token_text_len),
+                .trivia_start = @intCast(trivia_start),
+                .trivia_count = @intCast(trivia_count),
             });
 
             try children.append(builder.allocator, .{
@@ -203,10 +204,11 @@ pub fn build(
                 const root_token_pos = root.tokens.len;
                 try root.tokens.append(tree_allocator, syntax.pure.Token{
                     .tag = .eof,
+                    .pos = .{ .offset = @intCast(text_pos) },
                     .text_pos = 0,
                     .text_len = 0,
-                    .trivia_start = trivia_start,
-                    .trivia_count = trivia_count,
+                    .trivia_start = @intCast(trivia_start),
+                    .trivia_count = @intCast(trivia_count),
                 });
 
                 try children.append(builder.allocator, .{
