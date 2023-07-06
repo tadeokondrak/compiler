@@ -14,13 +14,13 @@ comptime {
 pub fn main() !void {
     const src =
         \\const num u32 = 1;
-        \\const ptr *u64 = num;
+        \\const ptr *u64 = 0;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 *u32;
         \\}
         \\struct Node {
-        \\    next Node
+        \\    next *Node;
         \\}
         \\struct Other {
         \\    field1 Struct;

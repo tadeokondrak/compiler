@@ -25,7 +25,7 @@ fn addDiagnostic(ctx: *Context, pos: syntax.pure.Pos, comptime fmt: []const u8, 
 
 const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
 
-fn formatFn(args: FormatFnArgs, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatFn(args: FormatFnArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
     const function = args.ctx.fnPtr(args.function);
     try writer.print("fn {s}(", .{function.name});
     for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
@@ -38,7 +38,7 @@ fn formatFn(args: FormatFnArgs, comptime _: []const u8, _: std.fmt.FormatOptions
         try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
     }
     try writer.print(")", .{});
-    if (function.analysis == .generated) {
+    if (std.mem.eql(u8, fmt, "code") and function.analysis == .generated) {
         try writer.print(" {{\n{}\n}}", .{function.func});
     }
 }
@@ -47,16 +47,37 @@ fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
     return .{ .data = .{ .ctx = ctx, .function = function } };
 }
 
+const FormatStructArgs = struct { ctx: *Context, structure: Struct.Index };
+
+fn formatStruct(args: FormatStructArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    const structure = args.ctx.structPtr(args.structure);
+    if (std.mem.eql(u8, fmt, "#")) {
+        try writer.print("struct {s}", .{structure.name});
+        try writer.print(" {{", .{});
+        for (structure.fields.keys(), structure.fields.values(), 0..) |key, value, i| {
+            if (i > 0) try writer.print(",", .{});
+            try writer.print(" {s}: {}", .{ key, args.ctx.fmtType(value) });
+        }
+        try writer.print(" }}", .{});
+    } else {
+        try writer.writeAll(structure.name);
+    }
+}
+
+fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
+    return .{ .data = .{ .ctx = ctx, .structure = structure } };
+}
+
 const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
 
-fn formatType(args: FormatTypeArgs, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-    switch (args.ctx.typePtr(args.ty).*) {
-        .invalid => try writer.print("invalid", .{}),
-        .unsigned_integer => |unsigned_integer| try writer.print("u{}", .{unsigned_integer.bits}),
-        .pointer_to => |pointee| try writer.print("*{}", .{args.ctx.fmtType(pointee)}),
-        .structure => |structure| try writer.print("{s}", .{args.ctx.structPtr(structure).name}),
-        .function => |function| try writer.print("{}", .{args.ctx.fmtFn(function)}),
-    }
+fn formatType(args: FormatTypeArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    return switch (args.ctx.typePtr(args.ty).*) {
+        .invalid => writer.print("invalid", .{}),
+        .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
+        .pointer_to => |pointee| writer.print("*{}", .{args.ctx.fmtType(pointee)}),
+        .structure => |structure| args.ctx.fmtStruct(structure).format(fmt, .{}, writer),
+        .function => |function| args.ctx.fmtFn(function).format(fmt, .{}, writer),
+    };
 }
 
 fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
@@ -72,14 +93,10 @@ pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
 }
 
 pub fn dump(ctx: *Context, writer: anytype) !void {
-    for (ctx.structures.items) |structure| {
-        try writer.print("struct {s} {{\n", .{structure.name});
-        for (structure.fields.keys(), structure.fields.values()) |key, value|
-            try writer.print("  {s}: {}\n", .{ key, ctx.fmtType(value) });
-        try writer.print("}}\n", .{});
-    }
-    for (0..ctx.functions.items.len) |function|
-        try writer.print("{}\n", .{ctx.fmtFn(@enumFromInt(function))});
+    for (0..ctx.types.entries.len) |i|
+        try writer.print("Type {}: {#}\n", .{ i, ctx.fmtType(@enumFromInt(i)) });
+    for (0..ctx.functions.items.len) |i|
+        try writer.print("{code}\n", .{ ctx.fmtFn(@enumFromInt(i)) });
 }
 
 const Type = union(enum) {
