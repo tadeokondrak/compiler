@@ -14,7 +14,7 @@ comptime {
 pub fn main() !void {
     const src =
         \\const num u32 = 1;
-        \\const ptr *u64 = 0;
+        \\const ptr *u64 = num;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 *u32;
@@ -43,6 +43,6 @@ pub fn main() !void {
     //std.debug.print("syntax: {}\n", .{ctx.root});
     try ctx.compile();
     try ctx.dump(std.io.getStdErr().writer());
-    if (try ctx.printDiagnostics(std.io.getStdErr().writer()))
+    if (try ctx.printDiagnostics(src, std.io.getStdErr().writer()))
         return;
 }

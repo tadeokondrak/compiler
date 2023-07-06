@@ -8,7 +8,7 @@ pub const Pos = struct {
     offset: u32,
 };
 
-pub const Range = struct {
+pub const Span = struct {
     start: Pos,
     end: Pos,
 };
@@ -258,11 +258,30 @@ pub const Root = struct {
         return root.treeData(id).tag;
     }
 
-    pub fn treePos(root: Root, id: Tree.Index) Pos {
-        for (root.treeChildren(id)) |child|
-            if (child.asToken()) |token|
-                return root.tokenPos(token);
+    pub fn treeStart(root: Root, id: Tree.Index) Pos {
+        const children = root.treeChildren(id);
+        const first_child = children[0];
+        if (first_child.asTree()) |tree|
+            return root.treeStart(tree);
+        if (first_child.asToken()) |token|
+            return root.tokenPos(token);
         unreachable;
+    }
+
+    pub fn treeEnd(root: Root, id: Tree.Index) Pos {
+        const children = root.treeChildren(id);
+        const last_child = children[children.len - 1];
+        if (last_child.asTree()) |tree|
+            return root.treeEnd(tree);
+        if (last_child.asToken()) |token| {
+            const data = root.tokenData(token);
+            return Pos{ .offset = data.pos.offset + data.text_len };
+        }
+        unreachable;
+    }
+
+    pub fn treeSpan(root: Root, id: Tree.Index) Span {
+        return Span{ .start = root.treeStart(id), .end = root.treeEnd(id) };
     }
 
     pub fn treeChildren(root: Root, id: Tree.Index) []const Node.Index {

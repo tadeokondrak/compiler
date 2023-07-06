@@ -8,19 +8,18 @@ const Context = @This();
 allocator: std.mem.Allocator,
 root: syntax.pure.Root,
 ast: syntax.ast.File,
-line_index: LineIndex,
 types: std.AutoArrayHashMapUnmanaged(void, Type) = .{},
 structures: std.ArrayListUnmanaged(Struct) = .{},
 functions: std.ArrayListUnmanaged(Fn) = .{},
 diagnostics: std.MultiArrayList(Diagnostic) = .{},
 
 const Diagnostic = struct {
-    pos: syntax.pure.Pos,
+    span: syntax.pure.Span,
     message: []const u8,
 };
 
-fn addDiagnostic(ctx: *Context, pos: syntax.pure.Pos, comptime fmt: []const u8, args: anytype) !void {
-    return ctx.diagnostics.append(ctx.allocator, .{ .pos = pos, .message = try std.fmt.allocPrint(ctx.allocator, fmt, args) });
+fn addDiagnostic(ctx: *Context, span: syntax.pure.Span, comptime fmt: []const u8, args: anytype) !void {
+    return ctx.diagnostics.append(ctx.allocator, .{ .span = span, .message = try std.fmt.allocPrint(ctx.allocator, fmt, args) });
 }
 
 const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
@@ -73,6 +72,7 @@ const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
 fn formatType(args: FormatTypeArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
     return switch (args.ctx.typePtr(args.ty).*) {
         .invalid => writer.print("invalid", .{}),
+        .bool => writer.print("bool", .{}),
         .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
         .pointer_to => |pointee| writer.print("*{}", .{args.ctx.fmtType(pointee)}),
         .structure => |structure| args.ctx.fmtStruct(structure).format(fmt, .{}, writer),
@@ -84,23 +84,42 @@ fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
     return .{ .data = .{ .ctx = ctx, .ty = ty } };
 }
 
-pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
-    for (ctx.diagnostics.items(.pos), ctx.diagnostics.items(.message)) |pos, message| {
-        const span = ctx.line_index.translate(pos.offset);
-        try writer.print("{}:{}: error: {s}\n", .{ span.line, span.col, message });
+pub fn printDiagnostics(ctx: *Context, src: []const u8, writer: anytype) !bool {
+    if (ctx.diagnostics.len == 0)
+        return false;
+    const line_index = try LineIndex.make(ctx.allocator, src);
+    defer line_index.deinit(ctx.allocator);
+    for (ctx.diagnostics.items(.span), ctx.diagnostics.items(.message)) |span, message| {
+        const start = line_index.translate(span.start.offset);
+        const end = line_index.translate(span.end.offset);
+        const len = if (start.line != end.line) 1 else end.col - start.col;
+        try writer.print("<input>:{}:{}: {s}\n", .{ start.line + 1, start.col + 1, message });
+        const line_start = line_index.newlines[start.line - 1] + 1;
+        const line_end = line_index.newlines[start.line];
+        const line = src[line_start..line_end];
+        for (line) |c| {
+            try writer.writeByte(c);
+        }
+        try writer.writeByte('\n');
+        for (0..start.col) |_|
+            try writer.writeByte(' ');
+        for (0..len) |_|
+            try writer.writeByte('^');
+        try writer.writeByte('\n');
     }
-    return ctx.diagnostics.len > 0;
+    return true;
 }
 
 pub fn dump(ctx: *Context, writer: anytype) !void {
     for (0..ctx.types.entries.len) |i|
         try writer.print("Type {}: {#}\n", .{ i, ctx.fmtType(@enumFromInt(i)) });
     for (0..ctx.functions.items.len) |i|
-        try writer.print("{code}\n", .{ ctx.fmtFn(@enumFromInt(i)) });
+        try writer.print("{code}\n", .{ctx.fmtFn(@enumFromInt(i))});
 }
 
 const Type = union(enum) {
     invalid,
+    bool,
     unsigned_integer: struct { bits: u32 },
     pointer_to: Type.Index,
     structure: Struct.Index,
@@ -113,6 +132,7 @@ const Type = union(enum) {
 
     const Key = union(enum) {
         invalid,
+        bool,
         unsigned_integer: struct { bits: u32 },
         pointer_to: Type.Index,
         structure: syntax.ast.Decl.Struct,
@@ -122,6 +142,7 @@ const Type = union(enum) {
     fn toKey(ctx: *Context, ty: Type) Key {
         return switch (ty) {
             .invalid => .invalid,
+            .bool => .bool,
             .unsigned_integer => |unsigned_integer| .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } },
             .pointer_to => |pointee| .{ .pointer_to = pointee },
             .structure => |structure| .{ .structure = ctx.structPtr(structure).syntax },
@@ -174,23 +195,27 @@ const Fn = struct {
 const LineIndex = struct {
     newlines: []const u32,
 
+    fn make(allocator: std.mem.Allocator, src: []const u8) !LineIndex {
+        var newlines: std.ArrayListUnmanaged(u32) = .{};
+        for (src, 0..) |c, i| if (c == '\n') try newlines.append(allocator, @intCast(i));
+        return .{ .newlines = try newlines.toOwnedSlice(allocator) };
+    }
+
+    fn deinit(index: LineIndex, allocator: std.mem.Allocator) void {
+        allocator.free(index.newlines);
+    }
+
     fn translate(index: LineIndex, offset: u32) struct { line: u32, col: u32 } {
         var line: u32 = 0;
         var col: u32 = offset;
         for (index.newlines) |i| {
-            if (i > offset) break;
+            if (i >= offset) break;
             line += 1;
             col = offset - i;
         }
-        return .{ .line = line + 1, .col = col + 1 };
+        return .{ .line = line, .col = col - 1 };
     }
 };
-
-fn makeLineIndex(allocator: std.mem.Allocator, src: []const u8) !LineIndex {
-    var newlines: std.ArrayListUnmanaged(u32) = .{};
-    for (src, 0..) |c, i| if (c == '\n') try newlines.append(allocator, @intCast(i));
-    return .{ .newlines = try newlines.toOwnedSlice(allocator) };
-}
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     const parsed = try parse.parseFile(allocator, src);
@@ -198,7 +223,6 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
         .allocator = allocator,
         .root = parsed.root,
         .ast = parsed.ast,
-        .line_index = try makeLineIndex(allocator, src),
     };
 }
 
@@ -218,7 +242,6 @@ pub fn deinit(ctx: *Context) void {
     ctx.functions.deinit(ctx.allocator);
     ctx.types.deinit(ctx.allocator);
     ctx.root.deinit(ctx.allocator);
-    ctx.allocator.free(ctx.line_index.newlines);
 }
 
 pub fn compile(ctx: *Context) !void {
@@ -353,8 +376,8 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) !void 
             const expr_ty = try ctx.analyzeExpr(scope, expr, ty);
             if (ty != expr_ty) {
                 try ctx.addDiagnostic(
-                    ctx.root.treePos(constant_syntax.tree),
-                    "type mismatch: expected {}, got {}",
+                    ctx.root.treeSpan(expr.tree()),
+                    "expected {}, got {}",
                     .{ ctx.fmtType(ty), ctx.fmtType(expr_ty) },
                 );
             }
@@ -399,7 +422,7 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
         .ident => |ident_expr| {
             const name = ctx.root.tokenText(ident_expr.ident(ctx.root) orelse return error.Syntax);
             const tree = scope.get(name) orelse {
-                try ctx.addDiagnostic(ctx.root.treePos(ident_expr.tree), "undefined identifier: {s}", .{name});
+                try ctx.addDiagnostic(ctx.root.treeSpan(ident_expr.tree), "undefined identifier: {s}", .{name});
                 return error.Syntax;
             };
             if (syntax.ast.Decl.cast(ctx.root, tree)) |decl| {
@@ -431,7 +454,7 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
                 if (lhs_type == rhs_type)
                     return lhs_type;
                 try ctx.addDiagnostic(
-                    ctx.root.treePos(binary_expr.tree),
+                    ctx.root.treeSpan(binary_expr.tree),
                     "arithmetic operator type mismatch: lhs {}, rhs {}",
                     .{ ctx.fmtType(lhs_type), ctx.fmtType(rhs_type) },
                 );
@@ -445,9 +468,9 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
                 binary_expr.gtEq(ctx.root) != null)
             {
                 if (lhs_type == rhs_type)
-                    return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 1 } });
+                    return ctx.lookUpType(.bool);
                 try ctx.addDiagnostic(
-                    ctx.root.treePos(binary_expr.tree),
+                    ctx.root.treeSpan(binary_expr.tree),
                     "comparison operator type mismatch: lhs {}, rhs {}",
                     .{ ctx.fmtType(lhs_type), ctx.fmtType(rhs_type) },
                 );
@@ -529,6 +552,7 @@ fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
     if (!result.found_existing) {
         result.value_ptr.* = switch (key) {
             .invalid => .invalid,
+            .bool => .bool,
             .unsigned_integer => |unsigned_integer| .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } },
             .pointer_to => |pointee| .{ .pointer_to = pointee },
             .structure => |structure| blk: {
@@ -578,7 +602,7 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
             if (unary.star(ctx.root) != null)
                 return ctx.lookUpType(.{ .pointer_to = operand_type_index });
 
-            try ctx.addDiagnostic(ctx.root.treePos(unary.tree), "unknown binary operator", .{});
+            try ctx.addDiagnostic(ctx.root.treeSpan(unary.tree), "unknown binary operator", .{});
 
             return ctx.lookUpType(.invalid);
         },
@@ -624,7 +648,7 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
                     const inferred_type = try ctx.analyzeExpr(scope, expr, null);
                     if (inferred_type != ret.ty) {
                         try ctx.addDiagnostic(
-                            ctx.root.treePos(return_stmt.tree),
+                            ctx.root.treeSpan(return_stmt.tree),
                             "return type mismatch: declared {}, inferred {}",
                             .{
                                 ctx.fmtType(inferred_type),
@@ -634,17 +658,22 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
                     }
                 }
                 if (exprs.next(ctx.root)) |expr| {
-                    try ctx.addDiagnostic(ctx.root.treePos(expr.tree()), "too many return values", .{});
+                    try ctx.addDiagnostic(ctx.root.treeSpan(expr.tree()), "too many return values", .{});
                     return;
                 }
             },
             .@"if" => |if_stmt| {
                 const cond = if_stmt.cond(ctx.root) orelse return error.Syntax;
                 try checkExpr(ctx, scope, function, cond);
-                const bool_type = try ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 1 } });
+                const bool_type = try ctx.lookUpType(.bool);
                 const cond_type = try ctx.analyzeExpr(scope, cond, bool_type);
-                if (cond_type != bool_type)
-                    try ctx.addDiagnostic(ctx.root.treePos(cond.tree()), "condition must be boolean", .{});
+                if (cond_type != bool_type) {
+                    try ctx.addDiagnostic(
+                        ctx.root.treeSpan(cond.tree()),
+                        "expected {}, got {}",
+                        .{ ctx.fmtType(bool_type), ctx.fmtType(cond_type) },
+                    );
+                }
                 const if_body = if_stmt.body(ctx.root) orelse return error.Syntax;
                 try ctx.checkBlock(scope, function, if_body);
             },
@@ -684,7 +713,7 @@ fn genBlock(ctx: *Context, gen: *Gen, scope: *const Scope, block: syntax.ast.Stm
                 while (exprs.next(ctx.root)) |expr| {
                     const value = try genExpr(ctx, gen, scope, expr, builder);
                     if (value != .reg) {
-                        try ctx.addDiagnostic(ctx.root.treePos(expr.tree()), "cannot use void value", .{});
+                        try ctx.addDiagnostic(ctx.root.treeSpan(expr.tree()), "cannot use void value", .{});
                         return;
                     }
                     try regs.append(ctx.allocator, value.reg);
@@ -800,7 +829,7 @@ fn genArithExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.
     const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
     if (lhs_value != .reg or rhs_value != .reg) {
         if (lhs_value == .void or rhs_value == .void)
-            try ctx.addDiagnostic(ctx.root.treePos(expr.tree), "cannot use void value", .{});
+            try ctx.addDiagnostic(ctx.root.treeSpan(expr.tree), "cannot use void value", .{});
         return .invalid;
     }
 
@@ -814,7 +843,7 @@ fn genCmpExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Ex
     const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
     if (lhs_value != .reg or rhs_value != .reg) {
         if (lhs_value == .void or rhs_value == .void)
-            try ctx.addDiagnostic(ctx.root.treePos(expr.tree), "cannot use void value", .{});
+            try ctx.addDiagnostic(ctx.root.treeSpan(expr.tree), "cannot use void value", .{});
         return .invalid;
     }
 
@@ -825,6 +854,7 @@ fn irType(ctx: *Context, type_index: Type.Index) !ir.Type {
     const ty = ctx.typePtr(type_index);
     return switch (ty.*) {
         .invalid => @panic("TODO"),
+        .bool => .i64,
         .unsigned_integer => .i64,
         .pointer_to => .ptr,
         .structure => @panic("TODO"),

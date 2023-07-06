@@ -162,6 +162,7 @@ pub fn build(
                 token_pos += 1;
             }
 
+            const token_text_pos = text_pos;
             const token_tag = tokens[token_pos];
             const token_text_len = lengths[token_pos];
             const token_text = text[text_pos..][0..token_text_len];
@@ -174,7 +175,7 @@ pub fn build(
             const root_token_pos = root.tokens.len;
             try root.tokens.append(tree_allocator, syntax.pure.Token{
                 .tag = token_tag,
-                .pos = .{ .offset = @intCast(text_pos) },
+                .pos = .{ .offset = @intCast(token_text_pos) },
                 .text_pos = @intCast(root_text_pos),
                 .text_len = @intCast(token_text_len),
                 .trivia_start = @intCast(trivia_start),
