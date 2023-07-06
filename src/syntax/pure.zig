@@ -376,6 +376,7 @@ test Root {
     const token_id: Token.Index = @enumFromInt(0);
     const token_data = Token{
         .tag = .number,
+        .pos = .{ .offset = 0 },
         .text_pos = 0,
         .text_len = 1,
         .trivia_start = 0,
