@@ -9,7 +9,7 @@ allocator: std.mem.Allocator,
 root: syntax.pure.Root,
 ast: syntax.ast.File,
 line_index: LineIndex,
-types: std.AutoArrayHashMapUnmanaged(Type.Key, Type) = .{},
+types: std.AutoArrayHashMapUnmanaged(void, Type) = .{},
 structures: std.ArrayListUnmanaged(Struct) = .{},
 functions: std.ArrayListUnmanaged(Fn) = .{},
 diagnostics: std.MultiArrayList(Diagnostic) = .{},
@@ -72,8 +72,6 @@ pub fn printDiagnostics(ctx: *Context, writer: anytype) !bool {
 }
 
 pub fn dump(ctx: *Context, writer: anytype) !void {
-    for (ctx.types.keys(), 0..) |key, i|
-        try writer.print("{}: {}\n", .{ key, ctx.fmtType(@enumFromInt(i)) });
     for (ctx.structures.items) |structure| {
         try writer.print("struct {s} {{\n", .{structure.name});
         for (structure.fields.keys(), structure.fields.values()) |key, value|
@@ -102,6 +100,31 @@ const Type = union(enum) {
         pointer_to: Type.Index,
         structure: syntax.ast.Decl.Struct,
         function: syntax.ast.Decl.Fn,
+    };
+
+    fn toKey(ctx: *Context, ty: Type) Key {
+        return switch (ty) {
+            .invalid => .invalid,
+            .unsigned_integer => |unsigned_integer| .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } },
+            .pointer_to => |pointee| .{ .pointer_to = pointee },
+            .structure => |structure| .{ .structure = ctx.structPtr(structure).syntax },
+            .function => |function| .{ .function = ctx.fnPtr(function).syntax },
+        };
+    }
+
+    const HashContext = struct {
+        ctx: *Context,
+
+        pub fn hash(_: @This(), key: Key) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            std.hash.autoHash(&hasher, key);
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(self: @This(), key: Key, _: void, b_index: usize) bool {
+            const other_key = toKey(self.ctx, self.ctx.types.values()[b_index]);
+            return std.meta.eql(key, other_key);
+        }
     };
 };
 
@@ -485,42 +508,29 @@ const Scope = struct {
 };
 
 fn lookUpType(ctx: *Context, key: Type.Key) !Type.Index {
-    if (ctx.types.getIndex(key)) |i| return @enumFromInt(i);
-    switch (key) {
-        .invalid => {
-            const type_index = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .invalid);
-            return @enumFromInt(type_index);
-        },
-        .unsigned_integer => |unsigned_integer| {
-            const i = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } });
-            return @enumFromInt(i);
-        },
-        .structure => |structure| {
-            const struct_index = ctx.structures.items.len;
-            const ident = structure.ident(ctx.root) orelse return error.Syntax;
-            const name = ctx.root.tokenText(ident);
-            try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
-            const type_index = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .{ .structure = @enumFromInt(struct_index) });
-            return @enumFromInt(type_index);
-        },
-        .function => |function| {
-            const function_index = ctx.functions.items.len;
-            const ident = function.ident(ctx.root) orelse return error.Syntax;
-            const name = ctx.root.tokenText(ident);
-            try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
-            const type_index = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .{ .function = @enumFromInt(function_index) });
-            return @enumFromInt(type_index);
-        },
-        .pointer_to => |pointee| {
-            const type_index = ctx.types.entries.len;
-            try ctx.types.put(ctx.allocator, key, .{ .pointer_to = pointee });
-            return @enumFromInt(type_index);
-        },
+    const result = try ctx.types.getOrPutAdapted(ctx.allocator, key, Type.HashContext{ .ctx = ctx });
+    if (!result.found_existing) {
+        result.value_ptr.* = switch (key) {
+            .invalid => .invalid,
+            .unsigned_integer => |unsigned_integer| .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } },
+            .pointer_to => |pointee| .{ .pointer_to = pointee },
+            .structure => |structure| blk: {
+                const struct_index = ctx.structures.items.len;
+                const ident = structure.ident(ctx.root) orelse return error.Syntax;
+                const name = ctx.root.tokenText(ident);
+                try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
+                break :blk .{ .structure = @enumFromInt(struct_index) };
+            },
+            .function => |function| blk: {
+                const function_index = ctx.functions.items.len;
+                const ident = function.ident(ctx.root) orelse return error.Syntax;
+                const name = ctx.root.tokenText(ident);
+                try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
+                break :blk .{ .function = @enumFromInt(function_index) };
+            },
+        };
     }
+    return @enumFromInt(result.index);
 }
 
 fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.TypeExpr) !Type.Index {
