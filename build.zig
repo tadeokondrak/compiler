@@ -36,7 +36,22 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const lsp = b.addExecutable(.{
+        .name = "lsp",
+        .root_source_file = .{ .path = "cmd/lsp/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    lsp.addModule("syntax", syntax);
+    lsp.addModule("parse", parse);
+    lsp.addModule("sema", sema);
+    lsp.addModule("zig-lsp", b.dependency("zig-lsp", .{}).module("zig-lsp"));
+
+    b.installArtifact(lsp);
+
     const run_cmd = b.addRunArtifact(exe);
+
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args|
         run_cmd.addArgs(args);
