@@ -638,7 +638,10 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
             if (ident_text.len > 0 and ident_text[0] == 'u') {
                 if (std.fmt.parseInt(u32, ident_text[1..], 10)) |bits| {
                     return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = bits } });
-                } else |_| {}
+                } else |e| switch (e) {
+                    error.Overflow => return ctx.typeTodo(ident.tree, @src()),
+                    error.InvalidCharacter => {},
+                }
             }
             const decl_tree = scope.get(ident_text) orelse
                 return ctx.typeTodo(ident.tree, @src());
