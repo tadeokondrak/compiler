@@ -17,6 +17,13 @@
                 "id": "compiler",
                 "extensions": [ ".compiler" ]
             }
+        ],
+        "grammars": [
+            {
+                "language": "compiler",
+                "scopeName": "source.compiler",
+                "path": "./compiler.tmLanguage.json"
+            }
         ]
     },
     "dependencies": {
