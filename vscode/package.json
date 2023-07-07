@@ -1,0 +1,28 @@
+{
+    "name": "vscode-extension",
+    "version": "0.0.0",
+    "author": "Tadeo Kondrak <me@tadeo.ca>",
+    "license": "MPL-2.0",
+    "engines": {
+        "vscode": "^1.74.0"
+    },
+    "repository": "https://github.com/tadeokondrak/compiler",
+    "main": "extension.js",
+    "activationEvents": [
+        "onLanguage:compiler"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "compiler",
+                "extensions": [ ".compiler" ]
+            }
+        ]
+    },
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.78.0"
+    }
+}
