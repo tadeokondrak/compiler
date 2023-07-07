@@ -4,6 +4,12 @@
 
 const std = @import("std");
 
+pub const Builder = @import("pure/Builder.zig");
+
+comptime {
+    _ = Builder;
+}
+
 pub const Pos = struct {
     offset: u32,
 };
@@ -12,12 +18,6 @@ pub const Span = struct {
     start: Pos,
     end: Pos,
 };
-
-pub const Builder = @import("pure/Builder.zig");
-
-comptime {
-    _ = Builder;
-}
 
 pub const Node = struct {
     pub const Index = struct {

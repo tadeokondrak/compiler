@@ -1,8 +1,8 @@
 const std = @import("std");
-const Tag = @import("../syntax.zig").pure.Token.Tag;
+const syntax = @import("syntax");
 
 pub const Token = struct {
-    tag: Tag,
+    tag: syntax.pure.Token.Tag,
     len: usize,
 };
 
@@ -82,7 +82,7 @@ pub const Lexer = struct {
                 .ident => |ident_state| switch (lexer.nth(0)) {
                     'a'...'z', 'A'...'Z', '0'...'9', '_' => lexer.pos += 1,
                     else => {
-                        const kw_map = std.ComptimeStringMap(Tag, .{
+                        const kw_map = std.ComptimeStringMap(syntax.pure.Token.Tag, .{
                             .{ "fn", .kw_fn },
                             .{ "return", .kw_return },
                             .{ "struct", .kw_struct },

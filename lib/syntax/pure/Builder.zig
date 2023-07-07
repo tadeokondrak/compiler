@@ -1,7 +1,7 @@
+const Builder = @This();
+
 const std = @import("std");
 const syntax = @import("../../syntax.zig");
-
-const Builder = @This();
 
 allocator: std.mem.Allocator,
 events: std.ArrayListUnmanaged(Event) = .{},

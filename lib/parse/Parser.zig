@@ -1,11 +1,9 @@
-const std = @import("std");
-const syntax = @import("../syntax.zig");
-const lex = @import("lex.zig");
-const parse = @import("../parse.zig");
-
-const ast = syntax.ast;
-
 const Parser = @This();
+
+const std = @import("std");
+const syntax = @import("syntax");
+const lex = @import("lex.zig");
+const parse = @import("parse");
 const grammar = @import("grammar.zig");
 
 token_pos: usize = 0,

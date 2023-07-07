@@ -3,12 +3,28 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const syntax = b.addModule("syntax", .{
+        .source_file = .{ .path = "lib/syntax.zig" },
+    });
+
+    const parse = b.addModule("parse", .{
+        .source_file = .{ .path = "lib/parse.zig" },
+        .dependencies = &.{
+            .{ .name = "syntax", .module = syntax },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "compiler",
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
+
+    exe.addModule("syntax", syntax);
+    exe.addModule("parse", parse);
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
