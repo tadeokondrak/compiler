@@ -19,14 +19,14 @@ const Diagnostic = struct {
     message: []const u8,
 };
 
-fn err(ctx: *Context, tree: syntax.pure.Tree.Index, comptime fmt: []const u8, args: anytype) !void {
+fn err(ctx: *Context, tree: syntax.pure.Tree.Index, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
     return ctx.diagnostics.append(ctx.allocator, .{
         .span = ctx.root.treeSpan(tree),
         .message = try std.fmt.allocPrint(ctx.allocator, fmt, args),
     });
 }
 
-fn todo(ctx: *Context, tree: syntax.pure.Tree.Index, src: std.builtin.SourceLocation) !void {
+fn todo(ctx: *Context, tree: syntax.pure.Tree.Index, src: std.builtin.SourceLocation) error{OutOfMemory}!void {
     return ctx.err(tree, "TODO in {s} at {s}:{}:{}", .{ src.fn_name, src.file, src.line, src.column });
 }
 
@@ -52,7 +52,7 @@ fn genTodo(ctx: *Context, tree: syntax.pure.Tree.Index, src: std.builtin.SourceL
 
 const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
 
-fn formatFn(args: FormatFnArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatFn(args: FormatFnArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
     const function = args.ctx.fnPtr(args.function);
     try writer.print("fn {s}(", .{function.name});
     for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
@@ -76,7 +76,7 @@ fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
 
 const FormatStructArgs = struct { ctx: *Context, structure: Struct.Index };
 
-fn formatStruct(args: FormatStructArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatStruct(args: FormatStructArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
     const structure = args.ctx.structPtr(args.structure);
     if (std.mem.eql(u8, fmt, "#")) {
         try writer.print("struct {s}", .{structure.name});
@@ -97,7 +97,7 @@ fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStr
 
 const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
 
-fn formatType(args: FormatTypeArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatType(args: FormatTypeArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
     return switch (args.ctx.typePtr(args.ty).*) {
         .invalid => writer.print("invalid", .{}),
         .bool => writer.print("bool", .{}),
@@ -112,7 +112,7 @@ fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
     return .{ .data = .{ .ctx = ctx, .ty = ty } };
 }
 
-pub fn printDiagnostics(ctx: *Context, src: []const u8, writer: anytype) !bool {
+pub fn printDiagnostics(ctx: *Context, src: []const u8, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!bool {
     if (ctx.diagnostics.len == 0)
         return false;
     const line_index = try LineIndex.make(ctx.allocator, src);
@@ -138,7 +138,7 @@ pub fn printDiagnostics(ctx: *Context, src: []const u8, writer: anytype) !bool {
     return true;
 }
 
-pub fn dump(ctx: *Context, writer: anytype) !void {
+pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
     for (0..ctx.types.entries.len) |i|
         try writer.print("Type {}: {#}\n", .{ i, ctx.fmtType(@enumFromInt(i)) });
     for (0..ctx.functions.items.len) |i|
@@ -259,7 +259,7 @@ pub fn deinit(ctx: *Context) void {
     ctx.root.deinit(ctx.allocator);
 }
 
-pub fn compile(ctx: *Context) !void {
+pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
     defer names.deinit(ctx.allocator);
 
