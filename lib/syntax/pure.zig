@@ -214,7 +214,13 @@ pub const Trivia = struct {
     };
 };
 
+pub const Error = struct {
+    message: []const u8,
+    span: Span,
+};
+
 pub const Root = struct {
+    errors: std.MultiArrayList(Error) = .{},
     tokens: std.MultiArrayList(Token) = .{},
     text: std.ArrayListUnmanaged(u8) = .{},
     trees: std.MultiArrayList(Tree) = .{},
@@ -222,6 +228,7 @@ pub const Root = struct {
     trivia: std.MultiArrayList(Trivia) = .{},
 
     pub fn deinit(root: *Root, allocator: std.mem.Allocator) void {
+        root.errors.deinit(allocator);
         root.tokens.deinit(allocator);
         root.text.deinit(allocator);
         root.trees.deinit(allocator);

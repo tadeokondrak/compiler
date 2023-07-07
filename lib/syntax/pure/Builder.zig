@@ -10,6 +10,7 @@ oom: bool = false,
 pub const Event = union(enum) {
     open: struct { tag: syntax.pure.Tree.Tag },
     token,
+    err: []const u8,
     close,
 };
 
@@ -51,6 +52,13 @@ pub fn close(builder: *Builder, mark: Mark, tag: syntax.pure.Tree.Tag) void {
 pub fn token(builder: *Builder) void {
     if (builder.oom) return;
     builder.events.append(builder.allocator, Event.token) catch {
+        builder.oom = true;
+    };
+}
+
+pub fn err(builder: *Builder, message: []const u8) void {
+    if (builder.oom) return;
+    builder.events.append(builder.allocator, .{ .err = message }) catch {
         builder.oom = true;
     };
 }
@@ -173,7 +181,7 @@ pub fn build(
             try root.text.appendSlice(tree_allocator, token_text);
 
             const root_token_pos = root.tokens.len;
-            try root.tokens.append(tree_allocator, syntax.pure.Token{
+            try root.tokens.append(tree_allocator, .{
                 .tag = token_tag,
                 .pos = .{ .offset = @intCast(token_text_pos) },
                 .text_pos = @intCast(root_text_pos),
@@ -187,6 +195,15 @@ pub fn build(
                 .tag = syntax.pure.Node.Tag.fromTokenTag(token_tag),
             });
             stack.items[stack.items.len - 1].num_children += 1;
+        },
+        .err => |msg| {
+            try root.errors.append(tree_allocator, .{
+                .message = msg,
+                .span = .{
+                    .start = .{ .offset = @intCast(text_pos + 1) },
+                    .end = .{ .offset = @intCast(text_pos + 1) },
+                },
+            });
         },
         .close => {
             if (stack.items.len == 2) {

@@ -37,6 +37,14 @@ pub fn eat(p: *Parser, tag: syntax.pure.Token.Tag) bool {
     return true;
 }
 
+pub fn expect(p: *Parser, comptime tag: syntax.pure.Token.Tag) void {
+    if (!p.at(tag)) {
+        p.builder.err(std.fmt.comptimePrint("expected {s}", .{@tagName(tag)}));
+        return;
+    }
+    p.advance();
+}
+
 pub fn bump(p: *Parser, tag: syntax.pure.Token.Tag) void {
     std.debug.assert(p.eat(tag));
 }

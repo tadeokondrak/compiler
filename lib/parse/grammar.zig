@@ -79,7 +79,7 @@ fn parseDecl(p: *Parser) void {
 fn parseFnDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_fn);
-    _ = p.eat(.ident);
+    p.expect(.ident);
     if (p.at(.l_paren))
         parseFnParams(p);
     if (p.at(.l_paren) or p.atAny(&type_expr_first))
@@ -93,20 +93,20 @@ fn parseFnParams(p: *Parser) void {
     p.bump(.l_paren);
     while (!p.at(.r_paren) and !p.at(.eof)) {
         if (p.at(.ident) or p.atAny(&type_expr_first))
-            parseFnParam(p)
-        else
-            break;
+            if (!parseFnParam(p))
+                break;
     }
-    _ = p.eat(.r_paren);
+    p.expect(.r_paren);
     p.builder.close(m, .fn_params);
 }
 
-fn parseFnParam(p: *Parser) void {
+fn parseFnParam(p: *Parser) bool {
     const m = p.builder.open();
-    _ = p.eat(.ident);
+    p.expect(.ident);
     parseTypeExpr(p);
-    _ = p.eat(.comma);
+    const comma = p.eat(.comma);
     p.builder.close(m, .fn_param);
+    return comma;
 }
 
 fn parseFnReturns(p: *Parser) void {
@@ -114,14 +114,14 @@ fn parseFnReturns(p: *Parser) void {
     if (p.eat(.l_paren)) {
         while (p.at(.ident) or p.atAny(&expr_first))
             parseFnReturnNamed(p);
-        _ = p.eat(.r_paren);
+        p.expect(.r_paren);
     }
     p.builder.close(m, .fn_returns);
 }
 
 fn parseFnReturnNamed(p: *Parser) void {
     const m = p.builder.open();
-    _ = p.eat(.ident);
+    p.expect(.ident);
     parseTypeExpr(p);
     _ = p.eat(.comma);
     p.builder.close(m, .fn_return);
@@ -130,31 +130,31 @@ fn parseFnReturnNamed(p: *Parser) void {
 fn parseStructDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_struct);
-    _ = p.eat(.ident);
+    p.expect(.ident);
     if (p.eat(.l_brace)) {
         while (p.at(.ident))
             parseStructField(p);
-        _ = p.eat(.r_brace);
+        p.expect(.r_brace);
     }
     p.builder.close(m, .decl_struct);
 }
 
 fn parseStructField(p: *Parser) void {
     const m = p.builder.open();
-    _ = p.eat(.ident);
+    p.expect(.ident);
     parseTypeExpr(p);
-    _ = p.eat(.semi);
+    p.expect(.semi);
     p.builder.close(m, .struct_field);
 }
 
 fn parseConstDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_const);
-    _ = p.eat(.ident);
+    p.expect(.ident);
     parseTypeExpr(p);
-    _ = p.eat(.eq);
+    p.expect(.eq);
     parseExpr(p);
-    _ = p.eat(.semi);
+    p.expect(.semi);
     p.builder.close(m, .decl_const);
 }
 
@@ -175,7 +175,7 @@ fn parseStmt(p: *Parser) void {
 
 fn parseBlockStmt(p: *Parser) void {
     const m = p.builder.open();
-    _ = p.eat(.l_brace);
+    p.expect(.l_brace);
     while (!p.atAny(&.{ .r_brace, .eof })) {
         if (p.atAny(&expr_first)) {
             parseExprStmt(p);
@@ -184,7 +184,7 @@ fn parseBlockStmt(p: *Parser) void {
             //p.advance();
         }
     }
-    _ = p.eat(.r_brace);
+    p.expect(.r_brace);
     p.builder.close(m, .stmt_block);
 }
 
@@ -192,7 +192,7 @@ fn parseExprStmt(p: *Parser) void {
     std.debug.assert(p.atAny(&expr_first));
     const m = p.builder.open();
     parseExpr(p);
-    _ = p.eat(.semi);
+    p.expect(.semi);
     p.builder.close(m, .stmt_expr);
 }
 
@@ -200,7 +200,7 @@ fn parseReturnStmt(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_return);
     parseExpr(p);
-    _ = p.eat(.semi);
+    p.expect(.semi);
     p.builder.close(m, .stmt_return);
 }
 
@@ -241,10 +241,12 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
                 while (!p.at(.r_paren) and !p.at(.eof)) {
                     const arg = p.builder.open();
                     parseExpr(p);
-                    _ = p.eat(.comma);
+                    const comma = p.eat(.comma);
                     p.builder.close(arg, .call_arg);
+                    if (!comma)
+                        break;
                 }
-                _ = p.eat(.r_paren);
+                p.expect(.r_paren);
                 p.builder.close(args, .call_args);
                 p.builder.close(lhs, .expr_call);
             } else {
@@ -289,7 +291,7 @@ fn parseExprDelimited(p: *Parser) ?syntax.pure.Builder.Mark {
         const m = p.builder.open();
         p.bump(.l_paren);
         parseExpr(p);
-        _ = p.eat(.r_paren);
+        p.expect(.r_paren);
         p.builder.close(m, .expr_paren);
         return m;
     }

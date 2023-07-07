@@ -122,7 +122,7 @@ pub fn printDiagnostics(ctx: *Context, src: []const u8, writer: anytype) !bool {
         const end = line_index.translate(span.end.offset);
         const len = if (start.line != end.line) 1 else end.col - start.col;
         try writer.print("<input>:{}:{}: {s}\n", .{ start.line + 1, start.col + 1, message });
-        const line_start = line_index.newlines[start.line - 1] + 1;
+        const line_start = if (start.line == 0) 0 else line_index.newlines[start.line - 1] + 1;
         const line_end = line_index.newlines[start.line];
         const line = src[line_start..line_end];
         for (line) |c| {
@@ -221,12 +221,24 @@ const Fn = struct {
 };
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
-    const parsed = try parse.parseFile(allocator, src);
-    return .{
+    var parsed = try parse.parseFile(allocator, src);
+    errdefer parsed.root.deinit(allocator);
+    var context: Context = .{
         .allocator = allocator,
         .root = parsed.root,
         .ast = parsed.ast,
     };
+    for (
+        parsed.root.errors.items(.message),
+        parsed.root.errors.items(.span),
+    ) |message, span| {
+        // TODO: don't leak memory on failure here
+        try context.diagnostics.append(allocator, .{
+            .message = try allocator.dupe(u8, message),
+            .span = span,
+        });
+    }
+    return context;
 }
 
 pub fn deinit(ctx: *Context) void {
@@ -331,11 +343,11 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                 var it = struct_syntax.fields(ctx.root);
                 while (it.next(ctx.root)) |field| {
                     const name_syntax = field.ident(ctx.root) orelse
-                        return ctx.todo(field.tree, @src());
+                        return ctx.err(field.tree, "struct field without name", .{});
 
                     const name = ctx.root.tokenText(name_syntax);
                     const type_syntax = field.typeExpr(ctx.root) orelse
-                        return ctx.todo(field.tree, @src());
+                        return ctx.err(field.tree, "struct field without type", .{});
 
                     const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
                     try structure.fields.put(ctx.allocator, name, ty);
@@ -355,11 +367,11 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                     var it = params.params(ctx.root);
                     while (it.next(ctx.root)) |param| {
                         const name_syntax = param.ident(ctx.root) orelse
-                            return ctx.todo(param.tree, @src());
+                            return ctx.err(param.tree, "function parameter without name", .{});
 
                         const name = ctx.root.tokenText(name_syntax);
                         const type_syntax = param.typeExpr(ctx.root) orelse
-                            return ctx.todo(param.tree, @src());
+                            return ctx.err(param.tree, "function parameter without type", .{});
 
                         const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
                         try function.params.put(ctx.allocator, name, .{
@@ -375,11 +387,11 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                     var it = returns.returns(ctx.root);
                     while (it.next(ctx.root)) |param| {
                         const name_syntax = param.ident(ctx.root) orelse
-                            return ctx.todo(param.tree, @src());
+                            return ctx.err(param.tree, "function return without name", .{});
 
                         const name = ctx.root.tokenText(name_syntax);
                         const type_syntax = param.typeExpr(ctx.root) orelse
-                            return ctx.todo(param.tree, @src());
+                            return ctx.err(param.tree, "function return without type", .{});
 
                         const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
                         try function.returns.put(ctx.allocator, name, .{
@@ -394,11 +406,11 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
         },
         .constant => |constant_syntax| {
             const type_expr = constant_syntax.typeExpr(ctx.root) orelse
-                return ctx.todo(constant_syntax.tree, @src());
+                return ctx.err(constant_syntax.tree, "constant without type", .{});
 
             const ty = try ctx.analyzeTypeExpr(scope, type_expr);
             const expr = constant_syntax.expr(ctx.root) orelse
-                return ctx.todo(constant_syntax.tree, @src());
+                return ctx.err(constant_syntax.tree, "constant without initializer", .{});
 
             const expr_ty = try ctx.analyzeExpr(scope, expr, ty);
             if (ty != expr_ty) {
@@ -529,8 +541,8 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             }
             if (args.next(ctx.root)) |_|
                 return ctx.typeTodo(call_expr.tree, @src());
-            // TODO
-            std.debug.assert(function.returns.values().len == 1);
+            if (function.returns.values().len != 1)
+                return ctx.typeTodo(call_expr.tree, @src());
             const ret_type = function.returns.values()[0].ty;
             return ret_type;
         },
@@ -645,7 +657,7 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
         },
         .unary => |unary| {
             const operand_type_expr = unary.typeExpr(ctx.root) orelse
-                return ctx.typeTodo(unary.tree, @src());
+                return ctx.typeErr(unary.tree, "operator missing operand", .{});
 
             const operand_type_index = try analyzeTypeExpr(ctx, scope, operand_type_expr);
 
@@ -659,52 +671,56 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
     }
 }
 
-fn checkFnBody(ctx: *Context, scope: *const Scope, function: Fn.Index) error{OutOfMemory}!void {
-    const body = ctx.fnPtr(function).syntax.body(ctx.root) orelse
-        return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+fn checkFnBody(ctx: *Context, scope: *const Scope, function_index: Fn.Index) error{OutOfMemory}!void {
+    const function = ctx.fnPtr(function_index);
+
+    const body = function.syntax.body(ctx.root) orelse
+        return ctx.todo(function.syntax.tree, @src());
 
     var args: std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index) = .{};
     defer args.deinit(ctx.allocator);
 
-    const params = ctx.fnPtr(function).syntax.params(ctx.root) orelse
-        return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+    const params = function.syntax.params(ctx.root) orelse
+        return ctx.todo(function.syntax.tree, @src());
     var it = params.params(ctx.root);
     while (it.next(ctx.root)) |param| {
         const name_syntax = param.ident(ctx.root) orelse
-            return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+            return ctx.todo(function.syntax.tree, @src());
         const name = ctx.root.tokenText(name_syntax);
         try args.put(ctx.allocator, name, param.tree);
     }
 
     const fn_scope: Scope.Fn = .{ .base = .{ .parent = scope, .getFn = Scope.Fn.get }, .args = &args };
-    try ctx.checkBlock(&fn_scope.base, function, body);
+    try ctx.checkBlock(&fn_scope.base, function_index, body);
 }
 
-fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: syntax.ast.Stmt.Block) error{OutOfMemory}!void {
+fn checkBlock(ctx: *Context, scope: *const Scope, function_index: Fn.Index, body: syntax.ast.Stmt.Block) error{OutOfMemory}!void {
+    const function = ctx.fnPtr(function_index);
+
     for (ctx.root.treeChildren(body.tree)) |child| {
         const child_tree = child.asTree() orelse continue;
 
         const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse
-            return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+            return ctx.todo(function.syntax.tree, @src());
 
         switch (stmt) {
             .expr => |expr_stmt| {
                 const expr = expr_stmt.expr(ctx.root) orelse
-                    return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+                    return ctx.todo(function.syntax.tree, @src());
 
-                try checkExpr(ctx, scope, function, expr);
+                try checkExpr(ctx, scope, function_index, expr);
             },
             .block => |block_stmt| {
-                try ctx.checkBlock(scope, function, block_stmt);
+                try ctx.checkBlock(scope, function_index, block_stmt);
             },
             .@"return" => |return_stmt| {
-                const returns = &ctx.fnPtr(function).returns;
+                const returns = &function.returns;
                 var exprs = return_stmt.exprs(ctx.root);
                 for (returns.values()) |ret| {
                     const expr = exprs.next(ctx.root) orelse
-                        return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+                        return ctx.todo(function.syntax.tree, @src());
 
-                    try checkExpr(ctx, scope, function, expr);
+                    try checkExpr(ctx, scope, function_index, expr);
                     const inferred_type = try ctx.analyzeExpr(scope, expr, null);
                     if (inferred_type != ret.ty) {
                         try ctx.err(return_stmt.tree, "return type mismatch: declared {}, inferred {}", .{ ctx.fmtType(inferred_type), ctx.fmtType(ret.ty) });
@@ -717,18 +733,18 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function: Fn.Index, body: synt
             },
             .@"if" => |if_stmt| {
                 const cond = if_stmt.cond(ctx.root) orelse
-                    return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+                    return ctx.todo(function.syntax.tree, @src());
 
-                try checkExpr(ctx, scope, function, cond);
+                try checkExpr(ctx, scope, function_index, cond);
                 const bool_type = try ctx.lookUpType(.bool);
                 const cond_type = try ctx.analyzeExpr(scope, cond, bool_type);
                 if (cond_type != bool_type) {
                     try ctx.err(cond.tree(), "expected {}, got {}", .{ ctx.fmtType(bool_type), ctx.fmtType(cond_type) });
                 }
                 const if_body = if_stmt.body(ctx.root) orelse
-                    return ctx.todo(ctx.fnPtr(function).syntax.tree, @src());
+                    return ctx.todo(function.syntax.tree, @src());
 
-                try ctx.checkBlock(scope, function, if_body);
+                try ctx.checkBlock(scope, function_index, if_body);
             },
         }
     }
