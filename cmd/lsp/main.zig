@@ -27,7 +27,8 @@ fn getDiagnostics(arena: *std.heap.ArenaAllocator, src: []const u8) error{OutOfM
             });
         }
     } else |err| {
-        std.debug.dumpStackTrace(@errorReturnTrace().?.*);
+        if (@errorReturnTrace()) |trace|
+            std.debug.dumpStackTrace(trace.*);
         try diagnostics.append(arena.allocator(), .{
             .message = @errorName(err),
             .range = .{
