@@ -18,6 +18,12 @@
                 "extensions": [ ".compiler" ]
             }
         ],
+        "commands": [
+            {
+                "command": "compiler.restartLanguageServer",
+                "title": "compiler: Restart Language Server"
+            }
+        ],
         "grammars": [
             {
                 "language": "compiler",

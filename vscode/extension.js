@@ -27,7 +27,12 @@ function activate(context) {
         { documentSelector: [{ scheme: 'file', language: 'compiler' }] },
         true
     );
+
     client.start();
+
+    vscode.commands.registerCommand("compiler.restartLanguageServer", () => {
+        client.restart();
+    })
 }
 
 /**
