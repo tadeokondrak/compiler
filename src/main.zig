@@ -1,11 +1,5 @@
 const std = @import("std");
-const ir = @import("ir.zig");
-const Context = @import("Context.zig");
-
-comptime {
-    _ = ir;
-    _ = Context;
-}
+const sema = @import("sema");
 
 pub fn main() !void {
     const src =
@@ -34,7 +28,7 @@ pub fn main() !void {
 
     var gpa: std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 32 }) = .{};
     defer _ = gpa.deinit();
-    var ctx = try Context.init(gpa.allocator(), src);
+    var ctx = try sema.Context.init(gpa.allocator(), src);
     defer ctx.deinit();
     //std.debug.print("syntax: {}\n", .{ctx.root});
     try ctx.compile();

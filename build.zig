@@ -15,6 +15,14 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const sema = b.addModule("sema", .{
+        .source_file = .{ .path = "lib/sema.zig" },
+        .dependencies = &.{
+            .{ .name = "syntax", .module = syntax },
+            .{ .name = "parse", .module = parse },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "compiler",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -24,6 +32,7 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("syntax", syntax);
     exe.addModule("parse", parse);
+    exe.addModule("sema", sema);
 
     b.installArtifact(exe);
 

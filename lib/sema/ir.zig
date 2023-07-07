@@ -17,11 +17,13 @@ pub const Value = struct {
 };
 
 pub const Type = enum {
+    invalid,
     i64,
     ptr,
 
     pub fn format(ty: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (ty) {
+            .invalid => try writer.print("invalid", .{}),
             .i64 => try writer.print("i64", .{}),
             .ptr => try writer.print("ptr", .{}),
         }
