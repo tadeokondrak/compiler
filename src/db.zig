@@ -173,17 +173,20 @@ pub fn Db(
         }
 
         fn packInput(comptime tag: QueryTag, input: QueryInput(tag)) u64 {
-            _ = input;
             return switch (QueryInput(tag)) {
                 void => 0,
+                u32, u64 => input,
+                usize => input,
                 else => @panic("TODO"),
             };
         }
 
         fn unpackInput(comptime tag: QueryTag, input: u64) QueryInput(tag) {
-            _ = input;
             return switch (QueryInput(tag)) {
                 void => {},
+                u32 => @truncate(input),
+                u64 => input,
+                usize => @truncate(input),
                 else => @panic("TODO"),
             };
         }
@@ -237,7 +240,7 @@ pub fn Db(
                             if (try db.maybeChangedSince(
                                 dependency_tag,
                                 unpackInput(dependency_tag, dependency.input),
-                                data.last_changed, // last_checked?
+                                data.last_changed,
                             )) {
                                 break :blk true;
                             }
@@ -325,6 +328,11 @@ const tests = struct {
             std.debug.print("!! derived_queries.source_text_len_plus_one\n", .{});
             return (try db.query(.source_text_len, {})) + 1;
         }
+
+        fn source_text_len_plus_n(db: *DbT, n: usize) !usize {
+            std.debug.print("!! derived_queries.source_text_len_plus_n {}\n", .{n});
+            return (try db.query(.source_text_len, {})) + n;
+        }
     };
 };
 
@@ -341,10 +349,14 @@ test Db {
     try std.testing.expectEqualStrings("hello world", try db.query(.source_text, {}));
     try std.testing.expectEqual("hello world".len, try db.query(.source_text_len, {}));
     try std.testing.expectEqual("hello world".len + 1, try db.query(.source_text_len_plus_one, {}));
+    try std.testing.expectEqual("hello world".len + 2, try db.query(.source_text_len_plus_n, 2));
+    try std.testing.expectEqual("hello world".len + 3, try db.query(.source_text_len_plus_n, 3));
 
     try std.testing.expectEqualStrings("hello world", try db.query(.source_text, {}));
     try std.testing.expectEqual("hello world".len, try db.query(.source_text_len, {}));
     try std.testing.expectEqual("hello world".len + 1, try db.query(.source_text_len_plus_one, {}));
+    try std.testing.expectEqual("hello world".len + 2, try db.query(.source_text_len_plus_n, 2));
+    try std.testing.expectEqual("hello world".len + 3, try db.query(.source_text_len_plus_n, 3));
 
     std.debug.print("---\n", .{});
     db.input_state = .{ .source_text = "world hello" };
@@ -353,6 +365,8 @@ test Db {
     try std.testing.expectEqualStrings("world hello", try db.query(.source_text, {}));
     try std.testing.expectEqual("world hello".len, try db.query(.source_text_len, {}));
     try std.testing.expectEqual("world hello".len + 1, try db.query(.source_text_len_plus_one, {}));
+    try std.testing.expectEqual("world hello".len + 2, try db.query(.source_text_len_plus_n, 2));
+    try std.testing.expectEqual("world hello".len + 3, try db.query(.source_text_len_plus_n, 3));
 
     std.debug.print("---\n", .{});
     db.input_state = .{ .source_text = "hello" };
@@ -361,6 +375,8 @@ test Db {
     try std.testing.expectEqualStrings("hello", try db.query(.source_text, {}));
     try std.testing.expectEqual("hello".len, try db.query(.source_text_len, {}));
     try std.testing.expectEqual("hello".len + 1, try db.query(.source_text_len_plus_one, {}));
+    try std.testing.expectEqual("hello".len + 2, try db.query(.source_text_len_plus_n, 2));
+    try std.testing.expectEqual("hello".len + 3, try db.query(.source_text_len_plus_n, 3));
 
     std.debug.print("---\n", .{});
     db.input_state = .{ .source_text = "elloh" };
@@ -369,4 +385,6 @@ test Db {
     try std.testing.expectEqualStrings("elloh", try db.query(.source_text, {}));
     try std.testing.expectEqual("elloh".len, try db.query(.source_text_len, {}));
     try std.testing.expectEqual("elloh".len + 1, try db.query(.source_text_len_plus_one, {}));
+    try std.testing.expectEqual("elloh".len + 2, try db.query(.source_text_len_plus_n, 2));
+    try std.testing.expectEqual("elloh".len + 3, try db.query(.source_text_len_plus_n, 3));
 }
