@@ -44,6 +44,7 @@ const decl_first = [_]syntax.pure.Token.Tag{
 const expr_first = [_]syntax.pure.Token.Tag{
     .number,
     .l_paren,
+    .ident,
 };
 
 const type_expr_first = [_]syntax.pure.Token.Tag{
