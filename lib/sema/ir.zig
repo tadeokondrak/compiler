@@ -8,6 +8,11 @@ pub const Reg = enum(u32) {
     }
 };
 
+pub const Regs = struct {
+    index: u32,
+    count: u32,
+};
+
 pub const Value = struct {
     bits: u64,
 
@@ -58,11 +63,6 @@ pub const CmpOp = enum {
     pub fn format(op: CmpOp, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.writeAll(@tagName(op));
     }
-};
-
-pub const Regs = struct {
-    index: u32,
-    count: u32,
 };
 
 pub const Inst = union(enum) {

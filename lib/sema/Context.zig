@@ -9,7 +9,8 @@ const LineIndex = @import("LineIndex.zig");
 allocator: std.mem.Allocator,
 root: syntax.pure.Root,
 ast: syntax.ast.File,
-types: std.AutoArrayHashMapUnmanaged(void, Type) = .{},
+pool: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+types: std.ArrayListUnmanaged(Type) = .{},
 structures: std.ArrayListUnmanaged(Struct) = .{},
 functions: std.ArrayListUnmanaged(Fn) = .{},
 diagnostics: std.MultiArrayList(Diagnostic) = .{},
@@ -57,7 +58,7 @@ const Type = union(enum) {
         }
 
         pub fn eql(self: @This(), key: Key, _: void, b_index: usize) bool {
-            const other_key = toKey(self.ctx, self.ctx.types.values()[b_index]);
+            const other_key = toKey(self.ctx, self.ctx.types.items[b_index]);
             return std.meta.eql(key, other_key);
         }
     };
@@ -156,7 +157,7 @@ const GenValue = union(enum) {
 };
 
 fn typePtr(ctx: *Context, i: Type.Index) *Type {
-    return &ctx.types.values()[@intFromEnum(i)];
+    return &ctx.types.items[@intFromEnum(i)];
 }
 
 fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
@@ -371,12 +372,13 @@ pub fn deinit(ctx: *Context) void {
         structure.fields.deinit(ctx.allocator);
     ctx.structures.deinit(ctx.allocator);
     ctx.functions.deinit(ctx.allocator);
+    ctx.pool.deinit(ctx.allocator);
     ctx.types.deinit(ctx.allocator);
     ctx.root.deinit(ctx.allocator);
 }
 
 pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
-    for (0..ctx.types.entries.len) |i|
+    for (0..ctx.pool.entries.len) |i|
         try writer.print("Type {}: {#}\n", .{ i, ctx.fmtType(@enumFromInt(i)) });
     for (0..ctx.functions.items.len) |i|
         try writer.print("{code}\n", .{ctx.fmtFn(@enumFromInt(i))});
@@ -760,13 +762,14 @@ fn typeOfDecl(
 }
 
 fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
-    const result = try ctx.types.getOrPutAdapted(
+    const result = try ctx.pool.getOrPutAdapted(
         ctx.allocator,
         key,
         Type.HashContext{ .ctx = ctx },
     );
     if (!result.found_existing) {
-        result.value_ptr.* = switch (key) {
+        std.debug.assert(result.index == ctx.types.items.len);
+        try ctx.types.append(ctx.allocator, switch (key) {
             .invalid => .invalid,
             .bool => .bool,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
@@ -789,7 +792,7 @@ fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
                 try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
                 break :blk .{ .function = @enumFromInt(function_index) };
             },
-        };
+        });
     }
     return @enumFromInt(result.index);
 }
