@@ -13,8 +13,8 @@ fn getDiagnostics(arena: *std.heap.ArenaAllocator, src: []const u8) error{OutOfM
     defer diagnostics.deinit(arena.allocator());
 
     if (ctx.compile()) |_| {
-        const line_index = try LineIndex.make(ctx.allocator, src);
-        defer line_index.deinit(ctx.allocator);
+        const line_index = try LineIndex.make(arena.allocator(), src);
+        defer line_index.deinit(arena.allocator());
         for (ctx.diagnostics.items(.span), ctx.diagnostics.items(.message)) |span, message| {
             const start = line_index.translate(span.start.offset);
             const end = line_index.translate(span.end.offset);

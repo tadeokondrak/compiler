@@ -6,7 +6,7 @@ const parse = @import("parse");
 const ir = @import("ir.zig");
 const LineIndex = @import("LineIndex.zig");
 
-allocator: std.mem.Allocator,
+gpa: std.mem.Allocator,
 root: syntax.pure.Root,
 ast: syntax.ast.File,
 pool: std.AutoArrayHashMapUnmanaged(void, void) = .{},
@@ -174,9 +174,9 @@ fn err(
     comptime fmt: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    return ctx.diagnostics.append(ctx.allocator, .{
+    return ctx.diagnostics.append(ctx.gpa, .{
         .span = ctx.root.treeSpan(tree),
-        .message = try std.fmt.allocPrint(ctx.allocator, fmt, args),
+        .message = try std.fmt.allocPrint(ctx.gpa, fmt, args),
     });
 }
 
@@ -314,8 +314,8 @@ pub fn printDiagnostics(
 ) (@TypeOf(writer).Error || error{OutOfMemory})!bool {
     if (ctx.diagnostics.len == 0)
         return false;
-    const line_index = try LineIndex.make(ctx.allocator, src);
-    defer line_index.deinit(ctx.allocator);
+    const line_index = try LineIndex.make(ctx.gpa, src);
+    defer line_index.deinit(ctx.gpa);
     for (ctx.diagnostics.items(.span), ctx.diagnostics.items(.message)) |span, message| {
         const start = line_index.translate(span.start.offset);
         const end = line_index.translate(span.end.offset);
@@ -341,7 +341,7 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     var parsed = try parse.parseFile(allocator, src);
     errdefer parsed.root.deinit(allocator);
     var context: Context = .{
-        .allocator = allocator,
+        .gpa = allocator,
         .root = parsed.root,
         .ast = parsed.ast,
     };
@@ -360,21 +360,21 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
 
 pub fn deinit(ctx: *Context) void {
     for (ctx.diagnostics.items(.message)) |message|
-        ctx.allocator.free(message);
-    ctx.diagnostics.deinit(ctx.allocator);
+        ctx.gpa.free(message);
+    ctx.diagnostics.deinit(ctx.gpa);
     for (ctx.functions.items) |*function| {
         if (function.analysis == .generated)
-            function.func.deinit(ctx.allocator);
-        function.params.deinit(ctx.allocator);
-        function.returns.deinit(ctx.allocator);
+            function.func.deinit(ctx.gpa);
+        function.params.deinit(ctx.gpa);
+        function.returns.deinit(ctx.gpa);
     }
     for (ctx.structures.items) |*structure|
-        structure.fields.deinit(ctx.allocator);
-    ctx.structures.deinit(ctx.allocator);
-    ctx.functions.deinit(ctx.allocator);
-    ctx.pool.deinit(ctx.allocator);
-    ctx.types.deinit(ctx.allocator);
-    ctx.root.deinit(ctx.allocator);
+        structure.fields.deinit(ctx.gpa);
+    ctx.structures.deinit(ctx.gpa);
+    ctx.functions.deinit(ctx.gpa);
+    ctx.pool.deinit(ctx.gpa);
+    ctx.types.deinit(ctx.gpa);
+    ctx.root.deinit(ctx.gpa);
 }
 
 pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
@@ -386,7 +386,7 @@ pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutO
 
 pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
-    defer names.deinit(ctx.allocator);
+    defer names.deinit(ctx.gpa);
 
     {
         var it = ctx.ast.decls(ctx.root);
@@ -397,7 +397,7 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
                 return ctx.err(decl_syntax.tree(), "declaration missing name", .{});
 
             const name = ctx.root.tokenText(ident);
-            try names.put(ctx.allocator, name, decl_syntax);
+            try names.put(ctx.gpa, name, decl_syntax);
         }
     }
 
@@ -418,30 +418,30 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
                     return ctx.err(function.syntax.tree, "function missing body", .{});
 
                 var args: std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index) = .{};
-                defer args.deinit(ctx.allocator);
+                defer args.deinit(ctx.gpa);
 
                 var fn_scope = Scope.Fn{
                     .base = .{ .parent = &scope.base, .getFn = Scope.Fn.get },
                     .args = &args,
                 };
 
-                var builder: ir.Builder = .{ .allocator = ctx.allocator };
+                var builder: ir.Builder = .{ .allocator = ctx.gpa };
 
                 var gen = Gen{};
-                defer gen.vars.deinit(ctx.allocator);
+                defer gen.vars.deinit(ctx.gpa);
 
                 {
-                    errdefer builder.func.deinit(ctx.allocator);
+                    errdefer builder.func.deinit(ctx.gpa);
                     var params: std.ArrayListUnmanaged(ir.Block.Param) = .{};
-                    defer params.deinit(ctx.allocator);
+                    defer params.deinit(ctx.gpa);
                     for (function.params.keys(), function.params.values()) |name, param| {
                         const reg = builder.addReg();
-                        try params.append(ctx.allocator, .{
+                        try params.append(ctx.gpa, .{
                             .ty = ctx.irType(param.ty),
                             .reg = reg,
                         });
-                        try args.put(ctx.allocator, name, param.syntax);
-                        try gen.vars.put(ctx.allocator, param.syntax, reg);
+                        try args.put(ctx.gpa, name, param.syntax);
+                        try gen.vars.put(ctx.gpa, param.syntax, reg);
                     }
                     builder.switchToBlock(try builder.addBlock(params.items));
                     try genBlock(ctx, &gen, &fn_scope.base, body, &builder);
@@ -472,7 +472,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                         return ctx.err(field.tree, "struct field without type", .{});
 
                     const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-                    try structure.fields.put(ctx.allocator, name, ty);
+                    try structure.fields.put(ctx.gpa, name, ty);
                 }
                 structure.analysis = .analyzed;
             }
@@ -496,7 +496,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                             return ctx.err(param.tree, "function parameter without type", .{});
 
                         const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-                        try function.params.put(ctx.allocator, name, .{
+                        try function.params.put(ctx.gpa, name, .{
                             .syntax = param.tree,
                             .ty = ty,
                         });
@@ -516,7 +516,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                             return ctx.err(param.tree, "function return without type", .{});
 
                         const ty = try ctx.analyzeTypeExpr(scope, type_syntax);
-                        try function.returns.put(ctx.allocator, name, .{
+                        try function.returns.put(ctx.gpa, name, .{
                             .syntax = param.tree,
                             .ty = ty,
                         });
@@ -763,13 +763,13 @@ fn typeOfDecl(
 
 fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
     const result = try ctx.pool.getOrPutAdapted(
-        ctx.allocator,
+        ctx.gpa,
         key,
         Type.HashContext{ .ctx = ctx },
     );
     if (!result.found_existing) {
         std.debug.assert(result.index == ctx.types.items.len);
-        try ctx.types.append(ctx.allocator, switch (key) {
+        try ctx.types.append(ctx.gpa, switch (key) {
             .invalid => .invalid,
             .bool => .bool,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
@@ -780,7 +780,7 @@ fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
                     return ctx.typeTodo(structure.tree, @src());
 
                 const name = ctx.root.tokenText(ident);
-                try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
+                try ctx.structures.append(ctx.gpa, .{ .syntax = structure, .name = name });
                 break :blk .{ .structure = @enumFromInt(struct_index) };
             },
             .function => |function| blk: {
@@ -789,7 +789,7 @@ fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
                     return ctx.typeTodo(function.tree, @src());
 
                 const name = ctx.root.tokenText(ident);
-                try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
+                try ctx.functions.append(ctx.gpa, .{ .syntax = function, .name = name });
                 break :blk .{ .function = @enumFromInt(function_index) };
             },
         });
@@ -808,7 +808,7 @@ fn checkFnBody(
         return ctx.todo(function.syntax.tree, @src());
 
     var args: std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index) = .{};
-    defer args.deinit(ctx.allocator);
+    defer args.deinit(ctx.gpa);
 
     const params = function.syntax.params(ctx.root) orelse
         return ctx.todo(function.syntax.tree, @src());
@@ -817,7 +817,7 @@ fn checkFnBody(
         const name_syntax = param.ident(ctx.root) orelse
             return ctx.todo(function.syntax.tree, @src());
         const name = ctx.root.tokenText(name_syntax);
-        try args.put(ctx.allocator, name, param.tree);
+        try args.put(ctx.gpa, name, param.tree);
     }
 
     const fn_scope: Scope.Fn = .{
@@ -936,14 +936,14 @@ fn genBlock(
             .@"return" => |return_stmt| {
                 var exprs = return_stmt.exprs(ctx.root);
                 var regs: std.ArrayListUnmanaged(ir.Reg) = .{};
-                defer regs.deinit(ctx.allocator);
+                defer regs.deinit(ctx.gpa);
                 while (exprs.next(ctx.root)) |expr| {
                     const value = try genExpr(ctx, gen, scope, expr, builder);
                     if (value != .reg) {
                         try ctx.err(expr.tree(), "cannot use void value", .{});
                         return;
                     }
-                    try regs.append(ctx.allocator, value.reg);
+                    try regs.append(ctx.gpa, value.reg);
                 }
                 return builder.buildRet(regs.items);
             },
@@ -1059,8 +1059,8 @@ fn genExpr(
             );
 
             var arg_regs: std.ArrayListUnmanaged(ir.Reg) = .{};
-            try arg_regs.ensureTotalCapacity(ctx.allocator, params.items.len);
-            defer arg_regs.deinit(ctx.allocator);
+            try arg_regs.ensureTotalCapacity(ctx.gpa, params.items.len);
+            defer arg_regs.deinit(ctx.gpa);
 
             {
                 const args = call.args(ctx.root) orelse
@@ -1070,7 +1070,7 @@ fn genExpr(
                     const arg_expr = arg_syntax.expr(ctx.root) orelse
                         return ctx.genTodo(function.syntax.tree, @src());
                     const arg_reg = try genExpr(ctx, gen, scope, arg_expr, builder);
-                    try arg_regs.append(ctx.allocator, arg_reg.reg);
+                    try arg_regs.append(ctx.gpa, arg_reg.reg);
                 }
             }
 
