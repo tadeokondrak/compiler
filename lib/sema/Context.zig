@@ -14,137 +14,6 @@ structures: std.ArrayListUnmanaged(Struct) = .{},
 functions: std.ArrayListUnmanaged(Fn) = .{},
 diagnostics: std.MultiArrayList(Diagnostic) = .{},
 
-const Diagnostic = struct {
-    span: syntax.pure.Span,
-    message: []const u8,
-};
-
-fn err(ctx: *Context, tree: syntax.pure.Tree.Index, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
-    return ctx.diagnostics.append(ctx.allocator, .{
-        .span = ctx.root.treeSpan(tree),
-        .message = try std.fmt.allocPrint(ctx.allocator, fmt, args),
-    });
-}
-
-fn todo(ctx: *Context, tree: syntax.pure.Tree.Index, src: std.builtin.SourceLocation) error{OutOfMemory}!void {
-    return ctx.err(tree, "TODO in {s} at {s}:{}:{}", .{ src.fn_name, src.file, src.line, src.column });
-}
-
-fn typeErr(ctx: *Context, tree: syntax.pure.Tree.Index, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!Type.Index {
-    try ctx.err(tree, fmt, args);
-    return ctx.lookUpType(.invalid);
-}
-
-fn typeTodo(ctx: *Context, tree: syntax.pure.Tree.Index, src: std.builtin.SourceLocation) error{OutOfMemory}!Type.Index {
-    try ctx.todo(tree, src);
-    return ctx.lookUpType(.invalid);
-}
-
-fn genErr(ctx: *Context, tree: syntax.pure.Tree.Index, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!Value {
-    try ctx.err(tree, fmt, args);
-    return .invalid;
-}
-
-fn genTodo(ctx: *Context, tree: syntax.pure.Tree.Index, src: std.builtin.SourceLocation) error{OutOfMemory}!Value {
-    try ctx.todo(tree, src);
-    return .invalid;
-}
-
-const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
-
-fn formatFn(args: FormatFnArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
-    const function = args.ctx.fnPtr(args.function);
-    try writer.print("fn {s}(", .{function.name});
-    for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
-        if (i > 0) try writer.print(", ", .{});
-        try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
-    }
-    try writer.print(") (", .{});
-    for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
-        if (i > 0) try writer.print(", ", .{});
-        try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
-    }
-    try writer.print(")", .{});
-    if (std.mem.eql(u8, fmt, "code") and function.analysis == .generated) {
-        try writer.print(" {{\n{}\n}}", .{function.func});
-    }
-}
-
-fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
-    return .{ .data = .{ .ctx = ctx, .function = function } };
-}
-
-const FormatStructArgs = struct { ctx: *Context, structure: Struct.Index };
-
-fn formatStruct(args: FormatStructArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
-    const structure = args.ctx.structPtr(args.structure);
-    if (std.mem.eql(u8, fmt, "#")) {
-        try writer.print("struct {s}", .{structure.name});
-        try writer.print(" {{", .{});
-        for (structure.fields.keys(), structure.fields.values(), 0..) |key, value, i| {
-            if (i > 0) try writer.print(",", .{});
-            try writer.print(" {s}: {}", .{ key, args.ctx.fmtType(value) });
-        }
-        try writer.print(" }}", .{});
-    } else {
-        try writer.writeAll(structure.name);
-    }
-}
-
-fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
-    return .{ .data = .{ .ctx = ctx, .structure = structure } };
-}
-
-const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
-
-fn formatType(args: FormatTypeArgs, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
-    return switch (args.ctx.typePtr(args.ty).*) {
-        .invalid => writer.print("invalid", .{}),
-        .bool => writer.print("bool", .{}),
-        .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
-        .pointer_to => |pointee| writer.print("*{}", .{args.ctx.fmtType(pointee)}),
-        .structure => |structure| args.ctx.fmtStruct(structure).format(fmt, .{}, writer),
-        .function => |function| args.ctx.fmtFn(function).format(fmt, .{}, writer),
-    };
-}
-
-fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
-    return .{ .data = .{ .ctx = ctx, .ty = ty } };
-}
-
-pub fn printDiagnostics(ctx: *Context, src: []const u8, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!bool {
-    if (ctx.diagnostics.len == 0)
-        return false;
-    const line_index = try LineIndex.make(ctx.allocator, src);
-    defer line_index.deinit(ctx.allocator);
-    for (ctx.diagnostics.items(.span), ctx.diagnostics.items(.message)) |span, message| {
-        const start = line_index.translate(span.start.offset);
-        const end = line_index.translate(span.end.offset);
-        const len = if (start.line != end.line) 1 else end.col - start.col;
-        try writer.print("<input>:{}:{}: {s}\n", .{ start.line + 1, start.col + 1, message });
-        const line_start = if (start.line == 0) 0 else line_index.newlines[start.line - 1] + 1;
-        const line_end = line_index.newlines[start.line];
-        const line = src[line_start..line_end];
-        for (line) |c| {
-            try writer.writeByte(c);
-        }
-        try writer.writeByte('\n');
-        for (0..start.col) |_|
-            try writer.writeByte(' ');
-        for (0..len) |_|
-            try writer.writeByte('^');
-        try writer.writeByte('\n');
-    }
-    return true;
-}
-
-pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
-    for (0..ctx.types.entries.len) |i|
-        try writer.print("Type {}: {#}\n", .{ i, ctx.fmtType(@enumFromInt(i)) });
-    for (0..ctx.functions.items.len) |i|
-        try writer.print("{code}\n", .{ctx.fmtFn(@enumFromInt(i))});
-}
-
 const Type = union(enum) {
     invalid,
     bool,
@@ -171,7 +40,7 @@ const Type = union(enum) {
         return switch (ty) {
             .invalid => .invalid,
             .bool => .bool,
-            .unsigned_integer => |unsigned_integer| .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } },
+            .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
             .pointer_to => |pointee| .{ .pointer_to = pointee },
             .structure => |structure| .{ .structure = ctx.structPtr(structure).syntax },
             .function => |function| .{ .function = ctx.fnPtr(function).syntax },
@@ -210,8 +79,14 @@ const Fn = struct {
     analysis: enum { unanalyzed, analyzed, generated } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
     name: []const u8,
-    params: std.StringArrayHashMapUnmanaged(struct { syntax: syntax.pure.Tree.Index, ty: Type.Index }) = .{},
-    returns: std.StringArrayHashMapUnmanaged(struct { syntax: syntax.pure.Tree.Index, ty: Type.Index }) = .{},
+    params: std.StringArrayHashMapUnmanaged(struct {
+        syntax: syntax.pure.Tree.Index,
+        ty: Type.Index,
+    }) = .{},
+    returns: std.StringArrayHashMapUnmanaged(struct {
+        syntax: syntax.pure.Tree.Index,
+        ty: Type.Index,
+    }) = .{},
     func: ir.Func = undefined,
 
     const Index = enum(usize) {
@@ -219,6 +94,247 @@ const Fn = struct {
         _,
     };
 };
+
+const Diagnostic = struct {
+    span: syntax.pure.Span,
+    message: []const u8,
+};
+
+const Scope = struct {
+    parent: ?*const Scope,
+    getFn: *const fn (self: *const Scope, name: []const u8) ?syntax.pure.Tree.Index,
+
+    pub fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
+        if (scope.getFn(scope, name)) |i| return i;
+        if (scope.parent) |p| return p.get(name);
+        return null;
+    }
+
+    const File = struct {
+        base: Scope = .{
+            .parent = null,
+            .getFn = File.get,
+        },
+        names: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl),
+
+        fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
+            const file = @fieldParentPtr(File, "base", scope);
+            const decl = file.names.get(name) orelse
+                return null;
+
+            switch (decl) {
+                inline else => |s| return s.tree,
+            }
+        }
+    };
+
+    const Fn = struct {
+        base: Scope = .{
+            .parent = null,
+            .getFn = Scope.Fn.get,
+        },
+        args: *const std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index),
+
+        fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
+            const function = @fieldParentPtr(Scope.Fn, "base", scope);
+            const param = function.args.get(name) orelse
+                return null;
+
+            return param;
+        }
+    };
+};
+
+const Gen = struct {
+    vars: std.AutoHashMapUnmanaged(syntax.pure.Tree.Index, ir.Reg) = .{},
+};
+
+const GenValue = union(enum) {
+    invalid,
+    void,
+    reg: ir.Reg,
+};
+
+fn typePtr(ctx: *Context, i: Type.Index) *Type {
+    return &ctx.types.values()[@intFromEnum(i)];
+}
+
+fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
+    return &ctx.structures.items[@intFromEnum(i)];
+}
+
+fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
+    return &ctx.functions.items[@intFromEnum(i)];
+}
+
+fn err(
+    ctx: *Context,
+    tree: syntax.pure.Tree.Index,
+    comptime fmt: []const u8,
+    args: anytype,
+) error{OutOfMemory}!void {
+    return ctx.diagnostics.append(ctx.allocator, .{
+        .span = ctx.root.treeSpan(tree),
+        .message = try std.fmt.allocPrint(ctx.allocator, fmt, args),
+    });
+}
+
+fn todo(
+    ctx: *Context,
+    tree: syntax.pure.Tree.Index,
+    src: std.builtin.SourceLocation,
+) error{OutOfMemory}!void {
+    return ctx.err(
+        tree,
+        "TODO in {s} at {s}:{}:{}",
+        .{ src.fn_name, src.file, src.line, src.column },
+    );
+}
+
+fn typeErr(
+    ctx: *Context,
+    tree: syntax.pure.Tree.Index,
+    comptime fmt: []const u8,
+    args: anytype,
+) error{OutOfMemory}!Type.Index {
+    try ctx.err(tree, fmt, args);
+    return ctx.lookUpType(.invalid);
+}
+
+fn typeTodo(
+    ctx: *Context,
+    tree: syntax.pure.Tree.Index,
+    src: std.builtin.SourceLocation,
+) error{OutOfMemory}!Type.Index {
+    try ctx.todo(tree, src);
+    return ctx.lookUpType(.invalid);
+}
+
+fn genErr(
+    ctx: *Context,
+    tree: syntax.pure.Tree.Index,
+    comptime fmt: []const u8,
+    args: anytype,
+) error{OutOfMemory}!GenValue {
+    try ctx.err(tree, fmt, args);
+    return .invalid;
+}
+
+fn genTodo(
+    ctx: *Context,
+    tree: syntax.pure.Tree.Index,
+    src: std.builtin.SourceLocation,
+) error{OutOfMemory}!GenValue {
+    try ctx.todo(tree, src);
+    return .invalid;
+}
+
+const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
+
+fn formatFn(
+    args: FormatFnArgs,
+    comptime fmt: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    const function = args.ctx.fnPtr(args.function);
+    try writer.print("fn {s}(", .{function.name});
+    for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
+        if (i > 0) try writer.print(", ", .{});
+        try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
+    }
+    try writer.print(") (", .{});
+    for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
+        if (i > 0) try writer.print(", ", .{});
+        try writer.print("{s}: {}", .{ key, args.ctx.fmtType(value.ty) });
+    }
+    try writer.print(")", .{});
+    if (std.mem.eql(u8, fmt, "code") and function.analysis == .generated) {
+        try writer.print(" {{\n{}\n}}", .{function.func});
+    }
+}
+
+fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
+    return .{ .data = .{ .ctx = ctx, .function = function } };
+}
+
+const FormatStructArgs = struct { ctx: *Context, structure: Struct.Index };
+
+fn formatStruct(
+    args: FormatStructArgs,
+    comptime fmt: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    const structure = args.ctx.structPtr(args.structure);
+    if (std.mem.eql(u8, fmt, "#")) {
+        try writer.print("struct {s}", .{structure.name});
+        try writer.print(" {{", .{});
+        for (structure.fields.keys(), structure.fields.values(), 0..) |key, value, i| {
+            if (i > 0) try writer.print(",", .{});
+            try writer.print(" {s}: {}", .{ key, args.ctx.fmtType(value) });
+        }
+        try writer.print(" }}", .{});
+    } else {
+        try writer.writeAll(structure.name);
+    }
+}
+
+fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
+    return .{ .data = .{ .ctx = ctx, .structure = structure } };
+}
+
+const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
+
+fn formatType(
+    args: FormatTypeArgs,
+    comptime fmt: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    return switch (args.ctx.typePtr(args.ty).*) {
+        .invalid => writer.print("invalid", .{}),
+        .bool => writer.print("bool", .{}),
+        .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
+        .pointer_to => |pointee| writer.print("*{}", .{args.ctx.fmtType(pointee)}),
+        .structure => |structure| args.ctx.fmtStruct(structure).format(fmt, .{}, writer),
+        .function => |function| args.ctx.fmtFn(function).format(fmt, .{}, writer),
+    };
+}
+
+fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
+    return .{ .data = .{ .ctx = ctx, .ty = ty } };
+}
+
+pub fn printDiagnostics(
+    ctx: *Context,
+    src: []const u8,
+    writer: anytype,
+) (@TypeOf(writer).Error || error{OutOfMemory})!bool {
+    if (ctx.diagnostics.len == 0)
+        return false;
+    const line_index = try LineIndex.make(ctx.allocator, src);
+    defer line_index.deinit(ctx.allocator);
+    for (ctx.diagnostics.items(.span), ctx.diagnostics.items(.message)) |span, message| {
+        const start = line_index.translate(span.start.offset);
+        const end = line_index.translate(span.end.offset);
+        const len = if (start.line != end.line) 1 else end.col - start.col;
+        try writer.print("<input>:{}:{}: {s}\n", .{ start.line + 1, start.col + 1, message });
+        const line_start = if (start.line == 0) 0 else line_index.newlines[start.line - 1] + 1;
+        const line_end = line_index.newlines[start.line];
+        const line = src[line_start..line_end];
+        for (line) |c| {
+            try writer.writeByte(c);
+        }
+        try writer.writeByte('\n');
+        for (0..start.col) |_|
+            try writer.writeByte(' ');
+        for (0..len) |_|
+            try writer.writeByte('^');
+        try writer.writeByte('\n');
+    }
+    return true;
+}
 
 pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     var parsed = try parse.parseFile(allocator, src);
@@ -259,6 +375,13 @@ pub fn deinit(ctx: *Context) void {
     ctx.root.deinit(ctx.allocator);
 }
 
+pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
+    for (0..ctx.types.entries.len) |i|
+        try writer.print("Type {}: {#}\n", .{ i, ctx.fmtType(@enumFromInt(i)) });
+    for (0..ctx.functions.items.len) |i|
+        try writer.print("{code}\n", .{ctx.fmtFn(@enumFromInt(i))});
+}
+
 pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
     defer names.deinit(ctx.allocator);
@@ -286,16 +409,25 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
                 var type_index = try ctx.lookUpType(.{ .function = function_syntax });
                 var function_index = typePtr(ctx, type_index).function;
                 var function = fnPtr(ctx, function_index);
+
                 std.debug.assert(function.analysis == .analyzed);
+
                 const body = function_syntax.body(ctx.root) orelse
                     return ctx.err(function.syntax.tree, "function missing body", .{});
 
-                var builder: ir.Builder = .{ .allocator = ctx.allocator };
                 var args: std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index) = .{};
                 defer args.deinit(ctx.allocator);
-                var fn_scope = Scope.Fn{ .base = .{ .parent = &scope.base, .getFn = Scope.Fn.get }, .args = &args };
+
+                var fn_scope = Scope.Fn{
+                    .base = .{ .parent = &scope.base, .getFn = Scope.Fn.get },
+                    .args = &args,
+                };
+
+                var builder: ir.Builder = .{ .allocator = ctx.allocator };
+
                 var gen = Gen{};
                 defer gen.vars.deinit(ctx.allocator);
+
                 {
                     errdefer builder.func.deinit(ctx.allocator);
                     var params: std.ArrayListUnmanaged(ir.Block.Param) = .{};
@@ -318,18 +450,6 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
             else => {},
         }
     }
-}
-
-fn typePtr(ctx: *Context, i: Type.Index) *Type {
-    return &ctx.types.values()[@intFromEnum(i)];
-}
-
-fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
-    return &ctx.structures.items[@intFromEnum(i)];
-}
-
-fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
-    return &ctx.functions.items[@intFromEnum(i)];
 }
 
 fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{OutOfMemory}!void {
@@ -414,31 +534,22 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
 
             const expr_ty = try ctx.analyzeExpr(scope, expr, ty);
             if (ty != expr_ty) {
-                try ctx.err(expr.tree(), "expected {}, got {}", .{ ctx.fmtType(ty), ctx.fmtType(expr_ty) });
+                try ctx.err(expr.tree(), "expected {}, got {}", .{
+                    ctx.fmtType(ty),
+                    ctx.fmtType(expr_ty),
+                });
             }
         },
     }
 }
 
-fn typeOfDecl(ctx: *Context, root_scope: *const Scope, decl: syntax.ast.Decl) error{OutOfMemory}!Type.Index {
-    switch (decl) {
-        .structure => |struct_syntax| {
-            return ctx.lookUpType(.{ .structure = struct_syntax });
-        },
-        .function => |function_syntax| {
-            return ctx.lookUpType(.{ .function = function_syntax });
-        },
-        .constant => |constant_syntax| {
-            const type_expr = constant_syntax.typeExpr(ctx.root) orelse
-                return ctx.typeErr(constant_syntax.tree, "constant missing type", .{});
-
-            return try ctx.analyzeTypeExpr(root_scope, type_expr);
-        },
-    }
-}
-
 // may return a type other than/incompatible with expected_type
-fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expected_type: ?Type.Index) error{OutOfMemory}!Type.Index {
+fn analyzeExpr(
+    ctx: *Context,
+    scope: *const Scope,
+    expr: syntax.ast.Expr,
+    expected_type: ?Type.Index,
+) error{OutOfMemory}!Type.Index {
     switch (expr) {
         .literal => |literal| {
             if (literal.number(ctx.root)) |_| {
@@ -483,6 +594,7 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
 
             const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, null);
             const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, null);
+
             if (binary_expr.plus(ctx.root) != null or
                 binary_expr.minus(ctx.root) != null or
                 binary_expr.star(ctx.root) != null or
@@ -496,9 +608,14 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             {
                 if (lhs_type == rhs_type)
                     return lhs_type;
-                try ctx.err(binary_expr.tree, "arithmetic operator type mismatch: lhs {}, rhs {}", .{ ctx.fmtType(lhs_type), ctx.fmtType(rhs_type) });
+                try ctx.err(
+                    binary_expr.tree,
+                    "arithmetic operator type mismatch: lhs {}, rhs {}",
+                    .{ ctx.fmtType(lhs_type), ctx.fmtType(rhs_type) },
+                );
                 return ctx.lookUpType(.invalid);
             }
+
             if (binary_expr.eq2(ctx.root) != null or
                 binary_expr.bangEq(ctx.root) != null or
                 binary_expr.lt(ctx.root) != null or
@@ -508,9 +625,14 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             {
                 if (lhs_type == rhs_type)
                     return ctx.lookUpType(.bool);
-                try ctx.err(binary_expr.tree, "comparison operator type mismatch: lhs {}, rhs {}", .{ ctx.fmtType(lhs_type), ctx.fmtType(rhs_type) });
+                try ctx.err(
+                    binary_expr.tree,
+                    "comparison operator type mismatch: lhs {}, rhs {}",
+                    .{ ctx.fmtType(lhs_type), ctx.fmtType(rhs_type) },
+                );
                 return ctx.lookUpType(.invalid);
             }
+
             return ctx.typeTodo(binary_expr.tree, @src());
         },
         .call => |call_expr| {
@@ -519,8 +641,14 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
 
             const fn_type_index = try analyzeExpr(ctx, scope, fn_expr, null);
             const fn_type = ctx.typePtr(fn_type_index);
-            if (fn_type.* != .function)
-                return ctx.typeErr(call_expr.tree, "can't call non-function {}", .{ctx.fmtType(fn_type_index)});
+            if (fn_type.* != .function) {
+                return ctx.typeErr(
+                    call_expr.tree,
+                    "can't call non-function {}",
+                    .{ctx.fmtType(fn_type_index)},
+                );
+            }
+
             const function = ctx.fnPtr(fn_type.function);
             const params = function.params;
             const args_wrapper = call_expr.args(ctx.root) orelse
@@ -547,88 +675,20 @@ fn analyzeExpr(ctx: *Context, scope: *const Scope, expr: syntax.ast.Expr, expect
             return ret_type;
         },
         inline else => |variant| {
-            return ctx.typeErr(variant.tree, "TODO: analyzeExpr {s}", .{@typeName(@TypeOf(variant))});
+            return ctx.typeErr(
+                variant.tree,
+                "TODO: analyzeExpr {s}",
+                .{@typeName(@TypeOf(variant))},
+            );
         },
     }
 }
 
-const Scope = struct {
-    parent: ?*const Scope,
-    getFn: *const fn (self: *const Scope, name: []const u8) ?syntax.pure.Tree.Index,
-
-    pub fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
-        if (scope.getFn(scope, name)) |i| return i;
-        if (scope.parent) |p| return p.get(name);
-        return null;
-    }
-
-    const File = struct {
-        base: Scope = .{
-            .parent = null,
-            .getFn = File.get,
-        },
-        names: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl),
-
-        fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
-            const file = @fieldParentPtr(File, "base", scope);
-            const decl = file.names.get(name) orelse
-                return null;
-
-            switch (decl) {
-                inline else => |s| return s.tree,
-            }
-        }
-    };
-
-    const Fn = struct {
-        base: Scope = .{
-            .parent = null,
-            .getFn = Scope.Fn.get,
-        },
-        args: *const std.StringArrayHashMapUnmanaged(syntax.pure.Tree.Index),
-
-        fn get(scope: *const Scope, name: []const u8) ?syntax.pure.Tree.Index {
-            const function = @fieldParentPtr(Scope.Fn, "base", scope);
-            const param = function.args.get(name) orelse
-                return null;
-
-            return param;
-        }
-    };
-};
-
-fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
-    const result = try ctx.types.getOrPutAdapted(ctx.allocator, key, Type.HashContext{ .ctx = ctx });
-    if (!result.found_existing) {
-        result.value_ptr.* = switch (key) {
-            .invalid => .invalid,
-            .bool => .bool,
-            .unsigned_integer => |unsigned_integer| .{ .unsigned_integer = .{ .bits = unsigned_integer.bits } },
-            .pointer_to => |pointee| .{ .pointer_to = pointee },
-            .structure => |structure| blk: {
-                const struct_index = ctx.structures.items.len;
-                const ident = structure.ident(ctx.root) orelse
-                    return ctx.typeTodo(structure.tree, @src());
-
-                const name = ctx.root.tokenText(ident);
-                try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
-                break :blk .{ .structure = @enumFromInt(struct_index) };
-            },
-            .function => |function| blk: {
-                const function_index = ctx.functions.items.len;
-                const ident = function.ident(ctx.root) orelse
-                    return ctx.typeTodo(function.tree, @src());
-
-                const name = ctx.root.tokenText(ident);
-                try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
-                break :blk .{ .function = @enumFromInt(function_index) };
-            },
-        };
-    }
-    return @enumFromInt(result.index);
-}
-
-fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.TypeExpr) error{OutOfMemory}!Type.Index {
+fn analyzeTypeExpr(
+    ctx: *Context,
+    scope: *const Scope,
+    type_expr: syntax.ast.TypeExpr,
+) error{OutOfMemory}!Type.Index {
     switch (type_expr) {
         .ident => |ident| {
             const ident_token = ident.ident(ctx.root) orelse
@@ -654,7 +714,11 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
                     return ctx.lookUpType(.{ .structure = structure });
                 },
                 inline else => |other| {
-                    return ctx.typeErr(other.tree, "TODO: analyzeTypeExpr .ident {s}", .{@typeName(@TypeOf(other))});
+                    return ctx.typeErr(
+                        other.tree,
+                        "TODO: analyzeTypeExpr .ident {s}",
+                        .{@typeName(@TypeOf(other))},
+                    );
                 },
             }
         },
@@ -674,7 +738,67 @@ fn analyzeTypeExpr(ctx: *Context, scope: *const Scope, type_expr: syntax.ast.Typ
     }
 }
 
-fn checkFnBody(ctx: *Context, scope: *const Scope, function_index: Fn.Index) error{OutOfMemory}!void {
+fn typeOfDecl(
+    ctx: *Context,
+    root_scope: *const Scope,
+    decl: syntax.ast.Decl,
+) error{OutOfMemory}!Type.Index {
+    switch (decl) {
+        .structure => |struct_syntax| {
+            return ctx.lookUpType(.{ .structure = struct_syntax });
+        },
+        .function => |function_syntax| {
+            return ctx.lookUpType(.{ .function = function_syntax });
+        },
+        .constant => |constant_syntax| {
+            const type_expr = constant_syntax.typeExpr(ctx.root) orelse
+                return ctx.typeErr(constant_syntax.tree, "constant missing type", .{});
+
+            return try ctx.analyzeTypeExpr(root_scope, type_expr);
+        },
+    }
+}
+
+fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
+    const result = try ctx.types.getOrPutAdapted(
+        ctx.allocator,
+        key,
+        Type.HashContext{ .ctx = ctx },
+    );
+    if (!result.found_existing) {
+        result.value_ptr.* = switch (key) {
+            .invalid => .invalid,
+            .bool => .bool,
+            .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
+            .pointer_to => |pointee| .{ .pointer_to = pointee },
+            .structure => |structure| blk: {
+                const struct_index = ctx.structures.items.len;
+                const ident = structure.ident(ctx.root) orelse
+                    return ctx.typeTodo(structure.tree, @src());
+
+                const name = ctx.root.tokenText(ident);
+                try ctx.structures.append(ctx.allocator, .{ .syntax = structure, .name = name });
+                break :blk .{ .structure = @enumFromInt(struct_index) };
+            },
+            .function => |function| blk: {
+                const function_index = ctx.functions.items.len;
+                const ident = function.ident(ctx.root) orelse
+                    return ctx.typeTodo(function.tree, @src());
+
+                const name = ctx.root.tokenText(ident);
+                try ctx.functions.append(ctx.allocator, .{ .syntax = function, .name = name });
+                break :blk .{ .function = @enumFromInt(function_index) };
+            },
+        };
+    }
+    return @enumFromInt(result.index);
+}
+
+fn checkFnBody(
+    ctx: *Context,
+    scope: *const Scope,
+    function_index: Fn.Index,
+) error{OutOfMemory}!void {
     const function = ctx.fnPtr(function_index);
 
     const body = function.syntax.body(ctx.root) orelse
@@ -693,11 +817,19 @@ fn checkFnBody(ctx: *Context, scope: *const Scope, function_index: Fn.Index) err
         try args.put(ctx.allocator, name, param.tree);
     }
 
-    const fn_scope: Scope.Fn = .{ .base = .{ .parent = scope, .getFn = Scope.Fn.get }, .args = &args };
+    const fn_scope: Scope.Fn = .{
+        .base = .{ .parent = scope, .getFn = Scope.Fn.get },
+        .args = &args,
+    };
     try ctx.checkBlock(&fn_scope.base, function_index, body);
 }
 
-fn checkBlock(ctx: *Context, scope: *const Scope, function_index: Fn.Index, body: syntax.ast.Stmt.Block) error{OutOfMemory}!void {
+fn checkBlock(
+    ctx: *Context,
+    scope: *const Scope,
+    function_index: Fn.Index,
+    body: syntax.ast.Stmt.Block,
+) error{OutOfMemory}!void {
     const function = ctx.fnPtr(function_index);
 
     for (ctx.root.treeChildren(body.tree)) |child| {
@@ -726,7 +858,11 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function_index: Fn.Index, body
                     try checkExpr(ctx, scope, function_index, expr);
                     const inferred_type = try ctx.analyzeExpr(scope, expr, null);
                     if (inferred_type != ret.ty) {
-                        try ctx.err(return_stmt.tree, "return type mismatch: declared {}, inferred {}", .{ ctx.fmtType(inferred_type), ctx.fmtType(ret.ty) });
+                        try ctx.err(
+                            return_stmt.tree,
+                            "return type mismatch: declared {}, inferred {}",
+                            .{ ctx.fmtType(inferred_type), ctx.fmtType(ret.ty) },
+                        );
                     }
                 }
                 if (exprs.next(ctx.root)) |expr| {
@@ -742,7 +878,11 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function_index: Fn.Index, body
                 const bool_type = try ctx.lookUpType(.bool);
                 const cond_type = try ctx.analyzeExpr(scope, cond, bool_type);
                 if (cond_type != bool_type) {
-                    try ctx.err(cond.tree(), "expected {}, got {}", .{ ctx.fmtType(bool_type), ctx.fmtType(cond_type) });
+                    try ctx.err(
+                        cond.tree(),
+                        "expected {}, got {}",
+                        .{ ctx.fmtType(bool_type), ctx.fmtType(cond_type) },
+                    );
                 }
                 const if_body = if_stmt.body(ctx.root) orelse
                     return ctx.todo(function.syntax.tree, @src());
@@ -753,7 +893,12 @@ fn checkBlock(ctx: *Context, scope: *const Scope, function_index: Fn.Index, body
     }
 }
 
-fn checkExpr(ctx: *Context, scope: *const Scope, function: Fn.Index, expr: syntax.ast.Expr) error{OutOfMemory}!void {
+fn checkExpr(
+    ctx: *Context,
+    scope: *const Scope,
+    function: Fn.Index,
+    expr: syntax.ast.Expr,
+) error{OutOfMemory}!void {
     _ = ctx;
     _ = scope;
     _ = function;
@@ -762,11 +907,13 @@ fn checkExpr(ctx: *Context, scope: *const Scope, function: Fn.Index, expr: synta
     }
 }
 
-const Gen = struct {
-    vars: std.AutoHashMapUnmanaged(syntax.pure.Tree.Index, ir.Reg) = .{},
-};
-
-fn genBlock(ctx: *Context, gen: *Gen, scope: *const Scope, block: syntax.ast.Stmt.Block, builder: *ir.Builder) error{OutOfMemory}!void {
+fn genBlock(
+    ctx: *Context,
+    gen: *Gen,
+    scope: *const Scope,
+    block: syntax.ast.Stmt.Block,
+    builder: *ir.Builder,
+) error{OutOfMemory}!void {
     for (ctx.root.treeChildren(block.tree)) |child| {
         const child_tree = child.asTree() orelse continue;
 
@@ -821,34 +968,34 @@ fn genBlock(ctx: *Context, gen: *Gen, scope: *const Scope, block: syntax.ast.Stm
     }
 }
 
-const Value = union(enum) {
-    invalid,
-    void,
-    reg: ir.Reg,
-};
-
-fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr, builder: *ir.Builder) error{OutOfMemory}!Value {
+fn genExpr(
+    ctx: *Context,
+    gen: *Gen,
+    scope: *const Scope,
+    expr: syntax.ast.Expr,
+    builder: *ir.Builder,
+) error{OutOfMemory}!GenValue {
     switch (expr) {
         .unary => |un| {
             return ctx.genErr(un.tree, "unknown unary operator", .{});
         },
         .binary => |bin| {
-            if (bin.plus(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .add);
-            if (bin.minus(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .sub);
-            if (bin.star(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .mul);
-            if (bin.slash(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .div);
-            if (bin.percent(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .rem);
-            if (bin.lt2(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .shl);
-            if (bin.gt2(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .shr);
-            if (bin.ampersand(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .band);
-            if (bin.pipe(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .bor);
-            if (bin.caret(ctx.root) != null) return genArithExpr(ctx, gen, scope, bin, builder, .bxor);
-            if (bin.eq2(ctx.root) != null) return genCmpExpr(ctx, gen, scope, bin, builder, .eq);
-            if (bin.bangEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, bin, builder, .neq);
-            if (bin.lt(ctx.root) != null) return genCmpExpr(ctx, gen, scope, bin, builder, .lt);
-            if (bin.ltEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, bin, builder, .lte);
-            if (bin.gt(ctx.root) != null) return genCmpExpr(ctx, gen, scope, bin, builder, .gt);
-            if (bin.gtEq(ctx.root) != null) return genCmpExpr(ctx, gen, scope, bin, builder, .gte);
+            if (bin.plus(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .add);
+            if (bin.minus(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .sub);
+            if (bin.star(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .mul);
+            if (bin.slash(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .div);
+            if (bin.percent(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .rem);
+            if (bin.lt2(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .shl);
+            if (bin.gt2(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .shr);
+            if (bin.ampersand(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .band);
+            if (bin.pipe(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .bor);
+            if (bin.caret(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .bxor);
+            if (bin.eq2(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .eq);
+            if (bin.bangEq(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .neq);
+            if (bin.lt(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .lt);
+            if (bin.ltEq(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .lte);
+            if (bin.gt(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .gt);
+            if (bin.gtEq(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .gte);
             return ctx.genErr(bin.tree, "unknown binary operator", .{});
         },
         .literal => |literal| {
@@ -887,25 +1034,43 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
             const function_ty = try ctx.lookUpType(.{ .function = fn_syntax });
             const function = ctx.fnPtr(ctx.typePtr(function_ty).function);
             const dname = try builder.allocator.dupe(u8, name);
-            var params = try std.ArrayListUnmanaged(ir.Type).initCapacity(builder.allocator, function.params.entries.len);
+
+            var params: std.ArrayListUnmanaged(ir.Type) = .{};
+            try params.ensureTotalCapacity(builder.allocator, function.params.entries.len);
             defer params.deinit(builder.allocator);
-            for (function.params.values()) |param| params.appendAssumeCapacity(irType(ctx, param.ty));
-            var returns = try std.ArrayListUnmanaged(ir.Type).initCapacity(builder.allocator, function.returns.entries.len);
+
+            for (function.params.values()) |param|
+                params.appendAssumeCapacity(irType(ctx, param.ty));
+
+            var returns: std.ArrayListUnmanaged(ir.Type) = .{};
+            try returns.ensureTotalCapacity(builder.allocator, function.returns.entries.len);
             defer returns.deinit(builder.allocator);
-            for (function.returns.values()) |ret| returns.appendAssumeCapacity(irType(ctx, ret.ty));
-            const extern_func = try builder.declareExternFunc(dname, try params.toOwnedSlice(builder.allocator), try returns.toOwnedSlice(builder.allocator));
-            var arg_regs = try std.ArrayListUnmanaged(ir.Reg).initCapacity(ctx.allocator, params.items.len);
+
+            for (function.returns.values()) |ret|
+                returns.appendAssumeCapacity(irType(ctx, ret.ty));
+
+            const extern_func = try builder.declareExternFunc(
+                dname,
+                try params.toOwnedSlice(builder.allocator),
+                try returns.toOwnedSlice(builder.allocator),
+            );
+
+            var arg_regs: std.ArrayListUnmanaged(ir.Reg) = .{};
+            try arg_regs.ensureTotalCapacity(ctx.allocator, params.items.len);
             defer arg_regs.deinit(ctx.allocator);
-            var it = (call.args(ctx.root) orelse
-                return ctx.genTodo(function.syntax.tree, @src())).args(ctx.root);
 
-            while (it.next(ctx.root)) |arg_syntax| {
-                const arg_expr = arg_syntax.expr(ctx.root) orelse
+            {
+                const args = call.args(ctx.root) orelse
                     return ctx.genTodo(function.syntax.tree, @src());
-
-                const arg_reg = try genExpr(ctx, gen, scope, arg_expr, builder);
-                try arg_regs.append(ctx.allocator, arg_reg.reg);
+                var it = args.args(ctx.root);
+                while (it.next(ctx.root)) |arg_syntax| {
+                    const arg_expr = arg_syntax.expr(ctx.root) orelse
+                        return ctx.genTodo(function.syntax.tree, @src());
+                    const arg_reg = try genExpr(ctx, gen, scope, arg_expr, builder);
+                    try arg_regs.append(ctx.allocator, arg_reg.reg);
+                }
             }
+
             const return_regs = try builder.buildCall(extern_func, arg_regs.items);
             return switch (return_regs.len) {
                 0 => .void,
@@ -917,8 +1082,7 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
             const inner = ident.ident(ctx.root) orelse
                 return ctx.genTodo(ident.tree, @src());
 
-            const text = ctx.root.tokenText(inner);
-            const tree = scope.get(text) orelse
+            const tree = scope.get(ctx.root.tokenText(inner)) orelse
                 return ctx.genTodo(ident.tree, @src());
 
             if (gen.vars.get(tree)) |reg|
@@ -929,14 +1093,20 @@ fn genExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr,
     }
 }
 
-fn genArithExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: ir.ArithOp) error{OutOfMemory}!Value {
+fn genArith(
+    ctx: *Context,
+    gen: *Gen,
+    scope: *const Scope,
+    expr: syntax.ast.Expr.Binary,
+    builder: *ir.Builder,
+    op: ir.ArithOp,
+) error{OutOfMemory}!GenValue {
     const lhs = expr.lhs(ctx.root) orelse
         return ctx.genTodo(expr.tree, @src());
+    const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
 
     const rhs = expr.rhs(ctx.root) orelse
         return ctx.genTodo(expr.tree, @src());
-
-    const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
     const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
 
     if (lhs_value != .reg or rhs_value != .reg) {
@@ -948,7 +1118,14 @@ fn genArithExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.
     return .{ .reg = try builder.buildArith(op, lhs_value.reg, rhs_value.reg) };
 }
 
-fn genCmpExpr(ctx: *Context, gen: *Gen, scope: *const Scope, expr: syntax.ast.Expr.Binary, builder: *ir.Builder, op: ir.CmpOp) error{OutOfMemory}!Value {
+fn genCmp(
+    ctx: *Context,
+    gen: *Gen,
+    scope: *const Scope,
+    expr: syntax.ast.Expr.Binary,
+    builder: *ir.Builder,
+    op: ir.CmpOp,
+) error{OutOfMemory}!GenValue {
     const lhs = expr.lhs(ctx.root) orelse
         return ctx.genTodo(expr.tree, @src());
 
