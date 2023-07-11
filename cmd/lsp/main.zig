@@ -98,13 +98,10 @@ const Context = struct {
         var diagnostics = try getDiagnostics(&arena, src);
         defer arena.allocator().free(diagnostics);
 
-        const gop = try conn.context.docs.getOrPut(conn.allocator, params.textDocument.uri);
-        if (gop.found_existing)
-            conn.allocator.free(gop.value_ptr.*)
-        else
-            gop.key_ptr.* = try conn.allocator.dupe(u8, params.textDocument.uri);
-
-        gop.value_ptr.* = try conn.allocator.dupe(u8, src);
+        const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse
+            return error.NoTextDocument;
+        conn.allocator.free(doc.*);
+        doc.* = try conn.allocator.dupe(u8, src);
 
         try conn.notify("textDocument/publishDiagnostics", .{
             .uri = params.textDocument.uri,
