@@ -600,11 +600,16 @@ fn analyzeExpr(
                     if (ctx.typePtr(expected_type).* == .unsigned_integer)
                         return expected_type;
 
-                    return ctx.typeTodo(literal_expr.tree, @src());
+                    try ctx.err(
+                        expr.tree(),
+                        "expected {}, got untyped number",
+                        .{ctx.fmtType(expected_type)},
+                    );
                 } else {
                     return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 32 } });
                 }
             }
+
             return ctx.typeTodo(literal_expr.tree, @src());
         },
         .ident => |ident_expr| {
@@ -628,9 +633,17 @@ fn analyzeExpr(
                 },
                 .true, .false => return ctx.lookUpType(.bool),
                 .null => {
-                    if (maybe_expected_type) |expected_type|
+                    if (maybe_expected_type) |expected_type| {
                         if (ctx.typePtr(expected_type).* == .pointer)
                             return expected_type;
+
+                        try ctx.err(
+                            expr.tree(),
+                            "expected {}, got untyped null",
+                            .{ctx.fmtType(expected_type)},
+                        );
+                    }
+
                     return ctx.typeTodo(ident_expr.tree, @src());
                 },
             }
@@ -640,10 +653,10 @@ fn analyzeExpr(
         },
         .binary => |binary_expr| {
             const lhs_expr = binary_expr.lhs(ctx.root) orelse
-                return ctx.typeTodo(binary_expr.tree, @src());
+                return ctx.typeErr(binary_expr.tree, "binary expression missing left-hand side", .{});
 
             const rhs_expr = binary_expr.rhs(ctx.root) orelse
-                return ctx.typeTodo(binary_expr.tree, @src());
+                return ctx.typeErr(binary_expr.tree, "binary expression missing right-hand side", .{});
 
             const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, null);
             const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, null);
@@ -749,8 +762,9 @@ fn analyzeTypeExpr(
                     error.InvalidCharacter => {},
                 }
             }
+
             const lookup_result = scope.get(ident_text) orelse
-                return ctx.typeTodo(ident.tree, @src());
+                return ctx.typeErr(ident.tree, "undefined identifier {s}", .{ident_text});
 
             const decl = switch (lookup_result) {
                 .decl => |decl| decl,
@@ -1193,8 +1207,10 @@ fn genExpr(
             const inner = ident.ident(ctx.root) orelse
                 return ctx.genTodo(ident.tree, @src());
 
-            const lookup_result = scope.get(ctx.root.tokenText(inner)) orelse
-                return ctx.genErr(ident.tree, "undefined identifier", .{});
+            const ident_text = ctx.root.tokenText(inner);
+
+            const lookup_result = scope.get(ident_text) orelse
+                return ctx.genErr(ident.tree, "undefined identifier {s}", .{ident_text});
 
             switch (lookup_result) {
                 .decl => return ctx.genTodo(ident.tree, @src()),
