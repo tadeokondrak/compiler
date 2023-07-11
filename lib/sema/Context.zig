@@ -404,6 +404,19 @@ pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutO
         try writer.print("{code}\n", .{ctx.fmtFn(@enumFromInt(i))});
 }
 
+pub fn findDecl(ctx: *Context, pos: syntax.pure.Pos) ?syntax.ast.Decl {
+    var it = ctx.ast.decls(ctx.root);
+    while (it.next(ctx.root)) |decl_syntax| {
+        const span = ctx.root.treeSpan(decl_syntax.tree());
+        if (span.start.offset > pos.offset)
+            return null;
+        if (span.end.offset <= pos.offset)
+            continue;
+        return decl_syntax;
+    }
+    return null;
+}
+
 pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
     defer names.deinit(ctx.gpa);

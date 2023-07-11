@@ -1,5 +1,6 @@
 const std = @import("std");
 const lsp = @import("zig-lsp");
+const syntax = @import("syntax");
 const Sema = @import("sema").Context;
 const LineIndex = @import("sema").LineIndex;
 
@@ -42,12 +43,15 @@ fn getDiagnostics(arena: *std.heap.ArenaAllocator, src: []const u8) error{OutOfM
 }
 
 const Context = struct {
+    docs: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+
     pub fn initialize(conn: *Connection, id: lsp.types.RequestId, _: lsp.types.InitializeParams) !lsp.types.InitializeResult {
         _ = id;
         _ = conn;
         return .{
             .capabilities = .{
                 .textDocumentSync = .{ .TextDocumentSyncKind = .Full },
+                .hoverProvider = .{ .bool = true },
             },
         };
     }
@@ -59,6 +63,13 @@ const Context = struct {
         const src = params.textDocument.text;
         var diagnostics = try getDiagnostics(&arena, src);
         defer arena.allocator().free(diagnostics);
+
+        const gop = try conn.context.docs.getOrPut(conn.allocator, params.textDocument.uri);
+        if (gop.found_existing)
+            conn.allocator.free(gop.value_ptr.*)
+        else
+            gop.key_ptr.* = try conn.allocator.dupe(u8, params.textDocument.uri);
+        gop.value_ptr.* = try conn.allocator.dupe(u8, src);
 
         try conn.notify("textDocument/publishDiagnostics", .{
             .uri = params.textDocument.uri,
@@ -87,10 +98,50 @@ const Context = struct {
         var diagnostics = try getDiagnostics(&arena, src);
         defer arena.allocator().free(diagnostics);
 
+        const gop = try conn.context.docs.getOrPut(conn.allocator, params.textDocument.uri);
+        if (gop.found_existing)
+            conn.allocator.free(gop.value_ptr.*)
+        else
+            gop.key_ptr.* = try conn.allocator.dupe(u8, params.textDocument.uri);
+
+        gop.value_ptr.* = try conn.allocator.dupe(u8, src);
+
         try conn.notify("textDocument/publishDiagnostics", .{
             .uri = params.textDocument.uri,
             .diagnostics = diagnostics,
         });
+    }
+
+    pub fn @"textDocument/hover"(conn: *Connection, _: lsp.types.RequestId, params: lsp.types.HoverParams) !lsp.types.Hover {
+        var arena = std.heap.ArenaAllocator.init(conn.allocator);
+        defer arena.deinit();
+
+        const src = conn.context.docs.get(params.textDocument.uri) orelse return error.TODO;
+
+        var ctx = try Sema.init(arena.allocator(), src);
+        defer ctx.deinit();
+
+        ctx.compile() catch return error.TODO;
+
+        const line_index = try LineIndex.make(arena.allocator(), src);
+        defer line_index.deinit(arena.allocator());
+
+        const line_start = if (params.position.line == 0) 0 else line_index.newlines[params.position.line - 1];
+        const offset = line_start + params.position.character;
+
+        const decl = ctx.findDecl(.{ .offset = offset });
+
+        // TODO: don't leak this
+        const text = try std.fmt.allocPrint(conn.allocator, "{?}", .{decl});
+
+        return .{
+            .contents = .{
+                .MarkupContent = .{
+                    .kind = .plaintext,
+                    .value = text,
+                },
+            },
+        };
     }
 };
 
