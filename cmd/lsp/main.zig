@@ -129,7 +129,13 @@ const Context = struct {
         const line_start = if (params.position.line == 0) 0 else line_index.newlines[params.position.line - 1];
         const offset = line_start + params.position.character;
 
-        const decl = ctx.findDecl(.{ .offset = offset });
+        const decl = ctx.findDecl(.{ .offset = offset }) orelse return error.TODO;
+
+        const decl_start = ctx.root.treeStart(decl.tree());
+        const decl_start_translated = line_index.translate(decl_start.offset);
+
+        const decl_end = ctx.root.treeEnd(decl.tree());
+        const decl_end_translated = line_index.translate(decl_end.offset);
 
         // TODO: don't leak this
         const text = try std.fmt.allocPrint(conn.allocator, "{?}", .{decl});
@@ -139,6 +145,16 @@ const Context = struct {
                 .MarkupContent = .{
                     .kind = .plaintext,
                     .value = text,
+                },
+            },
+            .range = .{
+                .start = .{
+                    .line = decl_start_translated.line,
+                    .character = decl_start_translated.col,
+                },
+                .end = .{
+                    .line = decl_end_translated.line,
+                    .character = decl_end_translated.col,
                 },
             },
         };
