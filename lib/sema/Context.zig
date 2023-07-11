@@ -345,9 +345,8 @@ pub fn printDiagnostics(
         const line_start = if (start.line == 0) 0 else line_index.newlines[start.line - 1] + 1;
         const line_end = line_index.newlines[start.line];
         const line = src[line_start..line_end];
-        for (line) |c| {
+        for (line) |c|
             try writer.writeByte(c);
-        }
         try writer.writeByte('\n');
         for (0..start.col) |_|
             try writer.writeByte(' ');
@@ -579,18 +578,23 @@ fn analyzeExpr(
     maybe_expected_type: ?Type.Index,
 ) error{OutOfMemory}!Type.Index {
     switch (expr) {
-        .literal => |literal| {
-            if (literal.number(ctx.root)) |_| {
+        .paren => |paren_expr| {
+            const sub_expr = paren_expr.expr(ctx.root) orelse
+                return ctx.typeTodo(paren_expr.tree, @src());
+            return analyzeExpr(ctx, scope, sub_expr, maybe_expected_type);
+        },
+        .literal => |literal_expr| {
+            if (literal_expr.number(ctx.root)) |_| {
                 if (maybe_expected_type) |expected_type| {
                     if (ctx.typePtr(expected_type).* == .unsigned_integer)
                         return expected_type;
 
-                    return ctx.typeTodo(literal.tree, @src());
+                    return ctx.typeTodo(literal_expr.tree, @src());
                 } else {
                     return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 32 } });
                 }
             }
-            return ctx.typeTodo(literal.tree, @src());
+            return ctx.typeTodo(literal_expr.tree, @src());
         },
         .ident => |ident_expr| {
             const ident = ident_expr.ident(ctx.root) orelse
@@ -619,6 +623,9 @@ fn analyzeExpr(
                     return ctx.typeTodo(ident_expr.tree, @src());
                 },
             }
+        },
+        .unary => |unary_expr| {
+            return ctx.typeTodo(unary_expr.tree, @src());
         },
         .binary => |binary_expr| {
             const lhs_expr = binary_expr.lhs(ctx.root) orelse
@@ -709,13 +716,6 @@ fn analyzeExpr(
             const ret_type = function.returns.values()[0].ty;
             return ret_type;
         },
-        inline else => |variant| {
-            return ctx.typeErr(
-                variant.tree,
-                "TODO: analyzeExpr {s}",
-                .{@typeName(@TypeOf(variant))},
-            );
-        },
     }
 }
 
@@ -750,13 +750,8 @@ fn analyzeTypeExpr(
                 .structure => |structure| {
                     return ctx.lookUpType(.{ .structure = structure });
                 },
-                inline else => |other| {
-                    return ctx.typeErr(
-                        other.tree,
-                        "TODO: analyzeTypeExpr .ident {s}",
-                        .{@typeName(@TypeOf(other))},
-                    );
-                },
+                .function => return ctx.typeTodo(ident.tree, @src()),
+                .constant => return ctx.typeTodo(ident.tree, @src()),
             }
         },
         .unary => |unary| {
