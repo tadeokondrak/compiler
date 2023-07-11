@@ -993,23 +993,32 @@ fn genBlock(
                 }
 
                 const then_block = try builder.addBlock(&.{});
-                const else_block = try builder.addBlock(&.{});
                 const cont_block = try builder.addBlock(&.{});
 
-                try builder.buildBranch(cond_value.reg, then_block, cont_block);
+                if (if_stmt.elseToken(ctx.root) != null) {
+                    const else_block = try builder.addBlock(&.{});
 
-                builder.switchToBlock(then_block);
-                const then_body = if_stmt.thenBody(ctx.root) orelse
-                    return ctx.todo(if_stmt.tree, @src());
-                try ctx.genBlock(gen, scope, then_body, builder);
+                    try builder.buildBranch(cond_value.reg, then_block, else_block);
+
+                    builder.switchToBlock(then_block);
+                    const then_body = if_stmt.thenBody(ctx.root) orelse
+                        return ctx.todo(if_stmt.tree, @src());
+                    try ctx.genBlock(gen, scope, then_body, builder);
+                    try builder.buildJump(cont_block);
+
+                    builder.switchToBlock(else_block);
+                    if (if_stmt.elseBody(ctx.root)) |else_body|
+                        try ctx.genBlock(gen, scope, else_body, builder);
+                } else {
+                    try builder.buildBranch(cond_value.reg, then_block, cont_block);
+
+                    builder.switchToBlock(then_block);
+                    const then_body = if_stmt.thenBody(ctx.root) orelse
+                        return ctx.todo(if_stmt.tree, @src());
+                    try ctx.genBlock(gen, scope, then_body, builder);
+                }
+
                 try builder.buildJump(cont_block);
-
-                builder.switchToBlock(else_block);
-                if (if_stmt.elseBody(ctx.root)) |else_body|
-                    try ctx.genBlock(gen, scope, else_body, builder);
-
-                try builder.buildJump(cont_block);
-
                 builder.switchToBlock(cont_block);
             },
             .loop => |loop_stmt| {
