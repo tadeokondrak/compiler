@@ -15,8 +15,12 @@ fn infixPrecedence(tag: syntax.pure.Token.Tag) ?[2]u8 {
     return switch (tag) {
         // .eof is zero, but we don't return it here
         .lt, .lt_eq, .gt, .gt_eq, .eq2, .bang_eq => .{ 2, 2 },
-        .plus, .minus => .{ 3, 4 },
-        .star, .slash, .percent => .{ 5, 6 },
+        .pipe => .{ 3, 4 },
+        .caret => .{ 5, 6 },
+        .ampersand => .{ 7, 8 },
+        .lt2, .gt2 => .{ 9, 10 },
+        .plus, .minus => .{ 11, 12 },
+        .star, .slash, .percent => .{ 13, 14 },
         else => null,
     };
 }
