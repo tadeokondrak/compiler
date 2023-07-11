@@ -27,7 +27,7 @@ fn infixPrecedence(tag: syntax.pure.Token.Tag) ?[2]u8 {
 
 fn postfixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     return switch (tag) {
-        .l_paren => 7,
+        .l_paren, .l_bracket => 15,
         else => null,
     };
 }
@@ -276,21 +276,29 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
 
             lhs = p.builder.openBefore(lhs);
             p.advance();
-            if (tok == .l_paren) {
-                const args = p.builder.open();
-                while (!p.at(.r_paren) and !p.at(.eof)) {
-                    const arg = p.builder.open();
+            switch (tok) {
+                .l_paren => {
+                    const args = p.builder.open();
+                    while (!p.at(.r_paren) and !p.at(.eof)) {
+                        const arg = p.builder.open();
+                        parseExpr(p);
+                        const comma = p.eat(.comma);
+                        p.builder.close(arg, .call_arg);
+                        if (!comma)
+                            break;
+                    }
+                    p.expect(.r_paren);
+                    p.builder.close(args, .call_args);
+                    p.builder.close(lhs, .expr_call);
+                },
+                .l_bracket => {
                     parseExpr(p);
-                    const comma = p.eat(.comma);
-                    p.builder.close(arg, .call_arg);
-                    if (!comma)
-                        break;
-                }
-                p.expect(.r_paren);
-                p.builder.close(args, .call_args);
-                p.builder.close(lhs, .expr_call);
-            } else {
-                p.builder.close(lhs, .expr_unary);
+                    p.expect(.r_bracket);
+                    p.builder.close(lhs, .expr_index);
+                },
+                else => {
+                    p.builder.close(lhs, .expr_unary);
+                },
             }
 
             continue;
