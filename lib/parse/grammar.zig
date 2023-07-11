@@ -116,6 +116,8 @@ fn parseFnReturns(p: *Parser) void {
         while (p.at(.ident) or p.atAny(&expr_first))
             parseFnReturnNamed(p);
         p.expect(.r_paren);
+    } else if (p.atAny(&type_expr_first)) {
+        parseFnReturnAnonymous(p);
     }
     p.builder.close(m, .fn_returns);
 }
@@ -125,6 +127,12 @@ fn parseFnReturnNamed(p: *Parser) void {
     p.expect(.ident);
     parseTypeExpr(p);
     _ = p.eat(.comma);
+    p.builder.close(m, .fn_return);
+}
+
+fn parseFnReturnAnonymous(p: *Parser) void {
+    const m = p.builder.open();
+    parseTypeExpr(p);
     p.builder.close(m, .fn_return);
 }
 
