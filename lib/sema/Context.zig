@@ -19,7 +19,7 @@ const Type = union(enum) {
     invalid,
     bool,
     unsigned_integer: struct { bits: u32 },
-    pointer_to: Type.Index,
+    pointer: Type.Index,
     structure: Struct.Index,
     function: Fn.Index,
 
@@ -32,7 +32,7 @@ const Type = union(enum) {
         invalid,
         bool,
         unsigned_integer: struct { bits: u32 },
-        pointer_to: Type.Index,
+        pointer: Type.Index,
         structure: syntax.ast.Decl.Struct,
         function: syntax.ast.Decl.Fn,
     };
@@ -42,7 +42,7 @@ const Type = union(enum) {
             .invalid => .invalid,
             .bool => .bool,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
-            .pointer_to => |pointee| .{ .pointer_to = pointee },
+            .pointer => |pointee| .{ .pointer = pointee },
             .structure => |structure| .{ .structure = ctx.structPtr(structure).syntax },
             .function => |function| .{ .function = ctx.fnPtr(function).syntax },
         };
@@ -316,7 +316,7 @@ fn formatType(
         .invalid => writer.print("invalid", .{}),
         .bool => writer.print("bool", .{}),
         .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
-        .pointer_to => |pointee| writer.print("*{}", .{args.ctx.fmtType(pointee)}),
+        .pointer => |pointee| writer.print("*{}", .{args.ctx.fmtType(pointee)}),
         .structure => |structure| args.ctx.fmtStruct(structure).format(fmt, .{}, writer),
         .function => |function| args.ctx.fmtFn(function).format(fmt, .{}, writer),
     };
@@ -759,7 +759,7 @@ fn analyzeTypeExpr(
             const operand_type_index = try analyzeTypeExpr(ctx, scope, operand_type_expr);
 
             if (unary.star(ctx.root) != null)
-                return ctx.lookUpType(.{ .pointer_to = operand_type_index });
+                return ctx.lookUpType(.{ .pointer = operand_type_index });
 
             try ctx.err(unary.tree, "unknown binary operator", .{});
 
@@ -801,7 +801,7 @@ fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
             .invalid => .invalid,
             .bool => .bool,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
-            .pointer_to => |pointee| .{ .pointer_to = pointee },
+            .pointer => |pointee| .{ .pointer = pointee },
             .structure => |structure| blk: {
                 const struct_index = ctx.structures.items.len;
                 const ident = structure.ident(ctx.root) orelse
@@ -1238,7 +1238,7 @@ fn irType(ctx: *Context, type_index: Type.Index) ir.Type {
         .invalid => .invalid,
         .bool => .i64,
         .unsigned_integer => .i64,
-        .pointer_to => .ptr,
+        .pointer => .ptr,
         .structure => .invalid,
         .function => .invalid,
     };
