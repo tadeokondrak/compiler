@@ -2,6 +2,9 @@ const std = @import("std");
 const sema = @import("sema");
 
 pub fn main() !void {
+    var gpa: std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 32 }) = .{};
+    defer _ = gpa.deinit();
+
     const src =
         \\const num u32 = 1;
         \\const ptr *u64 = null;
@@ -29,10 +32,9 @@ pub fn main() !void {
         \\}
     ;
 
-    var gpa: std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 32 }) = .{};
-    defer _ = gpa.deinit();
     var ctx = try sema.Context.init(gpa.allocator(), src);
     defer ctx.deinit();
+
     //std.debug.print("syntax: {}\n", .{ctx.root});
     try ctx.compile();
     try ctx.dump(std.io.getStdErr().writer());
