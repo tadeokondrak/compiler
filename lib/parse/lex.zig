@@ -6,6 +6,16 @@ pub const Token = struct {
     len: usize,
 };
 
+const kw_map = std.ComptimeStringMap(syntax.pure.Token.Tag, .{
+    .{ "fn", .kw_fn },
+    .{ "return", .kw_return },
+    .{ "struct", .kw_struct },
+    .{ "const", .kw_const },
+    .{ "if", .kw_if },
+    .{ "loop", .kw_loop },
+    .{ "while", .kw_while },
+});
+
 pub const Lexer = struct {
     pos: usize = 0,
     text: []const u8,
@@ -82,13 +92,6 @@ pub const Lexer = struct {
                 .ident => |ident_state| switch (lexer.nth(0)) {
                     'a'...'z', 'A'...'Z', '0'...'9', '_' => lexer.pos += 1,
                     else => {
-                        const kw_map = std.ComptimeStringMap(syntax.pure.Token.Tag, .{
-                            .{ "fn", .kw_fn },
-                            .{ "return", .kw_return },
-                            .{ "struct", .kw_struct },
-                            .{ "const", .kw_const },
-                            .{ "if", .kw_if },
-                        });
                         const text = lexer.text[ident_state.start_pos..lexer.pos];
                         const tag = kw_map.get(text) orelse .ident;
                         return Token{ .tag = tag, .len = lexer.pos - ident_state.start_pos };

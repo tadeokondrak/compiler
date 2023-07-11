@@ -310,6 +310,8 @@ pub const Stmt = union(enum) {
     block: Stmt.Block,
     @"return": Stmt.Return,
     @"if": Stmt.If,
+    loop: Stmt.Loop,
+    @"while": Stmt.While,
 
     pub const cast = unionCastFn(@This());
     pub const tree = unionTreeFn(@This());
@@ -347,6 +349,25 @@ pub const Stmt = union(enum) {
         pub const cast = treeCastFn(@This(), .stmt_if);
         pub const format = treeFormatFn(@This(), .stmt_if);
         pub const ifToken = tokenAccessorFn(@This(), .kw_if);
+        pub const cond = nthTreeAccessorFn(@This(), ast.Expr, 0);
+        pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+    };
+
+    pub const Loop = struct {
+        tree: syntax.pure.Tree.Index,
+
+        pub const cast = treeCastFn(@This(), .stmt_loop);
+        pub const format = treeFormatFn(@This(), .stmt_loop);
+        pub const loopToken = tokenAccessorFn(@This(), .kw_loop);
+        pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+    };
+
+    pub const While = struct {
+        tree: syntax.pure.Tree.Index,
+
+        pub const cast = treeCastFn(@This(), .stmt_while);
+        pub const format = treeFormatFn(@This(), .stmt_while);
+        pub const whileToken = tokenAccessorFn(@This(), .kw_while);
         pub const cond = nthTreeAccessorFn(@This(), ast.Expr, 0);
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
     };

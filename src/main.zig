@@ -4,7 +4,7 @@ const sema = @import("sema");
 pub fn main() !void {
     const src =
         \\const num u32 = 1;
-        \\const ptr *u64 = num;
+        \\const ptr *u64 = 0;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 *u32;
@@ -14,6 +14,9 @@ pub fn main() !void {
         \\}
         \\struct Other {
         \\    field1 Struct;
+        \\}
+        \\fn infinite_loop() (ret u32) {
+        \\    loop {}
         \\}
         \\fn add(a u32, b u32) (ret u32) {
         \\    return a + b;

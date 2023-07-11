@@ -168,6 +168,10 @@ fn parseStmt(p: *Parser) void {
         parseReturnStmt(p);
     } else if (p.at(.kw_if)) {
         parseIfStmt(p);
+    } else if (p.at(.kw_loop)) {
+        parseLoopStmt(p);
+    } else if (p.at(.kw_while)) {
+        parseWhileStmt(p);
     } else {
         @panic("TODO");
         //p.advance();
@@ -211,6 +215,21 @@ fn parseIfStmt(p: *Parser) void {
     parseExpr(p);
     parseBlockStmt(p);
     p.builder.close(m, .stmt_if);
+}
+
+fn parseLoopStmt(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_loop);
+    parseBlockStmt(p);
+    p.builder.close(m, .stmt_loop);
+}
+
+fn parseWhileStmt(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_while);
+    parseExpr(p);
+    parseBlockStmt(p);
+    p.builder.close(m, .stmt_while);
 }
 
 pub fn parseExpr(p: *Parser) void {
