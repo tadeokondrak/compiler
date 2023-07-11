@@ -167,30 +167,10 @@ fn parseConstDecl(p: *Parser) void {
     p.bump(.kw_const);
     p.expect(.ident);
     parseTypeExpr(p);
-    p.expect(.eq);
-    parseExpr(p);
+    if (p.eat(.eq))
+        parseExpr(p);
     p.expect(.semi);
     p.builder.close(m, .decl_const);
-}
-
-fn parseStmt(p: *Parser) void {
-    if (p.atAny(&expr_first)) {
-        parseExprStmt(p);
-        return;
-    }
-
-    switch (p.nth(0)) {
-        .l_brace => parseBlockStmt(p),
-        .kw_return => parseReturnStmt(p),
-        .kw_continue => parseContinueStmt(p),
-        .kw_break => parseBreakStmt(p),
-        .kw_if => parseIfStmt(p),
-        .kw_loop => parseLoopStmt(p),
-        .kw_while => parseWhileStmt(p),
-        else => {
-            @panic("TODO");
-        },
-    }
 }
 
 fn parseBlockStmt(p: *Parser) void {
@@ -199,9 +179,18 @@ fn parseBlockStmt(p: *Parser) void {
     while (!p.atAny(&.{ .r_brace, .eof })) {
         if (p.atAny(&expr_first)) {
             parseExprStmt(p);
-        } else {
-            parseStmt(p);
-            //p.advance();
+        } else switch (p.nth(0)) {
+            .l_brace => parseBlockStmt(p),
+            .kw_return => parseReturnStmt(p),
+            .kw_continue => parseContinueStmt(p),
+            .kw_break => parseBreakStmt(p),
+            .kw_if => parseIfStmt(p),
+            .kw_loop => parseLoopStmt(p),
+            .kw_while => parseWhileStmt(p),
+            else => {
+                p.builder.err("expected statement");
+                p.advance();
+            },
         }
     }
     p.expect(.r_brace);
