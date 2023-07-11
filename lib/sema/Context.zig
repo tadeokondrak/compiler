@@ -110,6 +110,7 @@ const Scope = struct {
         fn_param: syntax.ast.Decl.Fn.Param,
         true,
         false,
+        null,
     };
 
     pub fn get(scope: *const Scope, name: []const u8) ?LookupResult {
@@ -126,6 +127,7 @@ const Scope = struct {
 
         fn get(_: *const Scope, name: []const u8) ?LookupResult {
             const map = std.ComptimeStringMap(LookupResult, .{
+                .{ "null", .null },
                 .{ "true", .true },
                 .{ "false", .false },
             });
@@ -574,16 +576,15 @@ fn analyzeExpr(
     ctx: *Context,
     scope: *const Scope,
     expr: syntax.ast.Expr,
-    expected_type: ?Type.Index,
+    maybe_expected_type: ?Type.Index,
 ) error{OutOfMemory}!Type.Index {
     switch (expr) {
         .literal => |literal| {
             if (literal.number(ctx.root)) |_| {
-                if (expected_type) |present_expected_type| {
-                    if (ctx.typePtr(present_expected_type).* == .unsigned_integer)
-                        return present_expected_type;
-                    if (ctx.typePtr(present_expected_type).* == .pointer_to)
-                        return present_expected_type;
+                if (maybe_expected_type) |expected_type| {
+                    if (ctx.typePtr(expected_type).* == .unsigned_integer)
+                        return expected_type;
+
                     return ctx.typeTodo(literal.tree, @src());
                 } else {
                     return ctx.lookUpType(.{ .unsigned_integer = .{ .bits = 32 } });
@@ -611,6 +612,12 @@ fn analyzeExpr(
                     return try ctx.analyzeTypeExpr(scope, type_expr);
                 },
                 .true, .false => return ctx.lookUpType(.bool),
+                .null => {
+                    if (maybe_expected_type) |expected_type|
+                        if (ctx.typePtr(expected_type).* == .pointer)
+                            return expected_type;
+                    return ctx.typeTodo(ident_expr.tree, @src());
+                },
             }
         },
         .binary => |binary_expr| {
@@ -1173,8 +1180,13 @@ fn genExpr(
                 },
                 .true, .false => {
                     return .{
-                        .reg = try builder.buildConstant(.i64, ir.Value{ .bits = @intFromBool(lookup_result == .true) }),
+                        .reg = try builder.buildConstant(.i64, ir.Value{
+                            .bits = @intFromBool(lookup_result == .true),
+                        }),
                     };
+                },
+                .null => {
+                    return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
                 },
             }
         },

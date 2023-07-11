@@ -4,7 +4,7 @@ const sema = @import("sema");
 pub fn main() !void {
     const src =
         \\const num u32 = 1;
-        \\const ptr *u64 = 0;
+        \\const ptr *u64 = null;
         \\struct Struct {
         \\    field1 u32;
         \\    field2 *u32;
