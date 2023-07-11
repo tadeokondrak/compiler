@@ -6,7 +6,7 @@ pub fn main() !void {
         \\const num u32 = 1;
         \\const ptr *u64 = null;
         \\struct Struct {
-        \\    field1 u32;
+        \\    field1 u32 = 1;
         \\    field2 *u32;
         \\}
         \\struct Node {

@@ -152,6 +152,8 @@ fn parseStructField(p: *Parser) void {
     const m = p.builder.open();
     p.expect(.ident);
     parseTypeExpr(p);
+    if (p.eat(.eq))
+        parseExpr(p);
     p.expect(.semi);
     p.builder.close(m, .struct_field);
 }
