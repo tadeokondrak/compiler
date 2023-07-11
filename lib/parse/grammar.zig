@@ -265,7 +265,10 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
             p.builder.close(m, .expr_unary);
             break :lhs m;
         }
-        break :lhs parseExprDelimited(p) orelse return;
+        break :lhs parseExprDelimited(p) orelse {
+            p.builder.err("expected expression");
+            return;
+        };
     };
     while (true) {
         const tok = p.nth(0);
