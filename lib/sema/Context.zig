@@ -904,7 +904,7 @@ fn checkBlock(
                 else
                     return ctx.err(if_stmt.tree, "if statement missing condition", .{});
 
-                if (if_stmt.body(ctx.root)) |if_body|
+                if (if_stmt.thenBody(ctx.root)) |if_body|
                     try ctx.checkBlock(scope, function_index, if_body)
                 else
                     return ctx.err(if_stmt.tree, "if statement missing body", .{});
@@ -992,19 +992,29 @@ fn genBlock(
                     return ctx.todo(if_stmt.tree, @src());
 
                 const cond_value = try genExpr(ctx, gen, scope, cond, builder);
-                const then_block = try builder.addBlock(&.{});
-                const cont_block = try builder.addBlock(&.{});
                 if (cond_value != .reg) {
                     try ctx.err(cond.tree(), "cannot use value", .{});
                     return;
                 }
-                try builder.buildBranch(cond_value.reg, then_block, cont_block);
-                builder.switchToBlock(then_block);
-                const if_body = if_stmt.body(ctx.root) orelse
-                    return ctx.todo(if_stmt.tree, @src());
 
-                try ctx.genBlock(gen, scope, if_body, builder);
+                const then_block = try builder.addBlock(&.{});
+                const else_block = try builder.addBlock(&.{});
+                const cont_block = try builder.addBlock(&.{});
+
+                try builder.buildBranch(cond_value.reg, then_block, cont_block);
+
+                builder.switchToBlock(then_block);
+                const then_body = if_stmt.thenBody(ctx.root) orelse
+                    return ctx.todo(if_stmt.tree, @src());
+                try ctx.genBlock(gen, scope, then_body, builder);
                 try builder.buildJump(cont_block);
+
+                builder.switchToBlock(else_block);
+                if (if_stmt.elseBody(ctx.root)) |else_body|
+                    try ctx.genBlock(gen, scope, else_body, builder);
+
+                try builder.buildJump(cont_block);
+
                 builder.switchToBlock(cont_block);
             },
             .loop => |loop_stmt| {

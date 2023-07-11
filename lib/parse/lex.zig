@@ -12,6 +12,7 @@ const kw_map = std.ComptimeStringMap(syntax.pure.Token.Tag, .{
     .{ "struct", .kw_struct },
     .{ "const", .kw_const },
     .{ "if", .kw_if },
+    .{ "else", .kw_else },
     .{ "loop", .kw_loop },
     .{ "while", .kw_while },
 });

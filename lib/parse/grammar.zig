@@ -214,6 +214,8 @@ fn parseIfStmt(p: *Parser) void {
     p.bump(.kw_if);
     parseExpr(p);
     parseBlockStmt(p);
+    if (p.eat(.kw_else))
+        parseBlockStmt(p);
     p.builder.close(m, .stmt_if);
 }
 

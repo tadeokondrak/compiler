@@ -152,6 +152,7 @@ pub const Token = struct {
         kw_struct,
         kw_const,
         kw_if,
+        kw_else,
         kw_loop,
         kw_while,
     };

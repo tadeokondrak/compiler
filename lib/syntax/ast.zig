@@ -350,7 +350,9 @@ pub const Stmt = union(enum) {
         pub const format = treeFormatFn(@This(), .stmt_if);
         pub const ifToken = tokenAccessorFn(@This(), .kw_if);
         pub const cond = nthTreeAccessorFn(@This(), ast.Expr, 0);
-        pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+        pub const thenBody = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+        pub const elseToken = tokenAccessorFn(@This(), .kw_else);
+        pub const elseBody = nthTreeAccessorFn(@This(), Stmt.Block, 1);
     };
 
     pub const Loop = struct {
