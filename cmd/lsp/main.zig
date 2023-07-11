@@ -121,7 +121,7 @@ const Context = struct {
         var ctx = try Sema.init(arena.allocator(), src);
         defer ctx.deinit();
 
-        ctx.compile() catch return error.TODO;
+        try ctx.compile();
 
         const line_index = try LineIndex.make(arena.allocator(), src);
         defer line_index.deinit(arena.allocator());
@@ -129,21 +129,32 @@ const Context = struct {
         const line_start = if (params.position.line == 0) 0 else line_index.newlines[params.position.line - 1];
         const offset = line_start + params.position.character;
 
-        const decl = ctx.findDecl(.{ .offset = offset }) orelse return error.TODO;
+        const decl_syntax = ctx.findDecl(.{ .offset = offset }) orelse return error.TODO;
 
-        const decl_start = ctx.root.treeStart(decl.tree());
+        const decl_start = ctx.root.treeStart(decl_syntax.tree());
         const decl_start_translated = line_index.translate(decl_start.offset);
 
-        const decl_end = ctx.root.treeEnd(decl.tree());
+        const decl_end = ctx.root.treeEnd(decl_syntax.tree());
         const decl_end_translated = line_index.translate(decl_end.offset);
 
-        // TODO: don't leak this
-        const text = try std.fmt.allocPrint(conn.allocator, "{?}", .{decl});
+        const text = switch (decl_syntax) {
+            .function => |function| blk: {
+                const ty = try ctx.lookUpType(.{ .function = function });
+                break :blk try std.fmt.allocPrint(conn.allocator, "```\n{code}\n```", .{ctx.fmtType(ty)});
+            },
+            .structure => |structure| blk: {
+                const ty = try ctx.lookUpType(.{ .structure = structure });
+                break :blk try std.fmt.allocPrint(conn.allocator, "{}", .{ctx.fmtType(ty)});
+            },
+            .constant => blk: {
+                break :blk try std.fmt.allocPrint(conn.allocator, "constant", .{});
+            },
+        };
 
         return .{
             .contents = .{
                 .MarkupContent = .{
-                    .kind = .plaintext,
+                    .kind = .markdown,
                     .value = text,
                 },
             },

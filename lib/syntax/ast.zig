@@ -115,6 +115,12 @@ pub const Decl = union(enum) {
     pub const cast = unionCastFn(@This());
     pub const tree = unionTreeFn(@This());
 
+    pub fn ident(decl: Decl, root: syntax.pure.Root) ?syntax.pure.Token.Index {
+        return switch (decl) {
+            inline else => |variant| variant.ident(root),
+        };
+    }
+
     pub const Fn = struct {
         tree: syntax.pure.Tree.Index,
 

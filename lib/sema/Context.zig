@@ -177,15 +177,15 @@ const GenValue = union(enum) {
     reg: ir.Reg,
 };
 
-fn typePtr(ctx: *Context, i: Type.Index) *Type {
+pub fn typePtr(ctx: *Context, i: Type.Index) *Type {
     return &ctx.types.items[@intFromEnum(i)];
 }
 
-fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
+pub fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
     return &ctx.structures.items[@intFromEnum(i)];
 }
 
-fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
+pub fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
     return &ctx.functions.items[@intFromEnum(i)];
 }
 
@@ -276,7 +276,7 @@ fn formatFn(
     }
 }
 
-fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
+pub fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
     return .{ .data = .{ .ctx = ctx, .function = function } };
 }
 
@@ -302,7 +302,7 @@ fn formatStruct(
     }
 }
 
-fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
+pub fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
     return .{ .data = .{ .ctx = ctx, .structure = structure } };
 }
 
@@ -324,7 +324,7 @@ fn formatType(
     };
 }
 
-fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
+pub fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
     return .{ .data = .{ .ctx = ctx, .ty = ty } };
 }
 
@@ -424,9 +424,7 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     {
         var it = ctx.ast.decls(ctx.root);
         while (it.next(ctx.root)) |decl_syntax| {
-            const ident = switch (decl_syntax) {
-                inline else => |s| s.ident(ctx.root),
-            } orelse
+            const ident = decl_syntax.ident(ctx.root) orelse
                 return ctx.err(decl_syntax.tree(), "declaration missing name", .{});
 
             const name = ctx.root.tokenText(ident);
@@ -804,7 +802,7 @@ fn typeOfDecl(
     }
 }
 
-fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
+pub fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
     const result = try ctx.pool.getOrPutAdapted(
         ctx.gpa,
         key,
