@@ -22,5 +22,6 @@ pub fn translate(index: LineIndex, offset: u32) struct { line: u32, col: u32 } {
         line += 1;
         col = offset - i;
     }
-    return .{ .line = line, .col = col - 1 };
+
+    return .{ .line = line, .col = col -| 1 };
 }
