@@ -8,7 +8,6 @@ const LineIndex = @import("LineIndex.zig");
 
 gpa: std.mem.Allocator,
 root: syntax.pure.Root,
-ast: syntax.ast.File,
 pool: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
 structures: std.ArrayListUnmanaged(Struct) = .{},
@@ -364,7 +363,6 @@ pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
     var context: Context = .{
         .gpa = allocator,
         .root = parsed.root,
-        .ast = parsed.ast,
     };
     for (
         parsed.root.errors.items(.message),
@@ -406,7 +404,8 @@ pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutO
 }
 
 pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) ?syntax.ast.Decl {
-    var it = ctx.ast.decls(ctx.root);
+    const ast: syntax.ast.File = .{ .tree = @enumFromInt(0) };
+    var it = ast.decls(ctx.root);
     while (it.next(ctx.root)) |decl_syntax| {
         const span = ctx.root.treeSpan(decl_syntax.tree());
         if (span.start.offset > pos.offset)
@@ -423,7 +422,8 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     defer names.deinit(ctx.gpa);
 
     {
-        var it = ctx.ast.decls(ctx.root);
+        const ast: syntax.ast.File = .{ .tree = @enumFromInt(0) };
+        var it = ast.decls(ctx.root);
         while (it.next(ctx.root)) |decl_syntax| {
             const ident = decl_syntax.ident(ctx.root) orelse
                 return err(ctx, decl_syntax.tree(), "declaration missing name", .{});
