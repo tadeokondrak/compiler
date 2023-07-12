@@ -65,8 +65,27 @@ pub const Tree = struct {
         return nodes;
     }
 
-    pub fn span(tree: *Tree) pure.Span {
-        _ = tree;
+    pub fn span(tree: Tree) pure.Span {
+        return tree.context.root.treeSpan(tree.index);
+    }
+
+    pub fn findToken(tree: *const Tree, pos: pure.Pos) !?*Token {
+        for (try tree.children()) |child| {
+            switch (child) {
+                .tree => |child_tree| {
+                    const token = try child_tree.findToken(pos);
+                    if (token != null) return token;
+                },
+                .token => |child_token| {
+                    const token_span = child_token.span();
+                    if (token_span.start.offset <= pos.offset and
+                        pos.offset < token_span.end.offset)
+                        return child_token;
+                },
+            }
+        }
+
+        return null;
     }
 };
 
@@ -91,6 +110,10 @@ pub const Token = struct {
             }
         }
         try writer.print("{s}", .{token.context.root.text.items[data.text_pos..][0..data.text_len]});
+    }
+
+    pub fn span(token: Token) pure.Span {
+        return token.context.root.tokenSpan(token.index);
     }
 };
 

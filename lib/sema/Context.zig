@@ -96,7 +96,7 @@ const Fn = struct {
     };
 };
 
-const Diagnostic = struct {
+pub const Diagnostic = struct {
     span: syntax.pure.Span,
     message: []const u8,
 };
@@ -405,7 +405,7 @@ pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutO
         try writer.print("{code}\n", .{fmtFn(ctx, @enumFromInt(i))});
 }
 
-pub fn findDecl(ctx: *Context, pos: syntax.pure.Pos) ?syntax.ast.Decl {
+pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) ?syntax.ast.Decl {
     var it = ctx.ast.decls(ctx.root);
     while (it.next(ctx.root)) |decl_syntax| {
         const span = ctx.root.treeSpan(decl_syntax.tree());

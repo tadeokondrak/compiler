@@ -260,6 +260,11 @@ pub const Root = struct {
         return root.tokenData(id).pos;
     }
 
+    pub fn tokenSpan(root: Root, id: Token.Index) Span {
+        const data = root.tokenData(id);
+        return .{ .start = data.pos, .end = .{ .offset = data.pos.offset + data.text_len } };
+    }
+
     pub fn tokenText(root: Root, id: Token.Index) []const u8 {
         const data = root.tokenData(id);
         return root.text.items[data.text_pos .. data.text_pos + data.text_len];

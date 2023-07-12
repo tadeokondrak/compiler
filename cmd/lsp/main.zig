@@ -1,49 +1,58 @@
 const std = @import("std");
 const lsp = @import("zig-lsp");
 const syntax = @import("syntax");
-const Sema = @import("sema").Context;
-const LineIndex = @import("sema").LineIndex;
+const parse = @import("parse");
+const sema = @import("sema");
+
+const LineIndex = sema.LineIndex;
 
 const Connection = lsp.Connection(std.fs.File.Reader, std.fs.File.Writer, Context);
 
-fn getDiagnostics(arena: *std.heap.ArenaAllocator, src: []const u8) error{OutOfMemory}![]lsp.types.Diagnostic {
-    var ctx = try Sema.init(arena.allocator(), src);
-    defer ctx.deinit();
+const Document = struct {
+    arena: std.heap.ArenaAllocator,
+    sema: sema.Context,
+    syntax: syntax.Context,
+    line_index: LineIndex,
 
-    var diagnostics: std.ArrayListUnmanaged(lsp.types.Diagnostic) = .{};
-    defer diagnostics.deinit(arena.allocator());
-
-    if (ctx.compile()) |_| {
-        const line_index = try LineIndex.make(arena.allocator(), src);
-        defer line_index.deinit(arena.allocator());
-        for (ctx.diagnostics.items(.span), ctx.diagnostics.items(.message)) |span, message| {
-            const start = line_index.translate(span.start.offset);
-            const end = line_index.translate(span.end.offset);
-            try diagnostics.append(arena.allocator(), .{
-                .message = try arena.allocator().dupe(u8, message),
-                .range = .{
-                    .start = .{ .line = start.line, .character = start.col },
-                    .end = .{ .line = end.line, .character = end.col },
-                },
-            });
-        }
-    } else |err| {
-        if (@errorReturnTrace()) |trace|
-            std.debug.dumpStackTrace(trace.*);
-        try diagnostics.append(arena.allocator(), .{
-            .message = @errorName(err),
-            .range = .{
-                .start = .{ .line = 1, .character = 1 },
-                .end = .{ .line = 1, .character = 2 },
-            },
-        });
+    fn init(doc: *Document, allocator: std.mem.Allocator, src: []const u8) !void {
+        doc.arena = std.heap.ArenaAllocator.init(allocator);
+        const parsed = try parse.parseFile(doc.arena.allocator(), src);
+        doc.sema = try sema.Context.init(doc.arena.allocator(), src);
+        doc.syntax = .{
+            .arena = doc.arena.allocator(),
+            .root = parsed.root,
+        };
+        doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
+        try doc.sema.compile();
     }
 
-    return diagnostics.toOwnedSlice(arena.allocator());
-}
+    fn updateContent(doc: *Document, src: []const u8) !void {
+        doc.sema.deinit();
+        doc.sema = try sema.Context.init(doc.arena.allocator(), src);
+        try doc.sema.compile();
+        doc.syntax.root.deinit(doc.arena.allocator());
+        doc.syntax.root = (try parse.parseFile(doc.arena.allocator(), src)).root;
+        doc.line_index.deinit(doc.arena.allocator());
+        doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
+    }
+
+    fn translateSpan(doc: *Document, span: syntax.pure.Span) lsp.types.Range {
+        const start = doc.line_index.translate(span.start.offset);
+        const end = doc.line_index.translate(span.end.offset);
+        return .{
+            .start = .{ .line = start.line, .character = start.col },
+            .end = .{ .line = end.line, .character = end.col },
+        };
+    }
+
+    fn translatePosition(doc: *Document, position: lsp.types.Position) syntax.pure.Pos {
+        const line_start = if (position.line == 0) 0 else doc.line_index.newlines[position.line - 1];
+        return .{ .offset = line_start + position.character };
+    }
+};
 
 const Context = struct {
-    docs: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+    docs: std.StringArrayHashMapUnmanaged(Document) = .{},
 
     pub fn initialize(conn: *Connection, id: lsp.types.RequestId, _: lsp.types.InitializeParams) !lsp.types.InitializeResult {
         _ = id;
@@ -52,6 +61,7 @@ const Context = struct {
             .capabilities = .{
                 .textDocumentSync = .{ .TextDocumentSyncKind = .Full },
                 .hoverProvider = .{ .bool = true },
+                .selectionRangeProvider = .{ .bool = true },
             },
         };
     }
@@ -60,20 +70,28 @@ const Context = struct {
         var arena = std.heap.ArenaAllocator.init(conn.allocator);
         defer arena.deinit();
 
-        const src = params.textDocument.text;
-        var diagnostics = try getDiagnostics(&arena, src);
-        defer arena.allocator().free(diagnostics);
-
         const gop = try conn.context.docs.getOrPut(conn.allocator, params.textDocument.uri);
-        if (gop.found_existing)
-            conn.allocator.free(gop.value_ptr.*)
-        else
+        if (!gop.found_existing) {
             gop.key_ptr.* = try conn.allocator.dupe(u8, params.textDocument.uri);
-        gop.value_ptr.* = try conn.allocator.dupe(u8, src);
+            try gop.value_ptr.init(conn.allocator, params.textDocument.text);
+        } else {
+            try gop.value_ptr.updateContent(params.textDocument.text);
+        }
+
+        const doc = gop.value_ptr;
+
+        var diagnostics: std.ArrayListUnmanaged(lsp.types.Diagnostic) = .{};
+        defer diagnostics.deinit(arena.allocator());
+        for (doc.sema.diagnostics.items(.span), doc.sema.diagnostics.items(.message)) |span, message| {
+            try diagnostics.append(arena.allocator(), .{
+                .message = message,
+                .range = doc.translateSpan(span),
+            });
+        }
 
         try conn.notify("textDocument/publishDiagnostics", .{
             .uri = params.textDocument.uri,
-            .diagnostics = diagnostics,
+            .diagnostics = diagnostics.items,
         });
     }
 
@@ -95,17 +113,22 @@ const Context = struct {
             return;
         };
 
-        var diagnostics = try getDiagnostics(&arena, src);
-        defer arena.allocator().free(diagnostics);
-
         const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse
             return error.NoTextDocument;
-        conn.allocator.free(doc.*);
-        doc.* = try conn.allocator.dupe(u8, src);
+        try doc.updateContent(src);
+
+        var diagnostics: std.ArrayListUnmanaged(lsp.types.Diagnostic) = .{};
+        defer diagnostics.deinit(arena.allocator());
+        for (doc.sema.diagnostics.items(.span), doc.sema.diagnostics.items(.message)) |span, message| {
+            try diagnostics.append(arena.allocator(), .{
+                .message = message,
+                .range = doc.translateSpan(span),
+            });
+        }
 
         try conn.notify("textDocument/publishDiagnostics", .{
             .uri = params.textDocument.uri,
-            .diagnostics = diagnostics,
+            .diagnostics = diagnostics.items,
         });
     }
 
@@ -113,35 +136,18 @@ const Context = struct {
         var arena = std.heap.ArenaAllocator.init(conn.allocator);
         defer arena.deinit();
 
-        const src = conn.context.docs.get(params.textDocument.uri) orelse return error.TODO;
-
-        var ctx = try Sema.init(arena.allocator(), src);
-        defer ctx.deinit();
-
-        try ctx.compile();
-
-        const line_index = try LineIndex.make(arena.allocator(), src);
-        defer line_index.deinit(arena.allocator());
-
-        const line_start = if (params.position.line == 0) 0 else line_index.newlines[params.position.line - 1];
-        const offset = line_start + params.position.character;
-
-        const decl_syntax = ctx.findDecl(.{ .offset = offset }) orelse return error.TODO;
-
-        const decl_start = ctx.root.treeStart(decl_syntax.tree());
-        const decl_start_translated = line_index.translate(decl_start.offset);
-
-        const decl_end = ctx.root.treeEnd(decl_syntax.tree());
-        const decl_end_translated = line_index.translate(decl_end.offset);
+        const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse return error.TODO;
+        const pos = doc.translatePosition(params.position);
+        const decl_syntax = doc.sema.findDecl(.{ .offset = pos.offset }) orelse return error.TODO;
 
         const text = switch (decl_syntax) {
             .function => |function| blk: {
-                const ty = try ctx.lookUpType(.{ .function = function });
-                break :blk try std.fmt.allocPrint(conn.allocator, "```\n{code}\n```", .{ctx.fmtType(ty)});
+                const ty = try doc.sema.lookUpType(.{ .function = function });
+                break :blk try std.fmt.allocPrint(conn.allocator, "```\n{code}\n```", .{doc.sema.fmtType(ty)});
             },
             .structure => |structure| blk: {
-                const ty = try ctx.lookUpType(.{ .structure = structure });
-                break :blk try std.fmt.allocPrint(conn.allocator, "{}", .{ctx.fmtType(ty)});
+                const ty = try doc.sema.lookUpType(.{ .structure = structure });
+                break :blk try std.fmt.allocPrint(conn.allocator, "{}", .{doc.sema.fmtType(ty)});
             },
             .constant => blk: {
                 break :blk try std.fmt.allocPrint(conn.allocator, "constant", .{});
@@ -155,17 +161,38 @@ const Context = struct {
                     .value = text,
                 },
             },
-            .range = .{
-                .start = .{
-                    .line = decl_start_translated.line,
-                    .character = decl_start_translated.col,
-                },
-                .end = .{
-                    .line = decl_end_translated.line,
-                    .character = decl_end_translated.col,
-                },
-            },
+            .range = doc.translateSpan(doc.sema.root.treeSpan(decl_syntax.tree())),
         };
+    }
+
+    pub fn @"textDocument/selectionRange"(conn: *Connection, _: lsp.types.RequestId, params: lsp.types.SelectionRangeParams) !?[]lsp.types.SelectionRange {
+        var arena = std.heap.ArenaAllocator.init(conn.allocator);
+        defer arena.deinit();
+
+        const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse return error.TODO;
+
+        // TODO: don't leak once I can figure out how to use this LSP abstraction
+        const ranges = try conn.allocator.alloc(lsp.types.SelectionRange, params.positions.len);
+
+        for (params.positions, 0..) |pos, i| {
+            const root: *syntax.Tree = try doc.syntax.createTree(@enumFromInt(0));
+            const token = try root.findToken(doc.translatePosition(pos)) orelse return null;
+            ranges[i] = .{
+                .range = doc.translateSpan(token.span()),
+            };
+            var parent: ?*const syntax.Tree = token.parent;
+            var largest_range = &ranges[i];
+            while (parent) |parent_tree| : (parent = parent_tree.parent) {
+                const range = try conn.allocator.create(lsp.types.SelectionRange);
+                range.* = .{
+                    .range = doc.translateSpan(parent_tree.span()),
+                };
+                largest_range.parent = range;
+                largest_range = range;
+            }
+        }
+
+        return ranges;
     }
 };
 
