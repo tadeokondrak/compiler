@@ -147,7 +147,7 @@ const Context = struct {
             },
             .structure => |structure| blk: {
                 const ty = try doc.sema.lookUpType(.{ .structure = structure });
-                break :blk try std.fmt.allocPrint(conn.allocator, "{}", .{doc.sema.fmtType(ty)});
+                break :blk try std.fmt.allocPrint(conn.allocator, "```\n{#}\n```", .{doc.sema.fmtType(ty)});
             },
             .constant => blk: {
                 break :blk try std.fmt.allocPrint(conn.allocator, "constant", .{});
