@@ -3,7 +3,6 @@ const Context = @This();
 const std = @import("std");
 const syntax = @import("syntax");
 const parse = @import("parse");
-const ir = @import("ir.zig");
 const LineIndex = @import("LineIndex.zig");
 
 gpa: std.mem.Allocator,
@@ -76,7 +75,7 @@ const Struct = struct {
 };
 
 const Fn = struct {
-    analysis: enum { unanalyzed, analyzed, generated } = .unanalyzed,
+    analysis: enum { unanalyzed, analyzed } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
     name: []const u8,
     params: std.StringArrayHashMapUnmanaged(struct {
@@ -87,7 +86,6 @@ const Fn = struct {
         syntax: syntax.ast.Decl.Fn.Return,
         ty: Type.Index,
     }) = .{},
-    func: ir.Func = undefined,
 
     const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
@@ -166,16 +164,6 @@ const Scope = struct {
     };
 };
 
-const Gen = struct {
-    vars: std.AutoHashMapUnmanaged(syntax.pure.Tree.Index, ir.Reg) = .{},
-};
-
-const GenValue = union(enum) {
-    invalid,
-    void,
-    reg: ir.Reg,
-};
-
 pub fn typePtr(ctx: *Context, i: Type.Index) *Type {
     return &ctx.types.items[@intFromEnum(i)];
 }
@@ -232,30 +220,11 @@ fn typeTodo(
     return lookUpType(ctx, .invalid);
 }
 
-fn genErr(
-    ctx: *Context,
-    tree: syntax.pure.Tree.Index,
-    comptime fmt: []const u8,
-    args: anytype,
-) error{OutOfMemory}!GenValue {
-    try err(ctx, tree, fmt, args);
-    return .invalid;
-}
-
-fn genTodo(
-    ctx: *Context,
-    tree: syntax.pure.Tree.Index,
-    src: std.builtin.SourceLocation,
-) error{OutOfMemory}!GenValue {
-    try todo(ctx, tree, src);
-    return .invalid;
-}
-
 const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
 
 fn formatFn(
     args: FormatFnArgs,
-    comptime fmt: []const u8,
+    comptime _: []const u8,
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
@@ -271,9 +240,6 @@ fn formatFn(
         try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value.ty) });
     }
     try writer.print(")", .{});
-    if (std.mem.eql(u8, fmt, "code") and function.analysis == .generated) {
-        try writer.print(" {{\n{}\n}}", .{function.func});
-    }
 }
 
 pub fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
@@ -382,8 +348,6 @@ pub fn deinit(ctx: *Context) void {
         ctx.gpa.free(message);
     ctx.diagnostics.deinit(ctx.gpa);
     for (ctx.functions.items) |*function| {
-        if (function.analysis == .generated)
-            function.func.deinit(ctx.gpa);
         function.params.deinit(ctx.gpa);
         function.returns.deinit(ctx.gpa);
     }
@@ -441,54 +405,6 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
 
     for (names.values()) |value|
         try analyzeDecl(ctx, &file_scope.base, value);
-
-    for (names.values()) |decl| {
-        switch (decl) {
-            .function => |function_syntax| {
-                var type_index = try lookUpType(ctx, .{ .function = function_syntax });
-                var function_index = typePtr(ctx, type_index).function;
-                var function = fnPtr(ctx, function_index);
-
-                std.debug.assert(function.analysis == .analyzed);
-
-                const body = function_syntax.body(ctx.root) orelse
-                    return err(ctx, function.syntax.tree, "function missing body", .{});
-
-                var args: std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param) = .{};
-                defer args.deinit(ctx.gpa);
-
-                var fn_scope = Scope.Fn{
-                    .base = .{ .parent = &file_scope.base, .getFn = Scope.Fn.get },
-                    .args = &args,
-                };
-
-                var builder: ir.Builder = .{ .allocator = ctx.gpa };
-
-                var gen = Gen{};
-                defer gen.vars.deinit(ctx.gpa);
-
-                {
-                    errdefer builder.func.deinit(ctx.gpa);
-                    var params: std.ArrayListUnmanaged(ir.Block.Param) = .{};
-                    defer params.deinit(ctx.gpa);
-                    for (function.params.keys(), function.params.values()) |name, param| {
-                        const reg = builder.addReg();
-                        try params.append(ctx.gpa, .{
-                            .ty = irType(ctx, param.ty),
-                            .reg = reg,
-                        });
-                        try args.put(ctx.gpa, name, param.syntax);
-                        try gen.vars.put(ctx.gpa, param.syntax.tree, reg);
-                    }
-                    builder.switchToBlock(try builder.addBlock(params.items));
-                    try genBlock(ctx, &gen, &fn_scope.base, body, &builder);
-                }
-                function.func = builder.func;
-                function.analysis = .generated;
-            },
-            else => {},
-        }
-    }
 }
 
 fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{OutOfMemory}!void {
@@ -975,331 +891,4 @@ fn checkExpr(
             );
         }
     }
-}
-
-fn genBlock(
-    ctx: *Context,
-    gen: *Gen,
-    scope: *const Scope,
-    block: syntax.ast.Stmt.Block,
-    builder: *ir.Builder,
-) error{OutOfMemory}!void {
-    for (ctx.root.treeChildren(block.tree)) |child| {
-        const child_tree = child.asTree() orelse continue;
-
-        const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse
-            return todo(ctx, child_tree, @src());
-
-        switch (stmt) {
-            .expr => |expr_stmt| {
-                const expr = expr_stmt.expr(ctx.root) orelse
-                    return todo(ctx, expr_stmt.tree, @src());
-
-                _ = try genExpr(ctx, gen, scope, expr, builder);
-            },
-            .block => |nested_block| {
-                return genBlock(ctx, gen, scope, nested_block, builder);
-            },
-            .@"return" => |return_stmt| {
-                var exprs = return_stmt.exprs(ctx.root);
-                var regs: std.ArrayListUnmanaged(ir.Reg) = .{};
-                defer regs.deinit(ctx.gpa);
-                while (exprs.next(ctx.root)) |expr| {
-                    const value = try genExpr(ctx, gen, scope, expr, builder);
-                    if (value != .reg) {
-                        try err(ctx, expr.tree(), "cannot use void value", .{});
-                        return;
-                    }
-                    try regs.append(ctx.gpa, value.reg);
-                }
-                return builder.buildRet(regs.items);
-            },
-            .@"if" => |if_stmt| {
-                const cond = if_stmt.cond(ctx.root) orelse
-                    return todo(ctx, if_stmt.tree, @src());
-
-                const cond_value = try genExpr(ctx, gen, scope, cond, builder);
-                if (cond_value != .reg) {
-                    try err(ctx, cond.tree(), "cannot use value", .{});
-                    return;
-                }
-
-                const then_block = try builder.addBlock(&.{});
-                const cont_block = try builder.addBlock(&.{});
-
-                if (if_stmt.elseToken(ctx.root) != null) {
-                    const else_block = try builder.addBlock(&.{});
-
-                    try builder.buildBranch(cond_value.reg, then_block, else_block);
-
-                    builder.switchToBlock(then_block);
-                    const then_body = if_stmt.thenBody(ctx.root) orelse
-                        return todo(ctx, if_stmt.tree, @src());
-                    try genBlock(ctx, gen, scope, then_body, builder);
-                    try builder.buildJump(cont_block);
-
-                    builder.switchToBlock(else_block);
-                    if (if_stmt.elseBody(ctx.root)) |else_body|
-                        try genBlock(ctx, gen, scope, else_body, builder);
-                } else {
-                    try builder.buildBranch(cond_value.reg, then_block, cont_block);
-
-                    builder.switchToBlock(then_block);
-                    const then_body = if_stmt.thenBody(ctx.root) orelse
-                        return todo(ctx, if_stmt.tree, @src());
-                    try genBlock(ctx, gen, scope, then_body, builder);
-                }
-
-                try builder.buildJump(cont_block);
-                builder.switchToBlock(cont_block);
-            },
-            .loop => |loop_stmt| {
-                const body_block = try builder.addBlock(&.{});
-                const cont_block = try builder.addBlock(&.{});
-                builder.switchToBlock(body_block);
-                const if_body = loop_stmt.body(ctx.root) orelse
-                    return todo(ctx, loop_stmt.tree, @src());
-
-                try genBlock(ctx, gen, scope, if_body, builder);
-                try builder.buildJump(body_block);
-
-                builder.switchToBlock(cont_block);
-            },
-            .@"while" => |while_stmt| {
-                const while_cond = while_stmt.cond(ctx.root) orelse
-                    return todo(ctx, while_stmt.tree, @src());
-
-                const while_body = while_stmt.body(ctx.root) orelse
-                    return todo(ctx, while_stmt.tree, @src());
-
-                const loop_block = try builder.addBlock(&.{});
-                const body_block = try builder.addBlock(&.{});
-                const cont_block = try builder.addBlock(&.{});
-
-                builder.switchToBlock(loop_block);
-                const cond_value = try genExpr(ctx, gen, scope, while_cond, builder);
-                if (cond_value != .reg) {
-                    try err(ctx, while_cond.tree(), "cannot use value", .{});
-                    return;
-                }
-
-                try builder.buildBranch(cond_value.reg, body_block, cont_block);
-
-                builder.switchToBlock(body_block);
-                try genBlock(ctx, gen, scope, while_body, builder);
-                try builder.buildJump(loop_block);
-
-                builder.switchToBlock(cont_block);
-            },
-        }
-    }
-}
-
-fn genExpr(
-    ctx: *Context,
-    gen: *Gen,
-    scope: *const Scope,
-    expr: syntax.ast.Expr,
-    builder: *ir.Builder,
-) error{OutOfMemory}!GenValue {
-    switch (expr) {
-        .unary => |un| {
-            return genErr(ctx, un.tree, "unknown unary operator", .{});
-        },
-        .binary => |bin| {
-            if (bin.plus(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .add);
-            if (bin.minus(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .sub);
-            if (bin.star(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .mul);
-            if (bin.slash(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .div);
-            if (bin.percent(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .rem);
-            if (bin.lt2(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .shl);
-            if (bin.gt2(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .shr);
-            if (bin.ampersand(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .band);
-            if (bin.pipe(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .bor);
-            if (bin.caret(ctx.root) != null) return genArith(ctx, gen, scope, bin, builder, .bxor);
-            if (bin.eq2(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .eq);
-            if (bin.bangEq(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .neq);
-            if (bin.lt(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .lt);
-            if (bin.ltEq(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .lte);
-            if (bin.gt(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .gt);
-            if (bin.gtEq(ctx.root) != null) return genCmp(ctx, gen, scope, bin, builder, .gte);
-            return genErr(ctx, bin.tree, "unknown binary operator", .{});
-        },
-        .literal => |literal| {
-            if (literal.number(ctx.root)) |number| {
-                const text = ctx.root.tokenText(number);
-                const num = std.fmt.parseInt(u64, text, 10) catch |e| {
-                    return genErr(ctx, literal.tree, "invalid number literal: {}", .{e});
-                };
-                return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = num }) };
-            }
-
-            return genErr(ctx, literal.tree, "unknown literal", .{});
-        },
-        .paren => |paren| {
-            const inner = paren.expr(ctx.root) orelse
-                return genTodo(ctx, paren.tree, @src());
-
-            return genExpr(ctx, gen, scope, inner, builder);
-        },
-        .call => |call| {
-            const inner = call.expr(ctx.root) orelse
-                return genTodo(ctx, call.tree, @src());
-
-            const ident = syntax.ast.Expr.Ident.cast(ctx.root, inner.tree()) orelse
-                return genErr(ctx, call.tree, "cannot call non-literal", .{});
-
-            const name = ctx.root.tokenText(ident.ident(ctx.root) orelse
-                return genTodo(ctx, call.tree, @src()));
-
-            const lookup_result = scope.get(name) orelse
-                return genTodo(ctx, call.tree, @src());
-
-            const decl_syntax = switch (lookup_result) {
-                .decl => |decl| decl,
-                else => return genTodo(ctx, call.tree, @src()),
-            };
-
-            const fn_syntax = syntax.ast.Decl.Fn.cast(ctx.root, decl_syntax.tree()) orelse
-                return genTodo(ctx, call.tree, @src());
-
-            const function_ty = try lookUpType(ctx, .{ .function = fn_syntax });
-            const function = fnPtr(ctx, typePtr(ctx, function_ty).function);
-            const dname = try builder.allocator.dupe(u8, name);
-
-            var params: std.ArrayListUnmanaged(ir.Type) = .{};
-            try params.ensureTotalCapacity(builder.allocator, function.params.entries.len);
-            defer params.deinit(builder.allocator);
-
-            for (function.params.values()) |param|
-                params.appendAssumeCapacity(irType(ctx, param.ty));
-
-            var returns: std.ArrayListUnmanaged(ir.Type) = .{};
-            try returns.ensureTotalCapacity(builder.allocator, function.returns.entries.len);
-            defer returns.deinit(builder.allocator);
-
-            for (function.returns.values()) |ret|
-                returns.appendAssumeCapacity(irType(ctx, ret.ty));
-
-            const extern_func = try builder.declareExternFunc(
-                dname,
-                try params.toOwnedSlice(builder.allocator),
-                try returns.toOwnedSlice(builder.allocator),
-            );
-
-            var arg_regs: std.ArrayListUnmanaged(ir.Reg) = .{};
-            try arg_regs.ensureTotalCapacity(ctx.gpa, params.items.len);
-            defer arg_regs.deinit(ctx.gpa);
-
-            {
-                const args = call.args(ctx.root) orelse
-                    return genTodo(ctx, function.syntax.tree, @src());
-                var it = args.args(ctx.root);
-                while (it.next(ctx.root)) |arg_syntax| {
-                    const arg_expr = arg_syntax.expr(ctx.root) orelse
-                        return genTodo(ctx, function.syntax.tree, @src());
-                    const arg_reg = try genExpr(ctx, gen, scope, arg_expr, builder);
-                    try arg_regs.append(ctx.gpa, arg_reg.reg);
-                }
-            }
-
-            const return_regs = try builder.buildCall(extern_func, arg_regs.items);
-            return switch (return_regs.len) {
-                0 => .void,
-                1 => .{ .reg = return_regs[0] },
-                else => std.debug.panic("TODO: {}", .{return_regs.len}),
-            };
-        },
-        .ident => |ident| {
-            const inner = ident.ident(ctx.root) orelse
-                return genTodo(ctx, ident.tree, @src());
-
-            const ident_text = ctx.root.tokenText(inner);
-
-            const lookup_result = scope.get(ident_text) orelse
-                return genErr(ctx, ident.tree, "undefined identifier {s}", .{ident_text});
-
-            switch (lookup_result) {
-                .decl => return genTodo(ctx, ident.tree, @src()),
-                .fn_param => |fn_param| {
-                    if (gen.vars.get(fn_param.tree)) |reg|
-                        return .{ .reg = reg };
-                    return genTodo(ctx, ident.tree, @src());
-                },
-                .true, .false => {
-                    return .{
-                        .reg = try builder.buildConstant(.i64, ir.Value{
-                            .bits = @intFromBool(lookup_result == .true),
-                        }),
-                    };
-                },
-                .null => {
-                    return .{ .reg = try builder.buildConstant(.i64, ir.Value{ .bits = 0 }) };
-                },
-            }
-        },
-    }
-}
-
-fn genArith(
-    ctx: *Context,
-    gen: *Gen,
-    scope: *const Scope,
-    expr: syntax.ast.Expr.Binary,
-    builder: *ir.Builder,
-    op: ir.ArithOp,
-) error{OutOfMemory}!GenValue {
-    const lhs = expr.lhs(ctx.root) orelse
-        return genTodo(ctx, expr.tree, @src());
-    const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
-
-    const rhs = expr.rhs(ctx.root) orelse
-        return genTodo(ctx, expr.tree, @src());
-    const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
-
-    if (lhs_value != .reg or rhs_value != .reg) {
-        if (lhs_value == .void or rhs_value == .void)
-            try err(ctx, expr.tree, "cannot use void value", .{});
-        return .invalid;
-    }
-
-    return .{ .reg = try builder.buildArith(op, lhs_value.reg, rhs_value.reg) };
-}
-
-fn genCmp(
-    ctx: *Context,
-    gen: *Gen,
-    scope: *const Scope,
-    expr: syntax.ast.Expr.Binary,
-    builder: *ir.Builder,
-    op: ir.CmpOp,
-) error{OutOfMemory}!GenValue {
-    const lhs = expr.lhs(ctx.root) orelse
-        return genTodo(ctx, expr.tree, @src());
-
-    const rhs = expr.rhs(ctx.root) orelse
-        return genTodo(ctx, expr.tree, @src());
-
-    const lhs_value = try genExpr(ctx, gen, scope, lhs, builder);
-    const rhs_value = try genExpr(ctx, gen, scope, rhs, builder);
-
-    if (lhs_value != .reg or rhs_value != .reg) {
-        if (lhs_value == .void or rhs_value == .void)
-            try err(ctx, expr.tree, "cannot use void value", .{});
-        return .invalid;
-    }
-
-    return .{ .reg = try builder.buildCmp(op, lhs_value.reg, rhs_value.reg) };
-}
-
-fn irType(ctx: *Context, type_index: Type.Index) ir.Type {
-    const ty = typePtr(ctx, type_index);
-    return switch (ty.*) {
-        .invalid => .invalid,
-        .bool => .i64,
-        .unsigned_integer => .i64,
-        .pointer => .ptr,
-        .structure => .invalid,
-        .function => .invalid,
-    };
 }
