@@ -34,7 +34,7 @@ fn postfixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
 
 fn typePrefixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     return switch (tag) {
-        .star => 1,
+        .star, .ampersand => 1,
         else => null,
     };
 }
@@ -357,8 +357,11 @@ fn parseTypeExpr(p: *Parser) void {
 fn parseTypeExprPrecedence(p: *Parser, left_precedence: u8) void {
     _ = left_precedence;
     if (typePrefixPrecedence(p.nth(0))) |prec| {
+        const op = p.nth(0);
         const m = p.builder.open();
         p.advance();
+        if (op == .ampersand)
+            _ = p.eat(.kw_mut);
         parseTypeExprPrecedence(p, prec);
         p.builder.close(m, .type_expr_unary);
         return;
