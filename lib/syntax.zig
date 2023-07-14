@@ -3,6 +3,17 @@ const std = @import("std");
 pub const ast = @import("syntax/ast.zig");
 pub const pure = @import("syntax/pure.zig");
 
+pub fn AstPtr(comptime T: type) type {
+    return struct {
+        span: pure.Span,
+
+        pub fn deref(ptr: @This(), tree: *Tree) !T {
+            const found = try tree.findTree(ptr.span);
+            return T.cast(found.?).?;
+        }
+    };
+}
+
 pub const Context = struct {
     arena: std.mem.Allocator,
     root: pure.Root,
@@ -69,6 +80,25 @@ pub const Tree = struct {
         return tree.context.root.treeSpan(tree.index);
     }
 
+    pub fn findTree(tree: *Tree, tree_span: pure.Span) !?*Tree {
+        if (tree_span.start.offset == tree.span().start.offset and
+            tree_span.end.offset == tree.span().end.offset)
+        {
+            return tree;
+        }
+        for (try tree.children()) |child| {
+            switch (child) {
+                .tree => |child_tree| {
+                    if (try child_tree.findTree(tree_span)) |found_tree|
+                        return found_tree;
+                },
+                .token => {},
+            }
+        }
+
+        return null;
+    }
+
     pub fn findToken(tree: *const Tree, pos: pure.Pos) !?*Token {
         for (try tree.children()) |child| {
             switch (child) {
@@ -112,12 +142,16 @@ pub const Token = struct {
         try writer.print("{s}", .{token.context.root.text.items[data.text_pos..][0..data.text_len]});
     }
 
+    pub fn text(token: Token) []const u8 {
+        return token.context.root.tokenText(token.index);
+    }
+
     pub fn span(token: Token) pure.Span {
         return token.context.root.tokenSpan(token.index);
     }
 };
 
-const Node = union(enum) {
+pub const Node = union(enum) {
     tree: *Tree,
     token: *Token,
 

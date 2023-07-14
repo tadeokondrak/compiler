@@ -17,18 +17,29 @@ const Document = struct {
     fn init(doc: *Document, allocator: std.mem.Allocator, src: []const u8) !void {
         doc.arena = std.heap.ArenaAllocator.init(allocator);
         const parsed = try parse.parseFile(doc.arena.allocator(), src);
-        doc.sema = try sema.Context.init(doc.arena.allocator(), src);
         doc.syntax = .{
             .arena = doc.arena.allocator(),
+            .root = parsed.root,
+        };
+        doc.sema = .{
+            .gpa = allocator,
+            .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
             .root = parsed.root,
         };
         doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
         try doc.sema.compile();
     }
 
-    fn updateContent(doc: *Document, src: []const u8) !void {
+    fn updateContent(doc: *Document, allocator: std.mem.Allocator, src: []const u8) !void {
+        const parsed = try parse.parseFile(doc.arena.allocator(), src);
+        doc.syntax.root.deinit(doc.arena.allocator());
+        doc.syntax.root = parsed.root;
         doc.sema.deinit();
-        doc.sema = try sema.Context.init(doc.arena.allocator(), src);
+        doc.sema = .{
+            .gpa = allocator,
+            .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
+            .root = parsed.root,
+        };
         try doc.sema.compile();
         doc.syntax.root.deinit(doc.arena.allocator());
         doc.syntax.root = (try parse.parseFile(doc.arena.allocator(), src)).root;
@@ -75,7 +86,7 @@ const Context = struct {
             gop.key_ptr.* = try conn.allocator.dupe(u8, params.textDocument.uri);
             try gop.value_ptr.init(conn.allocator, params.textDocument.text);
         } else {
-            try gop.value_ptr.updateContent(params.textDocument.text);
+            try gop.value_ptr.updateContent(conn.allocator, params.textDocument.text);
         }
 
         const doc = gop.value_ptr;
@@ -115,7 +126,7 @@ const Context = struct {
 
         const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse
             return error.NoTextDocument;
-        try doc.updateContent(src);
+        try doc.updateContent(conn.allocator, src);
 
         var diagnostics: std.ArrayListUnmanaged(lsp.types.Diagnostic) = .{};
         defer diagnostics.deinit(arena.allocator());
@@ -138,15 +149,15 @@ const Context = struct {
 
         const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse return error.TODO;
         const pos = doc.translatePosition(params.position);
-        const decl_syntax = doc.sema.findDecl(.{ .offset = pos.offset }) orelse return error.TODO;
+        const decl_syntax = try doc.sema.findDecl(.{ .offset = pos.offset }) orelse return error.TODO;
 
         const text = switch (decl_syntax) {
             .function => |function| blk: {
-                const ty = try doc.sema.lookUpType(.{ .function = function });
+                const ty = try doc.sema.lookUpType(.{ .function = function.ptr() });
                 break :blk try std.fmt.allocPrint(conn.allocator, "```\n{code}\n```", .{doc.sema.fmtType(ty)});
             },
             .structure => |structure| blk: {
-                const ty = try doc.sema.lookUpType(.{ .structure = structure });
+                const ty = try doc.sema.lookUpType(.{ .structure = structure.ptr() });
                 break :blk try std.fmt.allocPrint(conn.allocator, "```\n{#}\n```", .{doc.sema.fmtType(ty)});
             },
             .constant => blk: {
@@ -161,7 +172,7 @@ const Context = struct {
                     .value = text,
                 },
             },
-            .range = doc.translateSpan(doc.sema.root.treeSpan(decl_syntax.tree())),
+            .range = doc.translateSpan(decl_syntax.span()),
         };
     }
 

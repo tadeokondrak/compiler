@@ -1,5 +1,7 @@
 const std = @import("std");
 const sema = @import("sema");
+const parse = @import("parse");
+const syntax = @import("syntax");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 32 }) = .{};
@@ -30,13 +32,39 @@ pub fn main() !void {
         \\    }
         \\    return add(fib(n - 1), fib(n - 2));
         \\}
-        \\fn add_generic<T>(a T, b T) (ret T) { return a + b; }
+        //\\fn add_generic<T>(a T, b T) (ret T) { return a + b; }
     ;
 
-    var ctx = try sema.Context.init(gpa.allocator(), src);
+    var arena = std.heap.ArenaAllocator.init(gpa.allocator());
+    defer arena.deinit();
+
+    var parsed = try parse.parseFile(gpa.allocator(), src);
+    errdefer parsed.root.deinit(gpa.allocator());
+
+    var sctx: syntax.Context = .{
+        .arena = arena.allocator(),
+        .root = parsed.root,
+    };
+
+    var ctx: sema.Context = .{
+        .gpa = gpa.allocator(),
+        .ast = .{ .tree = try sctx.createTree(@enumFromInt(0)) },
+        .root = parsed.root,
+    };
     defer ctx.deinit();
 
-    //std.debug.print("syntax: {}\n", .{ctx.root});
+    for (
+        parsed.root.errors.items(.message),
+        parsed.root.errors.items(.span),
+    ) |message, span| {
+        try ctx.diagnostics.append(gpa.allocator(), .{
+            .message = try gpa.allocator().dupe(u8, message),
+            .span = span,
+        });
+    }
+
+    // std.debug.print("syntax: {}\n", .{ctx.root});
+
     try ctx.compile();
     try ctx.dump(std.io.getStdErr().writer());
     if (try ctx.printDiagnostics(src, std.io.getStdErr().writer()))

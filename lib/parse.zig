@@ -13,7 +13,6 @@ comptime {
 
 pub const Parse = struct {
     root: syntax.pure.Root,
-    ast: syntax.ast.File,
 };
 
 pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemory}!Parse {
@@ -49,8 +48,5 @@ pub fn parseFile(allocator: std.mem.Allocator, src: []const u8) error{OutOfMemor
             all_tokens.items(.tag),
             all_tokens.items(.len),
         ),
-        .ast = syntax.ast.File{
-            .tree = @enumFromInt(0),
-        },
     };
 }

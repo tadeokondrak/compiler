@@ -7,6 +7,7 @@ const LineIndex = @import("LineIndex.zig");
 
 gpa: std.mem.Allocator,
 root: syntax.pure.Root,
+ast: syntax.ast.File,
 pool: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
 structures: std.ArrayListUnmanaged(Struct) = .{},
@@ -31,8 +32,8 @@ const Type = union(enum) {
         bool,
         unsigned_integer: struct { bits: u32 },
         pointer: Type.Index,
-        structure: syntax.ast.Decl.Struct,
-        function: syntax.ast.Decl.Fn,
+        structure: syntax.AstPtr(syntax.ast.Decl.Struct),
+        function: syntax.AstPtr(syntax.ast.Decl.Fn),
     };
 
     fn toKey(ctx: *Context, ty: Type) Key {
@@ -64,7 +65,7 @@ const Type = union(enum) {
 
 const Struct = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
-    syntax: syntax.ast.Decl.Struct,
+    syntax: syntax.AstPtr(syntax.ast.Decl.Struct),
     name: []const u8,
     fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
@@ -76,14 +77,14 @@ const Struct = struct {
 
 const Fn = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
-    syntax: syntax.ast.Decl.Fn,
+    syntax: syntax.AstPtr(syntax.ast.Decl.Fn),
     name: []const u8,
     params: std.StringArrayHashMapUnmanaged(struct {
-        syntax: syntax.ast.Decl.Fn.Param,
+        syntax: syntax.AstPtr(syntax.ast.Decl.Fn.Param),
         ty: Type.Index,
     }) = .{},
     returns: std.StringArrayHashMapUnmanaged(struct {
-        syntax: syntax.ast.Decl.Fn.Return,
+        syntax: syntax.AstPtr(syntax.ast.Decl.Fn.Return),
         ty: Type.Index,
     }) = .{},
 
@@ -103,8 +104,8 @@ const Scope = struct {
     getFn: *const fn (self: *const Scope, name: []const u8) ?LookupResult,
 
     const LookupResult = union(enum) {
-        decl: syntax.ast.Decl,
-        fn_param: syntax.ast.Decl.Fn.Param,
+        decl: syntax.AstPtr(syntax.ast.Decl),
+        fn_param: syntax.AstPtr(syntax.ast.Decl.Fn.Param),
         true,
         false,
         null,
@@ -137,7 +138,7 @@ const Scope = struct {
             .parent = null,
             .getFn = File.get,
         },
-        names: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl),
+        names: *const std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl)),
 
         fn get(scope: *const Scope, name: []const u8) ?LookupResult {
             const file = @fieldParentPtr(File, "base", scope);
@@ -152,7 +153,7 @@ const Scope = struct {
             .parent = null,
             .getFn = Scope.Fn.get,
         },
-        args: *const std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param),
+        args: *const std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl.Fn.Param)),
 
         fn get(scope: *const Scope, name: []const u8) ?LookupResult {
             const function = @fieldParentPtr(Scope.Fn, "base", scope);
@@ -178,24 +179,24 @@ pub fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
 
 fn err(
     ctx: *Context,
-    tree: syntax.pure.Tree.Index,
+    span: syntax.pure.Span,
     comptime fmt: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
     return ctx.diagnostics.append(ctx.gpa, .{
-        .span = ctx.root.treeSpan(tree),
+        .span = span,
         .message = try std.fmt.allocPrint(ctx.gpa, fmt, args),
     });
 }
 
 fn todo(
     ctx: *Context,
-    tree: syntax.pure.Tree.Index,
+    span: syntax.pure.Span,
     src: std.builtin.SourceLocation,
 ) error{OutOfMemory}!void {
     return err(
         ctx,
-        tree,
+        span,
         "TODO in {s} at {s}:{}:{}",
         .{ src.fn_name, src.file, src.line, src.column },
     );
@@ -203,20 +204,20 @@ fn todo(
 
 fn typeErr(
     ctx: *Context,
-    tree: syntax.pure.Tree.Index,
+    span: syntax.pure.Span,
     comptime fmt: []const u8,
     args: anytype,
 ) error{OutOfMemory}!Type.Index {
-    try err(ctx, tree, fmt, args);
+    try err(ctx, span, fmt, args);
     return lookUpType(ctx, .invalid);
 }
 
 fn typeTodo(
     ctx: *Context,
-    tree: syntax.pure.Tree.Index,
+    span: syntax.pure.Span,
     src: std.builtin.SourceLocation,
 ) error{OutOfMemory}!Type.Index {
-    try todo(ctx, tree, src);
+    try todo(ctx, span, src);
     return lookUpType(ctx, .invalid);
 }
 
@@ -323,26 +324,6 @@ pub fn printDiagnostics(
     return true;
 }
 
-pub fn init(allocator: std.mem.Allocator, src: []const u8) !Context {
-    var parsed = try parse.parseFile(allocator, src);
-    errdefer parsed.root.deinit(allocator);
-    var context: Context = .{
-        .gpa = allocator,
-        .root = parsed.root,
-    };
-    for (
-        parsed.root.errors.items(.message),
-        parsed.root.errors.items(.span),
-    ) |message, span| {
-        // TODO: don't leak memory on failure here
-        try context.diagnostics.append(allocator, .{
-            .message = try allocator.dupe(u8, message),
-            .span = span,
-        });
-    }
-    return context;
-}
-
 pub fn deinit(ctx: *Context) void {
     for (ctx.diagnostics.items(.message)) |message|
         ctx.gpa.free(message);
@@ -367,11 +348,10 @@ pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutO
         try writer.print("{code}\n", .{fmtFn(ctx, @enumFromInt(i))});
 }
 
-pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) ?syntax.ast.Decl {
-    const ast: syntax.ast.File = .{ .tree = @enumFromInt(0) };
-    var it = ast.decls(ctx.root);
-    while (it.next(ctx.root)) |decl_syntax| {
-        const span = ctx.root.treeSpan(decl_syntax.tree());
+pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) error{OutOfMemory}!?syntax.ast.Decl {
+    var it = try ctx.ast.decls();
+    while (it.next()) |decl_syntax| {
+        const span = decl_syntax.span();
         if (span.start.offset > pos.offset)
             return null;
         if (span.end.offset <= pos.offset)
@@ -381,20 +361,19 @@ pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) ?syntax.ast.Decl {
     return null;
 }
 
-pub fn compile(ctx: *Context) error{OutOfMemory}!void {
-    var names: std.StringArrayHashMapUnmanaged(syntax.ast.Decl) = .{};
+pub fn compile(
+    ctx: *Context,
+) error{OutOfMemory}!void {
+    var names: std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl)) = .{};
     defer names.deinit(ctx.gpa);
 
-    {
-        const ast: syntax.ast.File = .{ .tree = @enumFromInt(0) };
-        var it = ast.decls(ctx.root);
-        while (it.next(ctx.root)) |decl_syntax| {
-            const ident = decl_syntax.ident(ctx.root) orelse
-                return err(ctx, decl_syntax.tree(), "declaration missing name", .{});
+    var it = try ctx.ast.decls();
+    while (it.next()) |decl_syntax| {
+        const ident = try decl_syntax.ident() orelse
+            return err(ctx, decl_syntax.span(), "declaration missing name", .{});
 
-            const name = ctx.root.tokenText(ident);
-            try names.put(ctx.gpa, name, decl_syntax);
-        }
+        const name = ident.text();
+        try names.put(ctx.gpa, name, .{ .span = decl_syntax.tree().span() });
     }
 
     var builtin_scope = Scope.Builtin{};
@@ -404,92 +383,89 @@ pub fn compile(ctx: *Context) error{OutOfMemory}!void {
     };
 
     for (names.values()) |value|
-        try analyzeDecl(ctx, &file_scope.base, value);
+        try analyzeDecl(ctx, &file_scope.base, try value.deref(ctx.ast.tree));
 }
 
 fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{OutOfMemory}!void {
     switch (decl) {
         .structure => |struct_syntax| {
-            var type_index = try lookUpType(ctx, .{ .structure = struct_syntax });
+            var type_index = try lookUpType(ctx, .{ .structure = struct_syntax.ptr() });
             var struct_index = typePtr(ctx, type_index).structure;
             var structure = structPtr(ctx, struct_index);
             if (structure.analysis == .unanalyzed) {
                 std.debug.assert(structure.fields.entries.len == 0);
-                var it = struct_syntax.fields(ctx.root);
-                while (it.next(ctx.root)) |field| {
-                    const name_syntax = field.ident(ctx.root) orelse
-                        return err(ctx, field.tree, "struct field without name", .{});
+                var it = try struct_syntax.fields();
+                while (it.next()) |field| {
+                    const name_syntax = try field.ident() orelse
+                        return err(ctx, field.span(), "struct field without name", .{});
 
-                    const name = ctx.root.tokenText(name_syntax);
-                    const type_syntax = field.typeExpr(ctx.root) orelse
-                        return err(ctx, field.tree, "struct field without type", .{});
+                    const type_syntax = try field.typeExpr() orelse
+                        return err(ctx, field.span(), "struct field without type", .{});
 
                     const ty = try analyzeTypeExpr(ctx, scope, type_syntax);
-                    try structure.fields.put(ctx.gpa, name, ty);
+                    try structure.fields.put(ctx.gpa, name_syntax.text(), ty);
                 }
                 structure.analysis = .analyzed;
             }
         },
         .function => |function_syntax| {
-            var type_index = try lookUpType(ctx, .{ .function = function_syntax });
+            var type_index = try lookUpType(ctx, .{ .function = function_syntax.ptr() });
             var function_index = typePtr(ctx, type_index).function;
             var function = fnPtr(ctx, function_index);
             if (function.analysis == .unanalyzed) {
                 params: {
-                    const params = function_syntax.params(ctx.root) orelse
+                    const params = try function_syntax.params() orelse
                         break :params;
 
-                    var it = params.params(ctx.root);
-                    while (it.next(ctx.root)) |param| {
-                        const name_syntax = param.ident(ctx.root) orelse
-                            return err(ctx, param.tree, "function parameter without name", .{});
+                    var it = try params.params();
+                    while (it.next()) |param| {
+                        const name_syntax = try param.ident() orelse
+                            return err(ctx, param.span(), "function parameter without name", .{});
 
-                        const name = ctx.root.tokenText(name_syntax);
-                        const type_syntax = param.typeExpr(ctx.root) orelse
-                            return err(ctx, param.tree, "function parameter without type", .{});
+                        const type_syntax = try param.typeExpr() orelse
+                            return err(ctx, param.span(), "function parameter without type", .{});
 
                         const ty = try analyzeTypeExpr(ctx, scope, type_syntax);
-                        try function.params.put(ctx.gpa, name, .{
-                            .syntax = param,
+                        try function.params.put(ctx.gpa, name_syntax.text(), .{
+                            .syntax = param.ptr(),
                             .ty = ty,
                         });
                     }
                 }
                 returns: {
-                    const returns = function_syntax.returns(ctx.root) orelse
+                    const returns = try function_syntax.returns() orelse
                         break :returns;
 
-                    var it = returns.returns(ctx.root);
-                    while (it.next(ctx.root)) |param| {
-                        const name_syntax = param.ident(ctx.root) orelse
-                            return err(ctx, param.tree, "function return without name", .{});
+                    var it = try returns.returns();
+                    while (it.next()) |param| {
+                        const name_syntax = try param.ident() orelse
+                            return err(ctx, param.span(), "function return without name", .{});
 
-                        const name = ctx.root.tokenText(name_syntax);
-                        const type_syntax = param.typeExpr(ctx.root) orelse
-                            return err(ctx, param.tree, "function return without type", .{});
+                        const type_syntax = try param.typeExpr() orelse
+                            return err(ctx, param.span(), "function return without type", .{});
 
                         const ty = try analyzeTypeExpr(ctx, scope, type_syntax);
-                        try function.returns.put(ctx.gpa, name, .{
-                            .syntax = param,
+                        try function.returns.put(ctx.gpa, name_syntax.text(), .{
+                            .syntax = param.ptr(),
                             .ty = ty,
                         });
                     }
                 }
-                try checkFnBody(ctx, scope, function_index);
+                try checkFnBody(ctx, scope, function_index, function_syntax);
                 function.analysis = .analyzed;
             }
         },
         .constant => |constant_syntax| {
-            const type_expr = constant_syntax.typeExpr(ctx.root) orelse
-                return err(ctx, constant_syntax.tree, "constant without type", .{});
+            const type_expr = try constant_syntax.typeExpr() orelse
+                return err(ctx, constant_syntax.span(), "constant without type", .{});
 
             const ty = try analyzeTypeExpr(ctx, scope, type_expr);
-            const expr = constant_syntax.expr(ctx.root) orelse
-                return err(ctx, constant_syntax.tree, "constant without initializer", .{});
+            const expr = try constant_syntax.expr() orelse
+                return err(ctx, constant_syntax.span(), "constant without initializer", .{});
 
             const expr_ty = try analyzeExpr(ctx, scope, expr, ty);
             if (ty != expr_ty) {
-                try err(ctx, expr.tree(), "expected {}, got {}", .{
+                try err(ctx, expr.span(), "expected {}, got {}", .{
                     fmtType(ctx, ty),
                     fmtType(ctx, expr_ty),
                 });
@@ -507,19 +483,19 @@ fn analyzeExpr(
 ) error{OutOfMemory}!Type.Index {
     switch (expr) {
         .paren => |paren_expr| {
-            const sub_expr = paren_expr.expr(ctx.root) orelse
-                return typeTodo(ctx, paren_expr.tree, @src());
+            const sub_expr = try paren_expr.expr() orelse
+                return typeTodo(ctx, paren_expr.span(), @src());
             return analyzeExpr(ctx, scope, sub_expr, maybe_expected_type);
         },
         .literal => |literal_expr| {
-            if (literal_expr.number(ctx.root)) |_| {
+            if (try literal_expr.number()) |_| {
                 if (maybe_expected_type) |expected_type| {
                     if (typePtr(ctx, expected_type).* == .unsigned_integer)
                         return expected_type;
 
                     try err(
                         ctx,
-                        expr.tree(),
+                        expr.span(),
                         "expected {}, got untyped number",
                         .{fmtType(ctx, expected_type)},
                     );
@@ -528,24 +504,26 @@ fn analyzeExpr(
                 }
             }
 
-            return typeTodo(ctx, literal_expr.tree, @src());
+            return typeTodo(ctx, literal_expr.span(), @src());
         },
         .ident => |ident_expr| {
-            const ident = ident_expr.ident(ctx.root) orelse
-                return typeTodo(ctx, ident_expr.tree, @src());
+            const ident = try ident_expr.ident() orelse
+                return typeTodo(ctx, ident_expr.span(), @src());
 
-            const name = ctx.root.tokenText(ident);
+            const name = ident.text();
             const lookup_result = scope.get(name) orelse
-                return typeErr(ctx, ident_expr.tree, "undefined identifier: {s}", .{name});
+                return typeErr(ctx, ident_expr.span(), "undefined identifier: {s}", .{name});
 
             switch (lookup_result) {
                 .decl => |decl| {
                     const root_scope = scope; // TODO
-                    return typeOfDecl(ctx, root_scope, decl);
+                    return typeOfDecl(ctx, root_scope, try decl.deref(ctx.ast.tree));
                 },
-                .fn_param => |fn_param| {
-                    const type_expr = fn_param.typeExpr(ctx.root) orelse
-                        return typeTodo(ctx, ident_expr.tree, @src());
+                .fn_param => |fn_param_ptr| {
+                    const fn_param = try fn_param_ptr.deref(ctx.ast.tree);
+
+                    const type_expr = try fn_param.typeExpr() orelse
+                        return typeTodo(ctx, ident_expr.span(), @src());
 
                     return try analyzeTypeExpr(ctx, scope, type_expr);
                 },
@@ -557,81 +535,81 @@ fn analyzeExpr(
 
                         try err(
                             ctx,
-                            expr.tree(),
+                            expr.span(),
                             "expected {}, got untyped null",
                             .{fmtType(ctx, expected_type)},
                         );
                     }
 
-                    return typeTodo(ctx, ident_expr.tree, @src());
+                    return typeTodo(ctx, ident_expr.span(), @src());
                 },
             }
         },
         .unary => |unary_expr| {
-            return typeTodo(ctx, unary_expr.tree, @src());
+            return typeTodo(ctx, unary_expr.span(), @src());
         },
         .binary => |binary_expr| {
-            const lhs_expr = binary_expr.lhs(ctx.root) orelse
-                return typeErr(ctx, binary_expr.tree, "binary expression missing left-hand side", .{});
+            const lhs_expr = try binary_expr.lhs() orelse
+                return typeErr(ctx, binary_expr.span(), "binary expression missing left-hand side", .{});
 
-            const rhs_expr = binary_expr.rhs(ctx.root) orelse
-                return typeErr(ctx, binary_expr.tree, "binary expression missing right-hand side", .{});
+            const rhs_expr = try binary_expr.rhs() orelse
+                return typeErr(ctx, binary_expr.span(), "binary expression missing right-hand side", .{});
 
             const lhs_type = try analyzeExpr(ctx, scope, lhs_expr, null);
             const rhs_type = try analyzeExpr(ctx, scope, rhs_expr, null);
 
-            if (binary_expr.plus(ctx.root) != null or
-                binary_expr.minus(ctx.root) != null or
-                binary_expr.star(ctx.root) != null or
-                binary_expr.slash(ctx.root) != null or
-                binary_expr.percent(ctx.root) != null or
-                binary_expr.lt2(ctx.root) != null or
-                binary_expr.gt2(ctx.root) != null or
-                binary_expr.ampersand(ctx.root) != null or
-                binary_expr.pipe(ctx.root) != null or
-                binary_expr.caret(ctx.root) != null)
+            if (try binary_expr.plus() != null or
+                try binary_expr.minus() != null or
+                try binary_expr.star() != null or
+                try binary_expr.slash() != null or
+                try binary_expr.percent() != null or
+                try binary_expr.lt2() != null or
+                try binary_expr.gt2() != null or
+                try binary_expr.ampersand() != null or
+                try binary_expr.pipe() != null or
+                try binary_expr.caret() != null)
             {
                 if (lhs_type == rhs_type)
                     return lhs_type;
                 try err(
                     ctx,
-                    binary_expr.tree,
+                    binary_expr.span(),
                     "arithmetic operator type mismatch: lhs {}, rhs {}",
                     .{ fmtType(ctx, lhs_type), fmtType(ctx, rhs_type) },
                 );
                 return lookUpType(ctx, .invalid);
             }
 
-            if (binary_expr.eq2(ctx.root) != null or
-                binary_expr.bangEq(ctx.root) != null or
-                binary_expr.lt(ctx.root) != null or
-                binary_expr.ltEq(ctx.root) != null or
-                binary_expr.gt(ctx.root) != null or
-                binary_expr.gtEq(ctx.root) != null)
+            if (try binary_expr.eq2() != null or
+                try binary_expr.bangEq() != null or
+                try binary_expr.lt() != null or
+                try binary_expr.ltEq() != null or
+                try binary_expr.gt() != null or
+                try binary_expr.gtEq() != null)
             {
                 if (lhs_type == rhs_type)
                     return lookUpType(ctx, .bool);
                 try err(
                     ctx,
-                    binary_expr.tree,
+                    binary_expr.span(),
                     "comparison operator type mismatch: lhs {}, rhs {}",
                     .{ fmtType(ctx, lhs_type), fmtType(ctx, rhs_type) },
                 );
                 return lookUpType(ctx, .invalid);
             }
 
-            return typeTodo(ctx, binary_expr.tree, @src());
+            return typeTodo(ctx, binary_expr.span(), @src());
         },
         .call => |call_expr| {
-            const fn_expr = call_expr.expr(ctx.root) orelse
-                return typeTodo(ctx, call_expr.tree, @src());
+            const fn_expr = try call_expr.expr() orelse
+                return typeTodo(ctx, call_expr.span(), @src());
 
             const fn_type_index = try analyzeExpr(ctx, scope, fn_expr, null);
             const fn_type = typePtr(ctx, fn_type_index);
             if (fn_type.* != .function) {
                 return typeErr(
                     ctx,
-                    call_expr.tree,
+                    call_expr.span(),
                     "can't call non-function {}",
                     .{fmtType(ctx, fn_type_index)},
                 );
@@ -639,26 +617,26 @@ fn analyzeExpr(
 
             const function = fnPtr(ctx, fn_type.function);
             const params = function.params;
-            const args_wrapper = call_expr.args(ctx.root) orelse
-                return typeTodo(ctx, call_expr.tree, @src());
+            const args_wrapper = try call_expr.args() orelse
+                return typeTodo(ctx, call_expr.span(), @src());
 
-            var args = args_wrapper.args(ctx.root);
+            var args = try args_wrapper.args();
             for (params.values()) |param| {
-                const arg = args.next(ctx.root) orelse
-                    return typeTodo(ctx, call_expr.tree, @src());
+                const arg = args.next() orelse
+                    return typeTodo(ctx, call_expr.span(), @src());
 
-                const arg_expr = arg.expr(ctx.root) orelse
-                    return typeTodo(ctx, call_expr.tree, @src());
+                const arg_expr = try arg.expr() orelse
+                    return typeTodo(ctx, call_expr.span(), @src());
 
                 const arg_type = try analyzeExpr(ctx, scope, arg_expr, null);
                 if (arg_type != param.ty) {
-                    return typeTodo(ctx, call_expr.tree, @src());
+                    return typeTodo(ctx, call_expr.span(), @src());
                 }
             }
-            if (args.next(ctx.root)) |_|
-                return typeTodo(ctx, call_expr.tree, @src());
+            if (args.next()) |_|
+                return typeTodo(ctx, call_expr.span(), @src());
             if (function.returns.values().len != 1)
-                return typeTodo(ctx, call_expr.tree, @src());
+                return typeTodo(ctx, call_expr.span(), @src());
             const ret_type = function.returns.values()[0].ty;
             return ret_type;
         },
@@ -672,45 +650,45 @@ fn analyzeTypeExpr(
 ) error{OutOfMemory}!Type.Index {
     switch (type_expr) {
         .ident => |ident| {
-            const ident_token = ident.ident(ctx.root) orelse
-                return typeTodo(ctx, ident.tree, @src());
+            const ident_token = try ident.ident() orelse
+                return typeTodo(ctx, ident.span(), @src());
 
-            const ident_text = ctx.root.tokenText(ident_token);
+            const ident_text = ident_token.text();
             if (ident_text.len > 0 and ident_text[0] == 'u') {
                 if (std.fmt.parseInt(u32, ident_text[1..], 10)) |bits| {
                     return lookUpType(ctx, .{ .unsigned_integer = .{ .bits = bits } });
                 } else |e| switch (e) {
-                    error.Overflow => return typeTodo(ctx, ident.tree, @src()),
+                    error.Overflow => return typeTodo(ctx, ident.span(), @src()),
                     error.InvalidCharacter => {},
                 }
             }
 
             const lookup_result = scope.get(ident_text) orelse
-                return typeErr(ctx, ident.tree, "undefined identifier {s}", .{ident_text});
+                return typeErr(ctx, ident.span(), "undefined identifier {s}", .{ident_text});
 
             const decl = switch (lookup_result) {
-                .decl => |decl| decl,
-                else => return typeTodo(ctx, ident.tree, @src()),
+                .decl => |decl| try decl.deref(ctx.ast.tree),
+                else => return typeTodo(ctx, ident.span(), @src()),
             };
 
             switch (decl) {
                 .structure => |structure| {
-                    return lookUpType(ctx, .{ .structure = structure });
+                    return lookUpType(ctx, .{ .structure = structure.ptr() });
                 },
-                .function => return typeTodo(ctx, ident.tree, @src()),
-                .constant => return typeTodo(ctx, ident.tree, @src()),
+                .function => return typeTodo(ctx, ident.span(), @src()),
+                .constant => return typeTodo(ctx, ident.span(), @src()),
             }
         },
         .unary => |unary| {
-            const operand_type_expr = unary.typeExpr(ctx.root) orelse
-                return typeErr(ctx, unary.tree, "operator missing operand", .{});
+            const operand_type_expr = try unary.typeExpr() orelse
+                return typeErr(ctx, unary.span(), "operator missing operand", .{});
 
             const operand_type_index = try analyzeTypeExpr(ctx, scope, operand_type_expr);
 
-            if (unary.star(ctx.root) != null)
+            if (try unary.star() != null)
                 return lookUpType(ctx, .{ .pointer = operand_type_index });
 
-            try err(ctx, unary.tree, "unknown binary operator", .{});
+            try err(ctx, unary.span(), "unknown binary operator", .{});
 
             return lookUpType(ctx, .invalid);
         },
@@ -724,14 +702,14 @@ fn typeOfDecl(
 ) error{OutOfMemory}!Type.Index {
     switch (decl) {
         .structure => |struct_syntax| {
-            return lookUpType(ctx, .{ .structure = struct_syntax });
+            return lookUpType(ctx, .{ .structure = struct_syntax.ptr() });
         },
         .function => |function_syntax| {
-            return lookUpType(ctx, .{ .function = function_syntax });
+            return lookUpType(ctx, .{ .function = function_syntax.ptr() });
         },
         .constant => |constant_syntax| {
-            const type_expr = constant_syntax.typeExpr(ctx.root) orelse
-                return typeErr(ctx, constant_syntax.tree, "constant missing type", .{});
+            const type_expr = try constant_syntax.typeExpr() orelse
+                return typeErr(ctx, constant_syntax.span(), "constant missing type", .{});
 
             return try analyzeTypeExpr(ctx, root_scope, type_expr);
         },
@@ -751,22 +729,24 @@ pub fn lookUpType(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
             .bool => .bool,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
             .pointer => |pointee| .{ .pointer = pointee },
-            .structure => |structure| blk: {
-                const struct_index = ctx.structures.items.len;
-                const ident = structure.ident(ctx.root) orelse
-                    return typeTodo(ctx, structure.tree, @src());
+            .structure => |structure_ptr| blk: {
+                const structure = try structure_ptr.deref(ctx.ast.tree);
 
-                const name = ctx.root.tokenText(ident);
-                try ctx.structures.append(ctx.gpa, .{ .syntax = structure, .name = name });
+                const struct_index = ctx.structures.items.len;
+                const ident = try structure.ident() orelse
+                    return typeTodo(ctx, structure.span(), @src());
+
+                try ctx.structures.append(ctx.gpa, .{ .syntax = structure.ptr(), .name = ident.text() });
                 break :blk .{ .structure = @enumFromInt(struct_index) };
             },
-            .function => |function| blk: {
-                const function_index = ctx.functions.items.len;
-                const ident = function.ident(ctx.root) orelse
-                    return typeTodo(ctx, function.tree, @src());
+            .function => |function_ptr| blk: {
+                const function = try function_ptr.deref(ctx.ast.tree);
 
-                const name = ctx.root.tokenText(ident);
-                try ctx.functions.append(ctx.gpa, .{ .syntax = function, .name = name });
+                const function_index = ctx.functions.items.len;
+                const ident = try function.ident() orelse
+                    return typeTodo(ctx, function.span(), @src());
+
+                try ctx.functions.append(ctx.gpa, .{ .syntax = function.ptr(), .name = ident.text() });
                 break :blk .{ .function = @enumFromInt(function_index) };
             },
         });
@@ -778,23 +758,25 @@ fn checkFnBody(
     ctx: *Context,
     scope: *const Scope,
     function_index: Fn.Index,
+    function_syntax: syntax.ast.Decl.Fn,
 ) error{OutOfMemory}!void {
     const function = fnPtr(ctx, function_index);
+    _ = function;
 
-    const body = function.syntax.body(ctx.root) orelse
-        return todo(ctx, function.syntax.tree, @src());
+    const body = try function_syntax.body() orelse
+        return todo(ctx, function_syntax.span(), @src());
 
-    var args: std.StringArrayHashMapUnmanaged(syntax.ast.Decl.Fn.Param) = .{};
+    var args: std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl.Fn.Param)) = .{};
     defer args.deinit(ctx.gpa);
 
-    const params = function.syntax.params(ctx.root) orelse
-        return todo(ctx, function.syntax.tree, @src());
-    var it = params.params(ctx.root);
-    while (it.next(ctx.root)) |param| {
-        const name_syntax = param.ident(ctx.root) orelse
-            return todo(ctx, function.syntax.tree, @src());
-        const name = ctx.root.tokenText(name_syntax);
-        try args.put(ctx.gpa, name, param);
+    const params = try function_syntax.params() orelse
+        return todo(ctx, function_syntax.span(), @src());
+    var it = try params.params();
+    while (it.next()) |param| {
+        const name_syntax = try param.ident() orelse
+            return todo(ctx, function_syntax.span(), @src());
+        const name = name_syntax.text();
+        try args.put(ctx.gpa, name, param.ptr());
     }
 
     const fn_scope: Scope.Fn = .{
@@ -812,16 +794,16 @@ fn checkBlock(
 ) error{OutOfMemory}!void {
     const function = fnPtr(ctx, function_index);
 
-    for (ctx.root.treeChildren(body.tree)) |child| {
-        const child_tree = child.asTree() orelse continue;
+    for (try body.tree.children()) |child| {
+        if (child != .tree) continue;
 
-        const stmt = syntax.ast.Stmt.cast(ctx.root, child_tree) orelse
-            return todo(ctx, function.syntax.tree, @src());
+        const stmt = syntax.ast.Stmt.cast(child.tree) orelse
+            return todo(ctx, function.syntax.span, @src());
 
         switch (stmt) {
             .expr => |expr_stmt| {
-                const expr = expr_stmt.expr(ctx.root) orelse
-                    return todo(ctx, function.syntax.tree, @src());
+                const expr = try expr_stmt.expr() orelse
+                    return todo(ctx, function.syntax.span, @src());
 
                 try checkExpr(ctx, scope, function_index, expr, null);
             },
@@ -829,44 +811,44 @@ fn checkBlock(
                 try checkBlock(ctx, scope, function_index, block_stmt);
             },
             .@"return" => |return_stmt| {
-                var exprs = return_stmt.exprs(ctx.root);
+                var exprs = try return_stmt.exprs();
                 for (function.returns.values()) |ret| {
-                    const expr = exprs.next(ctx.root) orelse
-                        return todo(ctx, function.syntax.tree, @src());
+                    const expr = exprs.next() orelse
+                        return todo(ctx, function.syntax.span, @src());
                     try checkExpr(ctx, scope, function_index, expr, ret.ty);
                 }
-                if (exprs.next(ctx.root)) |expr| {
-                    try err(ctx, expr.tree(), "too many return values", .{});
+                if (exprs.next()) |expr| {
+                    try err(ctx, expr.span(), "too many return values", .{});
                     return;
                 }
             },
             .@"if" => |if_stmt| {
-                if (if_stmt.cond(ctx.root)) |if_cond|
+                if (try if_stmt.cond()) |if_cond|
                     try checkExpr(ctx, scope, function_index, if_cond, try lookUpType(ctx, .bool))
                 else
-                    return err(ctx, if_stmt.tree, "if statement missing condition", .{});
+                    return err(ctx, if_stmt.span(), "if statement missing condition", .{});
 
-                if (if_stmt.thenBody(ctx.root)) |if_body|
+                if (try if_stmt.thenBody()) |if_body|
                     try checkBlock(ctx, scope, function_index, if_body)
                 else
-                    return err(ctx, if_stmt.tree, "if statement missing body", .{});
+                    return err(ctx, if_stmt.span(), "if statement missing body", .{});
             },
             .loop => |loop_stmt| {
-                const loop_body = loop_stmt.body(ctx.root) orelse
-                    return err(ctx, loop_stmt.tree, "loop missing body", .{});
+                const loop_body = try loop_stmt.body() orelse
+                    return err(ctx, loop_stmt.span(), "loop missing body", .{});
 
                 try checkBlock(ctx, scope, function_index, loop_body);
             },
             .@"while" => |while_stmt| {
-                if (while_stmt.cond(ctx.root)) |while_cond|
+                if (try while_stmt.cond()) |while_cond|
                     try checkExpr(ctx, scope, function_index, while_cond, try lookUpType(ctx, .bool))
                 else
-                    return err(ctx, while_stmt.tree, "while statement missing condition", .{});
+                    return err(ctx, while_stmt.span(), "while statement missing condition", .{});
 
-                if (while_stmt.body(ctx.root)) |while_body|
+                if (try while_stmt.body()) |while_body|
                     try checkBlock(ctx, scope, function_index, while_body)
                 else
-                    return err(ctx, while_stmt.tree, "while statement missing body", .{});
+                    return err(ctx, while_stmt.span(), "while statement missing body", .{});
             },
         }
     }
@@ -885,7 +867,7 @@ fn checkExpr(
         if (ty != expected_type) {
             try err(
                 ctx,
-                expr.tree(),
+                expr.span(),
                 "expected {}, got {}",
                 .{ fmtType(ctx, expected_type), fmtType(ctx, ty) },
             );
