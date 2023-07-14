@@ -343,7 +343,7 @@ pub fn printDiagnostics(
         const len = if (start.line != end.line) 1 else end.col - start.col;
         try writer.print("<input>:{}:{}: {s}\n", .{ start.line + 1, start.col + 1, message });
         const line_start = if (start.line == 0) 0 else line_index.newlines[start.line - 1] + 1;
-        const line_end = line_index.newlines[start.line];
+        const line_end = if (end.line == line_index.newlines.len) src.len else line_index.newlines[end.line];
         const line = src[line_start..line_end];
         for (line) |c|
             try writer.writeByte(c);
