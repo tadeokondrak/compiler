@@ -6,7 +6,6 @@ const parse = @import("parse");
 const LineIndex = @import("LineIndex.zig");
 
 gpa: std.mem.Allocator,
-root: syntax.pure.Root,
 ast: syntax.ast.File,
 pool: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 types: std.ArrayListUnmanaged(Type) = .{},
@@ -338,7 +337,6 @@ pub fn deinit(ctx: *Context) void {
     ctx.functions.deinit(ctx.gpa);
     ctx.pool.deinit(ctx.gpa);
     ctx.types.deinit(ctx.gpa);
-    ctx.root.deinit(ctx.gpa);
 }
 
 pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {

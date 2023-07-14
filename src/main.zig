@@ -39,7 +39,7 @@ pub fn main() !void {
     defer arena.deinit();
 
     var parsed = try parse.parseFile(gpa.allocator(), src);
-    errdefer parsed.root.deinit(gpa.allocator());
+    defer parsed.root.deinit(gpa.allocator());
 
     var sctx: syntax.Context = .{
         .arena = arena.allocator(),
@@ -49,7 +49,6 @@ pub fn main() !void {
     var ctx: sema.Context = .{
         .gpa = gpa.allocator(),
         .ast = .{ .tree = try sctx.createTree(@enumFromInt(0)) },
-        .root = parsed.root,
     };
     defer ctx.deinit();
 
