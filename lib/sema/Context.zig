@@ -367,7 +367,7 @@ pub fn compile(
     var names: std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl)) = .{};
     defer names.deinit(ctx.gpa);
 
-    var it = try ctx.ast.decls();
+    var it = try ctx.ast.iter();
     while (it.next()) |decl_syntax| {
         const ident = try decl_syntax.ident() orelse
             return err(ctx, decl_syntax.span(), "declaration missing name", .{});
@@ -394,7 +394,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
             var structure = structPtr(ctx, struct_index);
             if (structure.analysis == .unanalyzed) {
                 std.debug.assert(structure.fields.entries.len == 0);
-                var it = try struct_syntax.fields();
+                var it = try struct_syntax.iter();
                 while (it.next()) |field| {
                     const name_syntax = try field.ident() orelse
                         return err(ctx, field.span(), "struct field without name", .{});
@@ -417,7 +417,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                     const params = try function_syntax.params() orelse
                         break :params;
 
-                    var it = try params.params();
+                    var it = try params.iter();
                     while (it.next()) |param| {
                         const name_syntax = try param.ident() orelse
                             return err(ctx, param.span(), "function parameter without name", .{});
@@ -436,7 +436,7 @@ fn analyzeDecl(ctx: *Context, scope: *const Scope, decl: syntax.ast.Decl) error{
                     const returns = try function_syntax.returns() orelse
                         break :returns;
 
-                    var it = try returns.returns();
+                    var it = try returns.iter();
                     while (it.next()) |param| {
                         const name_syntax = try param.ident() orelse
                             return err(ctx, param.span(), "function return without name", .{});
@@ -620,7 +620,7 @@ fn analyzeExpr(
             const args_wrapper = try call_expr.args() orelse
                 return typeTodo(ctx, call_expr.span(), @src());
 
-            var args = try args_wrapper.args();
+            var args = try args_wrapper.iter();
             for (params.values()) |param| {
                 const arg = args.next() orelse
                     return typeTodo(ctx, call_expr.span(), @src());
@@ -771,7 +771,7 @@ fn checkFnBody(
 
     const params = try function_syntax.params() orelse
         return todo(ctx, function_syntax.span(), @src());
-    var it = try params.params();
+    var it = try params.iter();
     while (it.next()) |param| {
         const name_syntax = try param.ident() orelse
             return todo(ctx, function_syntax.span(), @src());
@@ -811,7 +811,7 @@ fn checkBlock(
                 try checkBlock(ctx, scope, function_index, block_stmt);
             },
             .@"return" => |return_stmt| {
-                var exprs = try return_stmt.exprs();
+                var exprs = try return_stmt.iter();
                 for (function.returns.values()) |ret| {
                     const expr = exprs.next() orelse
                         return todo(ctx, function.syntax.span, @src());
