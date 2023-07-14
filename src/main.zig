@@ -30,6 +30,7 @@ pub fn main() !void {
         \\    }
         \\    return add(fib(n - 1), fib(n - 2));
         \\}
+        \\fn add_generic<T>(a T, b T) (ret T) { return a + b; }
     ;
 
     var ctx = try sema.Context.init(gpa.allocator(), src);

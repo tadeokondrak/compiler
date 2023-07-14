@@ -85,6 +85,8 @@ fn parseFnDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_fn);
     p.expect(.ident);
+    if (p.at(.lt))
+        parseGenericParams(p);
     if (p.at(.l_paren))
         parseFnParams(p);
     if (p.at(.l_paren) or p.atAny(&type_expr_first))
@@ -93,6 +95,20 @@ fn parseFnDecl(p: *Parser) void {
     p.builder.close(m, .decl_fn);
 }
 
+fn parseGenericParams(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.lt);
+    while (!p.at(.gt) and !p.at(.eof)) {
+        const param = p.builder.open();
+        p.expect(.ident);
+        const comma = p.eat(.comma);
+        p.builder.close(param, .generic_param);
+        if (!comma)
+            break;
+    }
+    p.expect(.gt);
+    p.builder.close(m, .generic_params);
+}
 fn parseFnParams(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.l_paren);
