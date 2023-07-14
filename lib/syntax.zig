@@ -3,17 +3,6 @@ const std = @import("std");
 pub const ast = @import("syntax/ast.zig");
 pub const pure = @import("syntax/pure.zig");
 
-pub fn AstPtr(comptime T: type) type {
-    return struct {
-        span: pure.Span,
-
-        pub fn deref(ptr: @This(), tree: *Tree) !T {
-            const found = try tree.findTree(ptr.span);
-            return T.cast(found.?).?;
-        }
-    };
-}
-
 pub const Context = struct {
     arena: std.mem.Allocator,
     root: pure.Root,

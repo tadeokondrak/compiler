@@ -32,8 +32,8 @@ const Type = union(enum) {
         bool,
         unsigned_integer: struct { bits: u32 },
         pointer: Type.Index,
-        structure: syntax.AstPtr(syntax.ast.Decl.Struct),
-        function: syntax.AstPtr(syntax.ast.Decl.Fn),
+        structure: syntax.ast.Ptr(syntax.ast.Decl.Struct),
+        function: syntax.ast.Ptr(syntax.ast.Decl.Fn),
     };
 
     fn toKey(ctx: *Context, ty: Type) Key {
@@ -65,7 +65,7 @@ const Type = union(enum) {
 
 const Struct = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
-    syntax: syntax.AstPtr(syntax.ast.Decl.Struct),
+    syntax: syntax.ast.Ptr(syntax.ast.Decl.Struct),
     name: []const u8,
     fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
@@ -77,14 +77,14 @@ const Struct = struct {
 
 const Fn = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
-    syntax: syntax.AstPtr(syntax.ast.Decl.Fn),
+    syntax: syntax.ast.Ptr(syntax.ast.Decl.Fn),
     name: []const u8,
     params: std.StringArrayHashMapUnmanaged(struct {
-        syntax: syntax.AstPtr(syntax.ast.Decl.Fn.Param),
+        syntax: syntax.ast.Ptr(syntax.ast.Decl.Fn.Param),
         ty: Type.Index,
     }) = .{},
     returns: std.StringArrayHashMapUnmanaged(struct {
-        syntax: syntax.AstPtr(syntax.ast.Decl.Fn.Return),
+        syntax: syntax.ast.Ptr(syntax.ast.Decl.Fn.Return),
         ty: Type.Index,
     }) = .{},
 
@@ -104,8 +104,8 @@ const Scope = struct {
     getFn: *const fn (self: *const Scope, name: []const u8) ?LookupResult,
 
     const LookupResult = union(enum) {
-        decl: syntax.AstPtr(syntax.ast.Decl),
-        fn_param: syntax.AstPtr(syntax.ast.Decl.Fn.Param),
+        decl: syntax.ast.Ptr(syntax.ast.Decl),
+        fn_param: syntax.ast.Ptr(syntax.ast.Decl.Fn.Param),
         true,
         false,
         null,
@@ -138,7 +138,7 @@ const Scope = struct {
             .parent = null,
             .getFn = File.get,
         },
-        names: *const std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl)),
+        names: *const std.StringArrayHashMapUnmanaged(syntax.ast.Ptr(syntax.ast.Decl)),
 
         fn get(scope: *const Scope, name: []const u8) ?LookupResult {
             const file = @fieldParentPtr(File, "base", scope);
@@ -153,7 +153,7 @@ const Scope = struct {
             .parent = null,
             .getFn = Scope.Fn.get,
         },
-        args: *const std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl.Fn.Param)),
+        args: *const std.StringArrayHashMapUnmanaged(syntax.ast.Ptr(syntax.ast.Decl.Fn.Param)),
 
         fn get(scope: *const Scope, name: []const u8) ?LookupResult {
             const function = @fieldParentPtr(Scope.Fn, "base", scope);
@@ -364,7 +364,7 @@ pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) error{OutOfMemory}!?syntax.a
 pub fn compile(
     ctx: *Context,
 ) error{OutOfMemory}!void {
-    var names: std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl)) = .{};
+    var names: std.StringArrayHashMapUnmanaged(syntax.ast.Ptr(syntax.ast.Decl)) = .{};
     defer names.deinit(ctx.gpa);
 
     var it = try ctx.ast.iter();
@@ -766,7 +766,7 @@ fn checkFnBody(
     const body = try function_syntax.body() orelse
         return todo(ctx, function_syntax.span(), @src());
 
-    var args: std.StringArrayHashMapUnmanaged(syntax.AstPtr(syntax.ast.Decl.Fn.Param)) = .{};
+    var args: std.StringArrayHashMapUnmanaged(syntax.ast.Ptr(syntax.ast.Decl.Fn.Param)) = .{};
     defer args.deinit(ctx.gpa);
 
     const params = try function_syntax.params() orelse

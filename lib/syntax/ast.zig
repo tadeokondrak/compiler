@@ -7,6 +7,17 @@ comptime {
     std.testing.refAllDeclsRecursive(ast);
 }
 
+pub fn Ptr(comptime T: type) type {
+    return struct {
+        span: syntax.pure.Span,
+
+        pub fn deref(ptr: @This(), tree: *syntax.Tree) !T {
+            const found = try tree.findTree(ptr.span);
+            return T.cast(found.?).?;
+        }
+    };
+}
+
 fn AstUnion(comptime This: type) type {
     return struct {
         pub fn cast(syntax_tree: *syntax.Tree) ?This {
@@ -22,7 +33,7 @@ fn AstUnion(comptime This: type) type {
             };
         }
 
-        pub fn ptr(this: This) syntax.AstPtr(This) {
+        pub fn ptr(this: This) Ptr(This) {
             return .{ .span = this.span() };
         }
 
@@ -39,7 +50,7 @@ fn AstTree(
     comptime tag: syntax.pure.Tree.Tag,
 ) type {
     return struct {
-        pub fn ptr(this: This) syntax.AstPtr(This) {
+        pub fn ptr(this: This) Ptr(This) {
             return .{ .span = this.tree.span() };
         }
 
