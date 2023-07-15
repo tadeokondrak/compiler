@@ -53,6 +53,15 @@ const Document = struct {
             .gpa = allocator,
             .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
         };
+        for (
+            parsed.root.errors.items(.message),
+            parsed.root.errors.items(.span),
+        ) |message, span| {
+            try doc.sema.diagnostics.append(doc.arena.allocator(), .{
+                .message = try doc.arena.allocator().dupe(u8, message),
+                .span = span,
+            });
+        }
         doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
     }
 
@@ -65,6 +74,15 @@ const Document = struct {
             .gpa = allocator,
             .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
         };
+        for (
+            parsed.root.errors.items(.message),
+            parsed.root.errors.items(.span),
+        ) |message, span| {
+            try doc.sema.diagnostics.append(doc.arena.allocator(), .{
+                .message = try doc.arena.allocator().dupe(u8, message),
+                .span = span,
+            });
+        }
         doc.syntax.root.deinit(doc.arena.allocator());
         doc.syntax.root = (try parse.parseFile(doc.arena.allocator(), src)).root;
         doc.line_index.deinit(doc.arena.allocator());
