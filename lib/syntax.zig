@@ -7,7 +7,7 @@ pub const Context = struct {
     arena: std.mem.Allocator,
     root: pure.Root,
 
-    pub fn createTree(ctx: *Context, pure_tree: pure.Tree.Index) error{OutOfMemory}!*Tree {
+    pub fn createTree(ctx: *Context, pure_tree: pure.Tree.Index) error{OutOfMemory}!*const Tree {
         const tree = try ctx.arena.create(Tree);
         tree.* = .{
             .tag = ctx.root.treeTag(pure_tree),
@@ -23,14 +23,14 @@ pub const Tree = struct {
     tag: pure.Tree.Tag,
     index: pure.Tree.Index,
     context: *Context,
-    parent: ?*Tree,
+    parent: ?*const Tree,
 
-    pub fn format(tree: Tree, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(tree: *const Tree, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         for (tree.children() catch return) |child|
             try writer.print("{}", .{child});
     }
 
-    pub fn children(tree: *Tree) error{OutOfMemory}![]Node {
+    pub fn children(tree: *const Tree) error{OutOfMemory}![]Node {
         const child_nodes = tree.context.root.treeChildren(tree.index);
         const child_tags = tree.context.root.treeChildrenTags(tree.index);
         const nodes = try tree.context.arena.alloc(Node, child_nodes.len);
@@ -69,7 +69,7 @@ pub const Tree = struct {
         return tree.context.root.treeSpan(tree.index);
     }
 
-    pub fn getTree(tree: *Tree, tree_span: pure.Span) !?*Tree {
+    pub fn getTree(tree: *const Tree, tree_span: pure.Span) !?*const Tree {
         if (tree_span.start.offset == tree.span().start.offset and
             tree_span.end.offset == tree.span().end.offset)
         {
@@ -89,7 +89,7 @@ pub const Tree = struct {
         return null;
     }
 
-    pub fn getToken(tree: *Tree, token_span: pure.Span) !?*Token {
+    pub fn getToken(tree: *const Tree, token_span: pure.Span) !?*Token {
         for (try tree.children()) |child| {
             switch (child) {
                 .tree => |child_tree| {
@@ -108,7 +108,7 @@ pub const Tree = struct {
         return null;
     }
 
-    pub fn findToken(tree: *Tree, pos: pure.Pos) !?*Token {
+    pub fn findToken(tree: *const Tree, pos: pure.Pos) !?*Token {
         for (try tree.children()) |child| {
             switch (child) {
                 .tree => |child_tree| {
@@ -130,7 +130,7 @@ pub const Tree = struct {
 pub const Token = struct {
     tag: pure.Token.Tag,
     index: pure.Token.Index,
-    parent: *Tree,
+    parent: *const Tree,
     context: *Context,
 
     pub fn format(token: Token, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -173,7 +173,7 @@ pub const Token = struct {
 };
 
 pub const Node = union(enum) {
-    tree: *Tree,
+    tree: *const Tree,
     token: *Token,
 
     pub fn format(node: Node, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -190,7 +190,7 @@ pub const Node = union(enum) {
         }
     }
 
-    pub fn parent(node: Node) ?*Tree {
+    pub fn parent(node: Node) ?*const Tree {
         switch (node) {
             .tree => |tree| return tree.parent,
             .token => |token| return token.parent,

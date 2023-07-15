@@ -64,7 +64,10 @@ pub fn main() !void {
 
     // std.debug.print("syntax: {}\n", .{ctx.root});
 
-    try ctx.compile();
+    var it = try ctx.ast.iter();
+    while (it.next()) |decl_syntax|
+        try ctx.analyzeDecl(decl_syntax);
+
     try ctx.dump(std.io.getStdErr().writer());
     if (try ctx.printDiagnostics(src, std.io.getStdErr().writer()))
         return;

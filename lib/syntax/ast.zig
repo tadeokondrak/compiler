@@ -11,7 +11,7 @@ pub fn Ptr(comptime T: type) type {
     return struct {
         span: syntax.pure.Span,
 
-        pub fn deref(ptr: @This(), tree: *syntax.Tree) !T {
+        pub fn deref(ptr: @This(), tree: *const syntax.Tree) !T {
             const found = try tree.getTree(ptr.span);
             return T.cast(found.?).?;
         }
@@ -20,14 +20,14 @@ pub fn Ptr(comptime T: type) type {
 
 fn AstUnion(comptime This: type) type {
     return struct {
-        pub fn cast(syntax_tree: *syntax.Tree) ?This {
+        pub fn cast(syntax_tree: *const syntax.Tree) ?This {
             inline for (@typeInfo(This).Union.fields) |field|
                 if (field.type.cast(syntax_tree)) |correct_tree|
                     return @unionInit(This, field.name, correct_tree);
             return null;
         }
 
-        pub fn tree(this: This) *syntax.Tree {
+        pub fn tree(this: This) *const syntax.Tree {
             return switch (this) {
                 inline else => |variant| variant.tree,
             };
@@ -58,14 +58,14 @@ fn AstTree(
             return this.tree.span();
         }
 
-        pub fn cast(tree: *syntax.Tree) ?This {
+        pub fn cast(tree: *const syntax.Tree) ?This {
             if (tree.tag != tag) return null;
             return This{ .tree = tree };
         }
 
         pub fn format(this: This, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
             try writer.writeAll(@tagName(tag) ++ "(");
-            try writer.print("{}", .{@intFromEnum(this.tree)});
+            try writer.print("{}", .{this.tree});
             try writer.writeAll(")");
         }
     };
@@ -106,9 +106,9 @@ fn nthTreeAccessorFn(comptime This: type, comptime Tree: type, comptime nth: usi
     }.get;
 }
 
-fn tokenAccessorFn(comptime This: type, comptime tag: syntax.pure.Token.Tag) fn (This) error{OutOfMemory}!?*syntax.Token {
+fn tokenAccessorFn(comptime This: type, comptime tag: syntax.pure.Token.Tag) fn (This) error{OutOfMemory}!?*const syntax.Token {
     return struct {
-        fn get(this: This) error{OutOfMemory}!?*syntax.Token {
+        fn get(this: This) error{OutOfMemory}!?*const syntax.Token {
             for (try this.tree.children()) |child| {
                 switch (child) {
                     .tree => {},
@@ -145,7 +145,7 @@ pub fn TreeIterator(comptime T: type) type {
 }
 
 pub const File = struct {
-    tree: *syntax.Tree,
+    tree: *const syntax.Tree,
 
     pub usingnamespace AstTreeWithChildren(@This(), .file, Decl);
 };
@@ -156,14 +156,14 @@ pub const Decl = union(enum) {
     constant: Decl.Const,
 
     pub usingnamespace AstUnion(@This());
-    pub fn ident(decl: Decl) error{OutOfMemory}!?*syntax.Token {
+    pub fn ident(decl: Decl) error{OutOfMemory}!?*const syntax.Token {
         return switch (decl) {
             inline else => |variant| variant.ident(),
         };
     }
 
     pub const Fn = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .decl_fn);
         pub const fnToken = tokenAccessorFn(@This(), .kw_fn);
@@ -174,7 +174,7 @@ pub const Decl = union(enum) {
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
 
         pub const Params = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTreeWithChildren(@This(), .fn_params, Param);
             pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -182,7 +182,7 @@ pub const Decl = union(enum) {
         };
 
         pub const Returns = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTreeWithChildren(@This(), .fn_returns, Return);
             pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -190,7 +190,7 @@ pub const Decl = union(enum) {
         };
 
         pub const Param = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTree(@This(), .fn_param);
             pub const ident = tokenAccessorFn(@This(), .ident);
@@ -199,7 +199,7 @@ pub const Decl = union(enum) {
         };
 
         pub const Return = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTree(@This(), .fn_return);
             pub const ident = tokenAccessorFn(@This(), .ident);
@@ -209,7 +209,7 @@ pub const Decl = union(enum) {
     };
 
     pub const Struct = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTreeWithChildren(@This(), .decl_struct, Field);
         pub const structToken = tokenAccessorFn(@This(), .kw_struct);
@@ -218,7 +218,7 @@ pub const Decl = union(enum) {
         pub const rBrace = tokenAccessorFn(@This(), .r_brace);
 
         pub const Field = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTree(@This(), .struct_field);
             pub const ident = tokenAccessorFn(@This(), .ident);
@@ -228,7 +228,7 @@ pub const Decl = union(enum) {
     };
 
     pub const Const = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .decl_const);
         pub const constToken = tokenAccessorFn(@This(), .kw_const);
@@ -250,7 +250,7 @@ pub const Expr = union(enum) {
 
     pub usingnamespace AstUnion(@This());
     pub const Unary = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .expr_unary);
         pub const plus = tokenAccessorFn(@This(), .plus);
@@ -259,7 +259,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Binary = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .expr_binary);
         pub const plus = tokenAccessorFn(@This(), .plus);
@@ -283,7 +283,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Literal = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .expr_literal);
         pub const string = tokenAccessorFn(@This(), .string);
@@ -291,7 +291,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Paren = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .expr_paren);
         pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -300,7 +300,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Call = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .expr_call);
         pub const lParen = tokenAccessorFn(@This(), .l_paren);
@@ -309,13 +309,13 @@ pub const Expr = union(enum) {
         pub const args = nthTreeAccessorFn(@This(), Args, 0);
 
         pub const Args = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTreeWithChildren(@This(), .call_args, Arg);
         };
 
         pub const Arg = struct {
-            tree: *syntax.Tree,
+            tree: *const syntax.Tree,
 
             pub usingnamespace AstTree(@This(), .call_arg);
             pub const expr = nthTreeAccessorFn(@This(), Expr, 0);
@@ -324,7 +324,7 @@ pub const Expr = union(enum) {
     };
 
     pub const Ident = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .expr_ident);
         pub const ident = tokenAccessorFn(@This(), .ident);
@@ -341,14 +341,14 @@ pub const Stmt = union(enum) {
 
     pub usingnamespace AstUnion(@This());
     pub const Expr = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .stmt_expr);
         pub const expr = nthTreeAccessorFn(@This(), ast.Expr, 0);
     };
 
     pub const Block = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .stmt_block);
         pub const lBrace = tokenAccessorFn(@This(), .l_brace);
@@ -357,14 +357,14 @@ pub const Stmt = union(enum) {
     };
 
     pub const Return = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTreeWithChildren(@This(), .stmt_return, ast.Expr);
         pub const returnToken = tokenAccessorFn(@This(), .kw_return);
     };
 
     pub const If = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .stmt_if);
         pub const ifToken = tokenAccessorFn(@This(), .kw_if);
@@ -375,7 +375,7 @@ pub const Stmt = union(enum) {
     };
 
     pub const Loop = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .stmt_loop);
         pub const loopToken = tokenAccessorFn(@This(), .kw_loop);
@@ -383,7 +383,7 @@ pub const Stmt = union(enum) {
     };
 
     pub const While = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .stmt_while);
         pub const whileToken = tokenAccessorFn(@This(), .kw_while);
@@ -398,7 +398,7 @@ pub const TypeExpr = union(enum) {
 
     pub usingnamespace AstUnion(@This());
     pub const Unary = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .type_expr_unary);
         pub const star = tokenAccessorFn(@This(), .star);
@@ -406,7 +406,7 @@ pub const TypeExpr = union(enum) {
     };
 
     pub const Ident = struct {
-        tree: *syntax.Tree,
+        tree: *const syntax.Tree,
 
         pub usingnamespace AstTree(@This(), .type_expr_ident);
         pub const ident = tokenAccessorFn(@This(), .ident);
@@ -414,13 +414,13 @@ pub const TypeExpr = union(enum) {
 };
 
 pub const Generics = struct {
-    tree: *syntax.Tree,
+    tree: *const syntax.Tree,
 
     pub usingnamespace AstTreeWithChildren(@This(), .generics, Generic);
 };
 
 pub const Generic = struct {
-    tree: *syntax.Tree,
+    tree: *const syntax.Tree,
 
     pub usingnamespace AstTree(@This(), .generic);
     pub const ident = tokenAccessorFn(@This(), .ident);

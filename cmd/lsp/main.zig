@@ -16,8 +16,8 @@ const HoverResult = struct {
     },
 };
 
-fn hover(doc: *Document, token: *syntax.Token) !HoverResult {
-    var tree: ?*syntax.Tree = token.parent;
+fn hover(doc: *Document, token: *const syntax.Token) !HoverResult {
+    var tree: ?*const syntax.Tree = token.parent;
     while (tree) |it| : (tree = it.parent) {
         if (syntax.ast.Expr.cast(it)) |expr| {
             const ty = try doc.sema.analyzeExpr(expr, null);

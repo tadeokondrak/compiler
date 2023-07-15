@@ -220,8 +220,8 @@ pub const Scope = struct {
         return @enumFromInt(result.index);
     }
 
-    pub fn find(ctx: *Context, node_arg: *syntax.Tree) error{OutOfMemory}!Scope.Index {
-        var node: ?*syntax.Tree = node_arg;
+    pub fn find(ctx: *Context, node_arg: *const syntax.Tree) error{OutOfMemory}!Scope.Index {
+        var node: ?*const syntax.Tree = node_arg;
         while (node) |current_node| : (node = current_node.parent) {
             switch (current_node.tag) {
                 .file => {
@@ -444,6 +444,24 @@ pub fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(forma
     return .{ .data = .{ .ctx = ctx, .structure = structure } };
 }
 
+const FormatScopeArgs = struct { ctx: *Context, scope: Scope.Index };
+
+fn formatScope(
+    args: FormatScopeArgs,
+    comptime _: []const u8,
+    _: std.fmt.FormatOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    const scope = scopePtr(args.ctx, args.scope);
+    if (scope.parent != .invalid)
+        try writer.print("{} -> ", .{fmtScope(args.ctx, scope.parent)});
+    try writer.writeAll(@tagName(scope.data));
+}
+
+pub fn fmtScope(ctx: *Context, scope: Scope.Index) std.fmt.Formatter(formatScope) {
+    return .{ .data = .{ .ctx = ctx, .scope = scope } };
+}
+
 const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
 
 fn formatType(
@@ -516,32 +534,11 @@ pub fn deinit(ctx: *Context) void {
 pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
     for (0..ctx.type_pool.entries.len) |i|
         try writer.print("Type {}: {#}\n", .{ i, fmtType(ctx, @enumFromInt(i)) });
-    for (0..ctx.functions.items.len) |i|
-        try writer.print("{code}\n", .{fmtFn(ctx, @enumFromInt(i))});
+    for (0..ctx.scope_pool.entries.len) |i|
+        try writer.print("Scope {}: {}\n", .{ i, fmtScope(ctx, @enumFromInt(i)) });
 }
 
-pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) error{OutOfMemory}!?syntax.ast.Decl {
-    var it = try ctx.ast.iter();
-    while (it.next()) |decl_syntax| {
-        const span = decl_syntax.span();
-        if (span.start.offset > pos.offset)
-            return null;
-        if (span.end.offset <= pos.offset)
-            continue;
-        return decl_syntax;
-    }
-    return null;
-}
-
-pub fn compile(
-    ctx: *Context,
-) error{OutOfMemory}!void {
-    var it = try ctx.ast.iter();
-    while (it.next()) |decl_syntax|
-        try analyzeDecl(ctx, decl_syntax);
-}
-
-fn analyzeDecl(ctx: *Context, decl: syntax.ast.Decl) error{OutOfMemory}!void {
+pub fn analyzeDecl(ctx: *Context, decl: syntax.ast.Decl) error{OutOfMemory}!void {
     switch (decl) {
         .structure => |struct_syntax| {
             var type_index = try Type.get(ctx, .{ .structure = struct_syntax.ptr() });
@@ -663,8 +660,8 @@ pub fn analyzeExpr(
             const ident = try ident_expr.ident() orelse
                 return typeTodo(ctx, ident_expr.span(), @src());
 
-            const scope2 = try Scope.find(ctx, ident_expr.tree);
-            const lookup_result = try Scope.lookUp(ctx, scope2, ident.text()) orelse
+            const scope = try Scope.find(ctx, ident_expr.tree);
+            const lookup_result = try Scope.lookUp(ctx, scope, ident.text()) orelse
                 return typeErr(ctx, ident_expr.span(), "undefined identifier: {s}", .{ident.text()});
 
             switch (lookup_result) {
