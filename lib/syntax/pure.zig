@@ -158,6 +158,7 @@ pub const Token = struct {
         kw_break,
         kw_continue,
         kw_mut,
+        kw_let,
     };
 };
 
@@ -193,6 +194,7 @@ pub const Tree = struct {
         stmt_while,
         stmt_break,
         stmt_continue,
+        stmt_let,
 
         type_expr_unary,
         type_expr_ident,

@@ -237,6 +237,9 @@ pub const Scope = struct {
                     if (try fn_decl.params()) |params|
                         return Scope.get(ctx, .{ .params = params.ptr() });
                 },
+                .stmt_let => {
+                    // TODO
+                },
                 .invalid,
                 .decl_const,
                 .decl_struct,
@@ -948,6 +951,13 @@ fn checkBlock(
                     try checkBlock(ctx, function, while_body)
                 else
                     return err(ctx, while_stmt.span(), "while statement missing body", .{});
+            },
+            .let => |let_stmt| {
+                if (try let_stmt.typeExpr()) |type_expr| {
+                    _ = type_expr;
+                } else {}
+
+                // TODO
             },
         }
     }

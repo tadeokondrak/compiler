@@ -338,6 +338,7 @@ pub const Stmt = union(enum) {
     @"if": Stmt.If,
     loop: Stmt.Loop,
     @"while": Stmt.While,
+    let: Stmt.Let,
 
     pub usingnamespace AstUnion(@This());
     pub const Expr = struct {
@@ -389,6 +390,18 @@ pub const Stmt = union(enum) {
         pub const whileToken = tokenAccessorFn(@This(), .kw_while);
         pub const cond = nthTreeAccessorFn(@This(), ast.Expr, 0);
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
+    };
+
+    pub const Let = struct {
+        tree: *const syntax.Tree,
+
+        pub usingnamespace AstTree(@This(), .stmt_let);
+        pub const letToken = tokenAccessorFn(@This(), .kw_let);
+        pub const ident = tokenAccessorFn(@This(), .ident);
+        pub const colon = tokenAccessorFn(@This(), .colon);
+        pub const typeExpr = nthTreeAccessorFn(@This(), ast.TypeExpr, 0);
+        pub const eq = tokenAccessorFn(@This(), .eq);
+        pub const expr = nthTreeAccessorFn(@This(), ast.Expr, 0);
     };
 };
 

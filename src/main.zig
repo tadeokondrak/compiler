@@ -24,7 +24,8 @@ pub fn main() !void {
         \\    loop {}
         \\}
         \\fn add(a u32, b u32) (ret u32) {
-        \\    return a + b;
+        \\    let result = a + b;
+        \\    return result;
         \\}
         \\fn fib(n u32) (ret u32) {
         \\    if n <= 1 {

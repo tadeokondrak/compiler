@@ -204,6 +204,7 @@ fn parseBlockStmt(p: *Parser) void {
                 .kw_if => parseIfStmt(p),
                 .kw_loop => parseLoopStmt(p),
                 .kw_while => parseWhileStmt(p),
+                .kw_let => parseLetStmt(p),
                 else => {
                     p.builder.err("expected statement");
                     p.advance();
@@ -268,6 +269,18 @@ fn parseWhileStmt(p: *Parser) void {
     parseExpr(p);
     parseBlockStmt(p);
     p.builder.close(m, .stmt_while);
+}
+
+fn parseLetStmt(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_let);
+    _ = p.expect(.ident);
+    if (p.eat(.colon))
+        parseTypeExpr(p);
+    if (p.eat(.eq))
+        parseExpr(p);
+    _ = p.expect(.semi);
+    p.builder.close(m, .stmt_let);
 }
 
 pub fn parseExpr(p: *Parser) void {
