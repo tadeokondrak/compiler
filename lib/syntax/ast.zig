@@ -168,6 +168,7 @@ pub const Decl = union(enum) {
         pub usingnamespace AstTree(@This(), .decl_fn);
         pub const fnToken = tokenAccessorFn(@This(), .kw_fn);
         pub const ident = tokenAccessorFn(@This(), .ident);
+        pub const generics = nthTreeAccessorFn(@This(), Generics, 0);
         pub const params = nthTreeAccessorFn(@This(), Params, 0);
         pub const returns = nthTreeAccessorFn(@This(), Returns, 0);
         pub const body = nthTreeAccessorFn(@This(), Stmt.Block, 0);
@@ -410,4 +411,17 @@ pub const TypeExpr = union(enum) {
         pub usingnamespace AstTree(@This(), .type_expr_ident);
         pub const ident = tokenAccessorFn(@This(), .ident);
     };
+};
+
+pub const Generics = struct {
+    tree: *syntax.Tree,
+
+    pub usingnamespace AstTreeWithChildren(@This(), .generics, Generic);
+};
+
+pub const Generic = struct {
+    tree: *syntax.Tree,
+
+    pub usingnamespace AstTree(@This(), .generic);
+    pub const ident = tokenAccessorFn(@This(), .ident);
 };

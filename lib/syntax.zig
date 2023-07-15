@@ -23,14 +23,14 @@ pub const Tree = struct {
     tag: pure.Tree.Tag,
     index: pure.Tree.Index,
     context: *Context,
-    parent: ?*const Tree,
+    parent: ?*Tree,
 
     pub fn format(tree: Tree, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         for (tree.children() catch return) |child|
             try writer.print("{}", .{child});
     }
 
-    pub fn children(tree: *const Tree) error{OutOfMemory}![]Node {
+    pub fn children(tree: *Tree) error{OutOfMemory}![]Node {
         const child_nodes = tree.context.root.treeChildren(tree.index);
         const child_tags = tree.context.root.treeChildrenTags(tree.index);
         const nodes = try tree.context.arena.alloc(Node, child_nodes.len);
@@ -75,6 +75,7 @@ pub const Tree = struct {
         {
             return tree;
         }
+
         for (try tree.children()) |child| {
             switch (child) {
                 .tree => |child_tree| {
@@ -111,7 +112,7 @@ pub const Tree = struct {
 pub const Token = struct {
     tag: pure.Token.Tag,
     index: pure.Token.Index,
-    parent: *const Tree,
+    parent: *Tree,
     context: *Context,
 
     pub fn format(token: Token, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {

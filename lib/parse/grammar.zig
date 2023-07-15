@@ -102,12 +102,12 @@ fn parseGenericParams(p: *Parser) void {
         const param = p.builder.open();
         p.expect(.ident);
         const comma = p.eat(.comma);
-        p.builder.close(param, .generic_param);
+        p.builder.close(param, .generic);
         if (!comma)
             break;
     }
     p.expect(.gt);
-    p.builder.close(m, .generic_params);
+    p.builder.close(m, .generics);
 }
 fn parseFnParams(p: *Parser) void {
     const m = p.builder.open();

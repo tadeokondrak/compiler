@@ -32,7 +32,7 @@ pub fn main() !void {
         \\    }
         \\    return add(fib(n - 1), fib(n - 2));
         \\}
-        //\\fn add_generic<T>(a T, b T) (ret T) { return a + b; }
+        \\fn add_generic<T>(a T, b T) (ret T) { return a + b; }
     ;
 
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());

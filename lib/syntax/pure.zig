@@ -206,8 +206,8 @@ pub const Tree = struct {
 
         struct_field,
 
-        generic_params,
-        generic_param,
+        generics,
+        generic,
     };
 };
 
