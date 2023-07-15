@@ -11,32 +11,29 @@ const Connection = lsp.Connection(std.fs.File.Reader, std.fs.File.Writer, Contex
 const HoverResult = struct {
     span: syntax.pure.Span,
     data: union(enum) {
-        unknown: syntax.pure.Tree.Tag,
-        expr: sema.Context.Type.Index,
+        ty: sema.Context.Type.Index,
     },
 };
 
-fn hover(doc: *Document, token: *const syntax.Token) !HoverResult {
+fn hover(doc: *Document, token: *const syntax.Token) !?HoverResult {
     var tree: ?*const syntax.Tree = token.parent;
     while (tree) |it| : (tree = it.parent) {
         if (syntax.ast.Expr.cast(it)) |expr| {
             const ty = try doc.sema.analyzeExpr(expr, null);
             return .{
                 .span = expr.span(),
-                .data = .{ .expr = ty },
+                .data = .{ .ty = ty },
             };
         }
-        switch (it.tag) {
-            else => |tag| return .{
-                .span = it.span(),
-                .data = .{ .unknown = tag },
-            },
+        if (syntax.ast.TypeExpr.cast(it)) |type_expr| {
+            const ty = try doc.sema.analyzeTypeExpr(type_expr);
+            return .{
+                .span = type_expr.span(),
+                .data = .{ .ty = ty },
+            };
         }
     }
-    return .{
-        .span = token.parent.span(),
-        .data = .{ .unknown = token.parent.tag },
-    };
+    return null;
 }
 
 const Document = struct {
@@ -170,7 +167,7 @@ const Context = struct {
         });
     }
 
-    pub fn @"textDocument/hover"(conn: *Connection, _: lsp.types.RequestId, params: lsp.types.HoverParams) !lsp.types.Hover {
+    pub fn @"textDocument/hover"(conn: *Connection, _: lsp.types.RequestId, params: lsp.types.HoverParams) !?lsp.types.Hover {
         var arena = std.heap.ArenaAllocator.init(conn.allocator);
         defer arena.deinit();
 
@@ -178,10 +175,9 @@ const Context = struct {
         const pos = doc.translatePosition(params.position);
         const token = try doc.sema.ast.tree.findToken(.{ .offset = pos.offset }) orelse return error.TODO;
 
-        const hover_result = try hover(doc, token);
+        const hover_result = try hover(doc, token) orelse return null;
         const text = switch (hover_result.data) {
-            .unknown => |tag| try std.fmt.allocPrint(conn.allocator, "```\n{}\n```", .{tag}),
-            .expr => |ty| try std.fmt.allocPrint(conn.allocator, "```\n{}\n```", .{doc.sema.fmtType(ty)}),
+            .ty => |ty| try std.fmt.allocPrint(conn.allocator, "```\n{}\n```", .{doc.sema.fmtType(ty)}),
         };
 
         return .{
