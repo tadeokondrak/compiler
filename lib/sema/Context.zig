@@ -23,7 +23,7 @@ pub const Type = union(enum) {
     structure: Struct.Index,
     function: Fn.Index,
 
-    const Index = enum(usize) {
+    pub const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
         _,
     };
@@ -629,7 +629,7 @@ fn analyzeDecl(ctx: *Context, decl: syntax.ast.Decl) error{OutOfMemory}!void {
 }
 
 // may return a type other than/incompatible with expected_type
-fn analyzeExpr(
+pub fn analyzeExpr(
     ctx: *Context,
     expr: syntax.ast.Expr,
     maybe_expected_type: ?Type.Index,

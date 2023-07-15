@@ -8,6 +8,37 @@ const LineIndex = sema.LineIndex;
 
 const Connection = lsp.Connection(std.fs.File.Reader, std.fs.File.Writer, Context);
 
+const HoverResult = struct {
+    span: syntax.pure.Span,
+    data: union(enum) {
+        unknown: syntax.pure.Tree.Tag,
+        expr: sema.Context.Type.Index,
+    },
+};
+
+fn hover(doc: *Document, token: *syntax.Token) !HoverResult {
+    var tree: ?*syntax.Tree = token.parent;
+    while (tree) |it| : (tree = it.parent) {
+        if (syntax.ast.Expr.cast(it)) |expr| {
+            const ty = try doc.sema.analyzeExpr(expr, null);
+            return .{
+                .span = expr.span(),
+                .data = .{ .expr = ty },
+            };
+        }
+        switch (it.tag) {
+            else => |tag| return .{
+                .span = it.span(),
+                .data = .{ .unknown = tag },
+            },
+        }
+    }
+    return .{
+        .span = token.parent.span(),
+        .data = .{ .unknown = token.parent.tag },
+    };
+}
+
 const Document = struct {
     arena: std.heap.ArenaAllocator,
     sema: sema.Context,
@@ -26,7 +57,6 @@ const Document = struct {
             .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
         };
         doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
-        try doc.sema.compile();
     }
 
     fn updateContent(doc: *Document, allocator: std.mem.Allocator, src: []const u8) !void {
@@ -38,7 +68,6 @@ const Document = struct {
             .gpa = allocator,
             .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
         };
-        try doc.sema.compile();
         doc.syntax.root.deinit(doc.arena.allocator());
         doc.syntax.root = (try parse.parseFile(doc.arena.allocator(), src)).root;
         doc.line_index.deinit(doc.arena.allocator());
@@ -147,20 +176,12 @@ const Context = struct {
 
         const doc = conn.context.docs.getPtr(params.textDocument.uri) orelse return error.TODO;
         const pos = doc.translatePosition(params.position);
-        const decl_syntax = try doc.sema.findDecl(.{ .offset = pos.offset }) orelse return error.TODO;
+        const token = try doc.sema.ast.tree.findToken(.{ .offset = pos.offset }) orelse return error.TODO;
 
-        const text = switch (decl_syntax) {
-            .function => |function| blk: {
-                const ty = try sema.Context.Type.get(&doc.sema, .{ .function = function.ptr() });
-                break :blk try std.fmt.allocPrint(conn.allocator, "```\n{code}\n```", .{doc.sema.fmtType(ty)});
-            },
-            .structure => |structure| blk: {
-                const ty = try sema.Context.Type.get(&doc.sema, .{ .structure = structure.ptr() });
-                break :blk try std.fmt.allocPrint(conn.allocator, "```\n{#}\n```", .{doc.sema.fmtType(ty)});
-            },
-            .constant => blk: {
-                break :blk try std.fmt.allocPrint(conn.allocator, "constant", .{});
-            },
+        const hover_result = try hover(doc, token);
+        const text = switch (hover_result.data) {
+            .unknown => |tag| try std.fmt.allocPrint(conn.allocator, "```\n{}\n```", .{tag}),
+            .expr => |ty| try std.fmt.allocPrint(conn.allocator, "```\n{}\n```", .{doc.sema.fmtType(ty)}),
         };
 
         return .{
@@ -170,7 +191,7 @@ const Context = struct {
                     .value = text,
                 },
             },
-            .range = doc.translateSpan(decl_syntax.span()),
+            .range = doc.translateSpan(hover_result.span),
         };
     }
 
@@ -184,8 +205,7 @@ const Context = struct {
         const ranges = try conn.allocator.alloc(lsp.types.SelectionRange, params.positions.len);
 
         for (params.positions, 0..) |pos, i| {
-            const root: *syntax.Tree = try doc.syntax.createTree(@enumFromInt(0));
-            const token = try root.findToken(doc.translatePosition(pos)) orelse return null;
+            const token = try doc.sema.ast.tree.findToken(doc.translatePosition(pos)) orelse return null;
             ranges[i] = .{
                 .range = doc.translateSpan(token.span()),
             };

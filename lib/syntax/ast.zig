@@ -12,7 +12,7 @@ pub fn Ptr(comptime T: type) type {
         span: syntax.pure.Span,
 
         pub fn deref(ptr: @This(), tree: *syntax.Tree) !T {
-            const found = try tree.findTree(ptr.span);
+            const found = try tree.getTree(ptr.span);
             return T.cast(found.?).?;
         }
     };

@@ -69,7 +69,7 @@ pub const Tree = struct {
         return tree.context.root.treeSpan(tree.index);
     }
 
-    pub fn findTree(tree: *Tree, tree_span: pure.Span) !?*Tree {
+    pub fn getTree(tree: *Tree, tree_span: pure.Span) !?*Tree {
         if (tree_span.start.offset == tree.span().start.offset and
             tree_span.end.offset == tree.span().end.offset)
         {
@@ -79,10 +79,29 @@ pub const Tree = struct {
         for (try tree.children()) |child| {
             switch (child) {
                 .tree => |child_tree| {
-                    if (try child_tree.findTree(tree_span)) |found_tree|
+                    if (try child_tree.getTree(tree_span)) |found_tree|
                         return found_tree;
                 },
                 .token => {},
+            }
+        }
+
+        return null;
+    }
+
+    pub fn getToken(tree: *Tree, token_span: pure.Span) !?*Token {
+        for (try tree.children()) |child| {
+            switch (child) {
+                .tree => |child_tree| {
+                    const token = try child_tree.getToken(span);
+                    if (token != null) return token;
+                },
+                .token => |child_token| {
+                    const child_token_span = child_token.span();
+                    if (child_token_span.start.offset == token_span.offset and
+                        token_span.offset == child_token_span.end.offset)
+                        return child_token;
+                },
             }
         }
 
@@ -93,18 +112,17 @@ pub const Tree = struct {
         for (try tree.children()) |child| {
             switch (child) {
                 .tree => |child_tree| {
-                    const token = try child_tree.findToken(pos);
-                    if (token != null) return token;
+                    const node = try child_tree.findToken(pos);
+                    if (node != null) return node;
                 },
                 .token => |child_token| {
-                    const token_span = child_token.span();
-                    if (token_span.start.offset <= pos.offset and
+                    const token_span = child_token.spanWithTrivia();
+                    if (pos.offset >= token_span.start.offset and
                         pos.offset < token_span.end.offset)
                         return child_token;
                 },
             }
         }
-
         return null;
     }
 };
@@ -139,6 +157,19 @@ pub const Token = struct {
     pub fn span(token: Token) pure.Span {
         return token.context.root.tokenSpan(token.index);
     }
+
+    pub fn spanWithTrivia(token: Token) pure.Span {
+        const data = token.context.root.tokenData(token.index);
+        var trivia_size: u32 = 0;
+        for (data.trivia_start..data.trivia_start + data.trivia_count) |i| {
+            const trivia = token.context.root.trivia.get(i);
+            trivia_size += trivia.count;
+        }
+        return .{
+            .start = .{ .offset = token.span().start.offset - trivia_size },
+            .end = token.span().end,
+        };
+    }
 };
 
 pub const Node = union(enum) {
@@ -149,6 +180,20 @@ pub const Node = union(enum) {
         switch (node) {
             .tree => |tree| try tree.format("", .{}, writer),
             .token => |token| try token.format("", .{}, writer),
+        }
+    }
+
+    pub fn span(node: Node) pure.Span {
+        switch (node) {
+            .tree => |tree| return tree.span(),
+            .token => |token| return token.span(),
+        }
+    }
+
+    pub fn parent(node: Node) ?*Tree {
+        switch (node) {
+            .tree => |tree| return tree.parent,
+            .token => |token| return token.parent,
         }
     }
 };
