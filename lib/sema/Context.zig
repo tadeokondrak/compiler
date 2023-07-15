@@ -118,14 +118,8 @@ const Fn = struct {
     analysis: enum { unanalyzed, analyzed } = .unanalyzed,
     syntax: syntax.ast.Decl.Fn,
     name: []const u8,
-    params: std.StringArrayHashMapUnmanaged(struct {
-        syntax: syntax.ast.Ptr(syntax.ast.Decl.Fn.Param),
-        ty: Type.Index,
-    }) = .{},
-    returns: std.StringArrayHashMapUnmanaged(struct {
-        syntax: syntax.ast.Ptr(syntax.ast.Decl.Fn.Return),
-        ty: Type.Index,
-    }) = .{},
+    params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
+    returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
     const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
@@ -410,12 +404,12 @@ fn formatFn(
     try writer.print("fn {s}(", .{function.name});
     for (function.params.keys(), function.params.values(), 0..) |key, value, i| {
         if (i > 0) try writer.print(", ", .{});
-        try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value.ty) });
+        try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value) });
     }
     try writer.print(") (", .{});
     for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
         if (i > 0) try writer.print(", ", .{});
-        try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value.ty) });
+        try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value) });
     }
     try writer.print(")", .{});
 }
@@ -587,10 +581,7 @@ fn analyzeDecl(ctx: *Context, decl: syntax.ast.Decl) error{OutOfMemory}!void {
                             return err(ctx, param.span(), "function parameter without type", .{});
 
                         const ty = try analyzeTypeExpr(ctx, type_syntax);
-                        try function.params.put(ctx.gpa, name_syntax.text(), .{
-                            .syntax = param.ptr(),
-                            .ty = ty,
-                        });
+                        try function.params.put(ctx.gpa, name_syntax.text(), ty);
                     }
                 }
                 returns: {
@@ -606,10 +597,7 @@ fn analyzeDecl(ctx: *Context, decl: syntax.ast.Decl) error{OutOfMemory}!void {
                             return err(ctx, param.span(), "function return without type", .{});
 
                         const ty = try analyzeTypeExpr(ctx, type_syntax);
-                        try function.returns.put(ctx.gpa, name_syntax.text(), .{
-                            .syntax = param.ptr(),
-                            .ty = ty,
-                        });
+                        try function.returns.put(ctx.gpa, name_syntax.text(), ty);
                     }
                 }
 
@@ -786,7 +774,7 @@ fn analyzeExpr(
                 return typeTodo(ctx, call_expr.span(), @src());
 
             var args = try args_wrapper.iter();
-            for (params.values()) |param| {
+            for (params.values()) |param_ty| {
                 const arg = args.next() orelse
                     return typeTodo(ctx, call_expr.span(), @src());
 
@@ -794,7 +782,7 @@ fn analyzeExpr(
                     return typeTodo(ctx, call_expr.span(), @src());
 
                 const arg_type = try analyzeExpr(ctx, arg_expr, null);
-                if (arg_type != param.ty) {
+                if (arg_type != param_ty) {
                     return typeTodo(ctx, call_expr.span(), @src());
                 }
             }
@@ -802,7 +790,7 @@ fn analyzeExpr(
                 return typeTodo(ctx, call_expr.span(), @src());
             if (function.returns.values().len != 1)
                 return typeTodo(ctx, call_expr.span(), @src());
-            const ret_type = function.returns.values()[0].ty;
+            const ret_type = function.returns.values()[0];
             return ret_type;
         },
     }
@@ -906,10 +894,10 @@ fn checkBlock(
             },
             .@"return" => |return_stmt| {
                 var exprs = try return_stmt.iter();
-                for (function.returns.values()) |ret| {
+                for (function.returns.values()) |ret_ty| {
                     const expr = exprs.next() orelse
                         return todo(ctx, function.syntax.span(), @src());
-                    try checkExpr(ctx, function_index, expr, ret.ty);
+                    try checkExpr(ctx, function_index, expr, ret_ty);
                 }
                 if (exprs.next()) |expr| {
                     try err(ctx, expr.span(), "too many return values", .{});
