@@ -24,7 +24,6 @@ const Document = struct {
         doc.sema = .{
             .gpa = allocator,
             .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
-            .root = parsed.root,
         };
         doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
         try doc.sema.compile();
@@ -38,7 +37,6 @@ const Document = struct {
         doc.sema = .{
             .gpa = allocator,
             .ast = .{ .tree = try doc.syntax.createTree(@enumFromInt(0)) },
-            .root = parsed.root,
         };
         try doc.sema.compile();
         doc.syntax.root.deinit(doc.arena.allocator());
@@ -153,11 +151,11 @@ const Context = struct {
 
         const text = switch (decl_syntax) {
             .function => |function| blk: {
-                const ty = try doc.sema.lookUpType(.{ .function = function.ptr() });
+                const ty = try sema.Context.Type.get(&doc.sema, .{ .function = function.ptr() });
                 break :blk try std.fmt.allocPrint(conn.allocator, "```\n{code}\n```", .{doc.sema.fmtType(ty)});
             },
             .structure => |structure| blk: {
-                const ty = try doc.sema.lookUpType(.{ .structure = structure.ptr() });
+                const ty = try sema.Context.Type.get(&doc.sema, .{ .structure = structure.ptr() });
                 break :blk try std.fmt.allocPrint(conn.allocator, "```\n{#}\n```", .{doc.sema.fmtType(ty)});
             },
             .constant => blk: {

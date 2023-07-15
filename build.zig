@@ -55,10 +55,8 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the compiler");
     run_step.dependOn(&run_cmd.step);
 
-    const lsp_cmd = b.addRunArtifact(lsp);
-    lsp_cmd.step.dependOn(&lsp.step);
-    const lsp_step = b.step("lsp", "Run the language server");
-    lsp_step.dependOn(&lsp_cmd.step);
+    const lsp_step = b.step("lsp", "Build the language server");
+    lsp_step.dependOn(&lsp.step);
 
     const exe_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/tests.zig" },

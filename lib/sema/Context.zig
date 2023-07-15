@@ -15,7 +15,7 @@ structures: std.ArrayListUnmanaged(Struct) = .{},
 functions: std.ArrayListUnmanaged(Fn) = .{},
 diagnostics: std.MultiArrayList(Diagnostic) = .{},
 
-const Type = union(enum) {
+pub const Type = union(enum) {
     invalid,
     bool,
     unsigned_integer: struct { bits: u32 },
@@ -521,7 +521,7 @@ pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutO
 }
 
 pub fn findDecl(ctx: Context, pos: syntax.pure.Pos) error{OutOfMemory}!?syntax.ast.Decl {
-    var it = try ctx.ast.decls();
+    var it = try ctx.ast.iter();
     while (it.next()) |decl_syntax| {
         const span = decl_syntax.span();
         if (span.start.offset > pos.offset)

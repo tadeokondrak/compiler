@@ -89,7 +89,7 @@ pub const Tree = struct {
         return null;
     }
 
-    pub fn findToken(tree: *const Tree, pos: pure.Pos) !?*Token {
+    pub fn findToken(tree: *Tree, pos: pure.Pos) !?*Token {
         for (try tree.children()) |child| {
             switch (child) {
                 .tree => |child_tree| {
