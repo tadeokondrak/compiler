@@ -18,6 +18,7 @@ diagnostics: std.MultiArrayList(Diagnostic) = .{},
 pub const Type = union(enum) {
     invalid,
     bool,
+    generic,
     unsigned_integer: struct { bits: u32 },
     pointer: Type.Index,
     structure: Struct.Index,
@@ -31,6 +32,7 @@ pub const Type = union(enum) {
     const Key = union(enum) {
         invalid,
         bool,
+        generic,
         unsigned_integer: struct { bits: u32 },
         pointer: Type.Index,
         structure: syntax.ast.Ptr(syntax.ast.Decl.Struct),
@@ -48,6 +50,7 @@ pub const Type = union(enum) {
             try ctx.types.append(ctx.gpa, switch (key) {
                 .invalid => .invalid,
                 .bool => .bool,
+                .generic => .generic,
                 .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
                 .pointer => |pointee| .{ .pointer = pointee },
                 .structure => |structure_ptr| blk: {
@@ -79,6 +82,7 @@ pub const Type = union(enum) {
         return switch (ty) {
             .invalid => .invalid,
             .bool => .bool,
+            .generic => .generic,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
             .pointer => |pointee| .{ .pointer = pointee },
             .structure => |structure| .{ .structure = structPtr(ctx, structure).syntax.ptr() },
@@ -473,6 +477,7 @@ fn formatType(
     return switch (typePtr(args.ctx, args.ty).*) {
         .invalid => writer.print("invalid", .{}),
         .bool => writer.print("bool", .{}),
+        .generic => writer.print("?", .{}),
         .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
         .pointer => |pointee| writer.print("*{}", .{fmtType(args.ctx, pointee)}),
         .structure => |structure| fmtStruct(args.ctx, structure).format(fmt, .{}, writer),
@@ -817,17 +822,19 @@ fn analyzeTypeExpr(
             const lookup_result = try Scope.lookUp(ctx, scope, ident_text) orelse
                 return typeErr(ctx, ident.span(), "undefined identifier {s}", .{ident_text});
 
-            const decl = switch (lookup_result) {
-                .decl => |decl| try decl.deref(ctx.ast.tree),
-                else => return typeTodo(ctx, ident.span(), @src()),
-            };
-
-            switch (decl) {
-                .structure => |structure| {
-                    return Type.get(ctx, .{ .structure = structure.ptr() });
+            switch (lookup_result) {
+                .decl => |decl_ptr| {
+                    const decl = try decl_ptr.deref(ctx.ast.tree);
+                    switch (decl) {
+                        .structure => |structure| {
+                            return Type.get(ctx, .{ .structure = structure.ptr() });
+                        },
+                        .function => return typeTodo(ctx, ident.span(), @src()),
+                        .constant => return typeTodo(ctx, ident.span(), @src()),
+                    }
                 },
-                .function => return typeTodo(ctx, ident.span(), @src()),
-                .constant => return typeTodo(ctx, ident.span(), @src()),
+                .generic => return Type.get(ctx, .generic),
+                else => return typeTodo(ctx, ident.span(), @src()),
             }
         },
         .unary => |unary| {
