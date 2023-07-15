@@ -149,9 +149,9 @@ pub const Scope = struct {
 
     pub const Data = union(enum) {
         builtin,
-        file: syntax.ast.File,
-        generics: syntax.ast.Generics,
-        params: syntax.ast.Decl.Fn.Params,
+        file: syntax.ast.Ptr(syntax.ast.File),
+        generics: syntax.ast.Ptr(syntax.ast.Generics),
+        params: syntax.ast.Ptr(syntax.ast.Decl.Fn.Params),
     };
 
     pub const Index = enum(usize) {
@@ -172,9 +172,9 @@ pub const Scope = struct {
         _ = ctx;
         return switch (scope.data) {
             .builtin => .builtin,
-            .file => |file| .{ .file = file.ptr() },
-            .generics => |generics| .{ .generics = generics.ptr() },
-            .params => |params| .{ .params = params.ptr() },
+            .file => |file| .{ .file = file },
+            .generics => |generics| .{ .generics = generics },
+            .params => |params| .{ .params = params },
         };
     }
 
@@ -189,10 +189,10 @@ pub const Scope = struct {
             const scope = try ctx.scopes.addOne(ctx.gpa);
             switch (key) {
                 .builtin => scope.* = .{ .parent = .invalid, .data = .builtin },
-                .file => |file| {
+                .file => |file_ptr| {
                     scope.* = .{
                         .parent = .invalid,
-                        .data = .{ .file = try file.deref(ctx.ast.tree) },
+                        .data = .{ .file = file_ptr },
                     };
                     scope.parent = try get(ctx, .builtin);
                 },
@@ -200,7 +200,7 @@ pub const Scope = struct {
                     const generics = try generics_ptr.deref(ctx.ast.tree);
                     scope.* = .{
                         .parent = .invalid,
-                        .data = .{ .generics = generics },
+                        .data = .{ .generics = generics_ptr },
                     };
                     scope.parent = if (syntax.ast.Decl.Fn.cast(generics.tree.parent.?)) |function|
                         try find(ctx, function.tree.parent.?)
@@ -211,7 +211,7 @@ pub const Scope = struct {
                     const params = try params_ptr.deref(ctx.ast.tree);
                     scope.* = .{
                         .parent = .invalid,
-                        .data = .{ .params = params },
+                        .data = .{ .params = params_ptr },
                     };
                     const function = syntax.ast.Decl.Fn.cast(params.tree.parent.?).?;
                     scope.parent = if (try function.generics()) |generics|
@@ -291,7 +291,8 @@ pub const Scope = struct {
                 });
                 return map.get(name);
             },
-            .file => |file| {
+            .file => |file_ptr| {
+                const file = try file_ptr.deref(ctx.ast.tree);
                 var decls = try file.iter();
                 while (decls.next()) |decl| {
                     const decl_ident = try decl.ident() orelse continue;
@@ -299,7 +300,8 @@ pub const Scope = struct {
                         return .{ .decl = decl.ptr() };
                 }
             },
-            .generics => |generics| {
+            .generics => |generics_ptr| {
+                const generics = try generics_ptr.deref(ctx.ast.tree);
                 var generics_iter = try generics.iter();
                 while (generics_iter.next()) |generic| {
                     const generic_ident = try generic.ident() orelse continue;
@@ -307,7 +309,8 @@ pub const Scope = struct {
                         return .{ .generic = generic.ptr() };
                 }
             },
-            .params => |params| {
+            .params => |params_ptr| {
+                const params = try params_ptr.deref(ctx.ast.tree);
                 var params_iter = try params.iter();
                 while (params_iter.next()) |param| {
                     const param_ident = try param.ident() orelse continue;
