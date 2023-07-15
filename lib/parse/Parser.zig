@@ -37,12 +37,13 @@ pub fn eat(p: *Parser, tag: syntax.pure.Token.Tag) bool {
     return true;
 }
 
-pub fn expect(p: *Parser, comptime tag: syntax.pure.Token.Tag) void {
+pub fn expect(p: *Parser, comptime tag: syntax.pure.Token.Tag) bool {
     if (!p.at(tag)) {
         p.builder.err(std.fmt.comptimePrint("expected {s}", .{@tagName(tag)}));
-        return;
+        return false;
     }
     p.advance();
+    return true;
 }
 
 pub fn bump(p: *Parser, tag: syntax.pure.Token.Tag) void {

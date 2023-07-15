@@ -84,7 +84,7 @@ fn parseDecl(p: *Parser) void {
 fn parseFnDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_fn);
-    p.expect(.ident);
+    _ = p.expect(.ident);
     if (p.at(.lt))
         parseGenericParams(p);
     if (p.at(.l_paren))
@@ -100,15 +100,16 @@ fn parseGenericParams(p: *Parser) void {
     p.bump(.lt);
     while (!p.at(.gt) and !p.at(.eof)) {
         const param = p.builder.open();
-        p.expect(.ident);
+        _ = p.expect(.ident);
         const comma = p.eat(.comma);
         p.builder.close(param, .generic);
         if (!comma)
             break;
     }
-    p.expect(.gt);
+    _ = p.expect(.gt);
     p.builder.close(m, .generics);
 }
+
 fn parseFnParams(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.l_paren);
@@ -117,13 +118,13 @@ fn parseFnParams(p: *Parser) void {
             if (!parseFnParam(p))
                 break;
     }
-    p.expect(.r_paren);
+    _ = p.expect(.r_paren);
     p.builder.close(m, .fn_params);
 }
 
 fn parseFnParam(p: *Parser) bool {
     const m = p.builder.open();
-    p.expect(.ident);
+    _ = p.expect(.ident);
     parseTypeExpr(p);
     const comma = p.eat(.comma);
     p.builder.close(m, .fn_param);
@@ -135,7 +136,7 @@ fn parseFnReturns(p: *Parser) void {
     if (p.eat(.l_paren)) {
         while (p.at(.ident) or p.atAny(&expr_first))
             parseFnReturnNamed(p);
-        p.expect(.r_paren);
+        _ = p.expect(.r_paren);
     } else if (p.atAny(&type_expr_first)) {
         parseFnReturnAnonymous(p);
     }
@@ -144,7 +145,7 @@ fn parseFnReturns(p: *Parser) void {
 
 fn parseFnReturnNamed(p: *Parser) void {
     const m = p.builder.open();
-    p.expect(.ident);
+    _ = p.expect(.ident);
     parseTypeExpr(p);
     _ = p.eat(.comma);
     p.builder.close(m, .fn_return);
@@ -159,57 +160,58 @@ fn parseFnReturnAnonymous(p: *Parser) void {
 fn parseStructDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_struct);
-    p.expect(.ident);
-    if (p.eat(.l_brace)) {
+    _ = p.expect(.ident);
+    if (p.expect(.l_brace)) {
         while (p.at(.ident))
             parseStructField(p);
-        p.expect(.r_brace);
+        _ = p.expect(.r_brace);
     }
     p.builder.close(m, .decl_struct);
 }
 
 fn parseStructField(p: *Parser) void {
     const m = p.builder.open();
-    p.expect(.ident);
+    _ = p.expect(.ident);
     parseTypeExpr(p);
     if (p.eat(.eq))
         parseExpr(p);
-    p.expect(.semi);
+    _ = p.expect(.semi);
     p.builder.close(m, .struct_field);
 }
 
 fn parseConstDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_const);
-    p.expect(.ident);
+    _ = p.expect(.ident);
     parseTypeExpr(p);
     if (p.eat(.eq))
         parseExpr(p);
-    p.expect(.semi);
+    _ = p.expect(.semi);
     p.builder.close(m, .decl_const);
 }
 
 fn parseBlockStmt(p: *Parser) void {
     const m = p.builder.open();
-    p.expect(.l_brace);
-    while (!p.atAny(&.{ .r_brace, .eof })) {
-        if (p.atAny(&expr_first)) {
-            parseExprStmt(p);
-        } else switch (p.nth(0)) {
-            .l_brace => parseBlockStmt(p),
-            .kw_return => parseReturnStmt(p),
-            .kw_continue => parseContinueStmt(p),
-            .kw_break => parseBreakStmt(p),
-            .kw_if => parseIfStmt(p),
-            .kw_loop => parseLoopStmt(p),
-            .kw_while => parseWhileStmt(p),
-            else => {
-                p.builder.err("expected statement");
-                p.advance();
-            },
+    if (p.expect(.l_brace)) {
+        while (!p.atAny(&.{ .r_brace, .eof })) {
+            if (p.atAny(&expr_first)) {
+                parseExprStmt(p);
+            } else switch (p.nth(0)) {
+                .l_brace => parseBlockStmt(p),
+                .kw_return => parseReturnStmt(p),
+                .kw_continue => parseContinueStmt(p),
+                .kw_break => parseBreakStmt(p),
+                .kw_if => parseIfStmt(p),
+                .kw_loop => parseLoopStmt(p),
+                .kw_while => parseWhileStmt(p),
+                else => {
+                    p.builder.err("expected statement");
+                    p.advance();
+                },
+            }
         }
+        _ = p.expect(.r_brace);
     }
-    p.expect(.r_brace);
     p.builder.close(m, .stmt_block);
 }
 
@@ -217,7 +219,7 @@ fn parseExprStmt(p: *Parser) void {
     std.debug.assert(p.atAny(&expr_first));
     const m = p.builder.open();
     parseExpr(p);
-    p.expect(.semi);
+    _ = p.expect(.semi);
     p.builder.close(m, .stmt_expr);
 }
 
@@ -225,21 +227,21 @@ fn parseReturnStmt(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_return);
     parseExpr(p);
-    p.expect(.semi);
+    _ = p.expect(.semi);
     p.builder.close(m, .stmt_return);
 }
 
 fn parseContinueStmt(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_continue);
-    p.expect(.semi);
+    _ = p.expect(.semi);
     p.builder.close(m, .stmt_continue);
 }
 
 fn parseBreakStmt(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_break);
-    p.expect(.semi);
+    _ = p.expect(.semi);
     p.builder.close(m, .stmt_break);
 }
 
@@ -306,13 +308,13 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
                         if (!comma)
                             break;
                     }
-                    p.expect(.r_paren);
+                    _ = p.expect(.r_paren);
                     p.builder.close(args, .call_args);
                     p.builder.close(lhs, .expr_call);
                 },
                 .l_bracket => {
                     parseExpr(p);
-                    p.expect(.r_bracket);
+                    _ = p.expect(.r_bracket);
                     p.builder.close(lhs, .expr_index);
                 },
                 else => {
@@ -358,7 +360,7 @@ fn parseExprDelimited(p: *Parser) ?syntax.pure.Builder.Mark {
         const m = p.builder.open();
         p.bump(.l_paren);
         parseExpr(p);
-        p.expect(.r_paren);
+        _ = p.expect(.r_paren);
         p.builder.close(m, .expr_paren);
         return m;
     }
