@@ -162,6 +162,8 @@ fn parseStructDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bump(.kw_struct);
     _ = p.expect(.ident);
+    if (p.at(.lt))
+        parseGenericParams(p);
     if (p.expect(.l_brace)) {
         while (p.at(.ident))
             parseStructField(p);

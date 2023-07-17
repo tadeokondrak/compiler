@@ -14,8 +14,9 @@ pub fn main() !void {
         \\    field1 u32 = 1;
         \\    field2 *u32;
         \\}
-        \\struct Node {
+        \\struct Node<T> {
         \\    next *Node;
+        \\    data T;
         \\}
         \\struct Other {
         \\    field1 Struct;
