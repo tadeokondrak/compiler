@@ -185,6 +185,7 @@ pub const Tree = struct {
         expr_paren,
         expr_call,
         expr_index,
+        expr_field,
 
         stmt_block,
         stmt_expr,

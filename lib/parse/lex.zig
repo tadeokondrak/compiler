@@ -62,6 +62,8 @@ pub const Lexer = struct {
                     ';' => { lexer.pos += 1; return Token{ .tag = .semi, .len = 1 }; },
                     ':' => { lexer.pos += 1; return Token{ .tag = .colon, .len = 1 }; },
                     ',' => { lexer.pos += 1; return Token{ .tag = .comma, .len = 1 }; },
+                    '.' => { lexer.pos += 1; return Token{ .tag = .dot, .len = 1 }; },
+                    '!' => { lexer.pos += 1; return Token{ .tag = .bang, .len = 1 }; },
                     '=' => switch (lexer.nth(1)) {
                         '=' => { lexer.pos += 2; return Token{ .tag = .eq2, .len = 2 }; },
                         else => { lexer.pos += 1; return Token{ .tag = .eq, .len = 1 }; },

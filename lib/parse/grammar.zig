@@ -6,7 +6,7 @@ const Parser = @import("Parser.zig");
 
 fn prefixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     return switch (tag) {
-        .plus, .minus => 1,
+        .plus, .minus, .bang => 1,
         else => null,
     };
 }
@@ -28,6 +28,7 @@ fn infixPrecedence(tag: syntax.pure.Token.Tag) ?[2]u8 {
 fn postfixPrecedence(tag: syntax.pure.Token.Tag) ?u8 {
     return switch (tag) {
         .l_paren, .l_bracket => 15,
+        .dot => 16,
         else => null,
     };
 }
@@ -329,6 +330,10 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
                     parseExpr(p);
                     _ = p.expect(.r_bracket);
                     p.builder.close(lhs, .expr_index);
+                },
+                .dot => {
+                    _ = p.expect(.ident);
+                    p.builder.close(lhs, .expr_field);
                 },
                 else => {
                     p.builder.close(lhs, .expr_unary);
