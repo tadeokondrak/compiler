@@ -204,6 +204,8 @@ pub const Scope = struct {
                     };
                     scope.parent = if (syntax.ast.Decl.Fn.cast(generics.tree.parent.?)) |function|
                         try find(ctx, function.tree.parent.?)
+                    else if (syntax.ast.Decl.Struct.cast(generics.tree.parent.?)) |structure|
+                        try find(ctx, structure.tree.parent.?)
                     else
                         try find(ctx, generics.tree.parent.?);
                 },
@@ -236,6 +238,11 @@ pub const Scope = struct {
                     const fn_decl = syntax.ast.Decl.Fn.cast(current_node).?;
                     if (try fn_decl.params()) |params|
                         return Scope.get(ctx, .{ .params = params.ptr() });
+                },
+                .decl_struct => {
+                    const struct_decl = syntax.ast.Decl.Struct.cast(current_node).?;
+                    if (try struct_decl.generics()) |generics|
+                        return Scope.get(ctx, .{ .generics = generics.ptr() });
                 },
                 .stmt_let => {
                     // TODO

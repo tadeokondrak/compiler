@@ -214,6 +214,7 @@ pub const Decl = union(enum) {
         pub usingnamespace AstTreeWithChildren(@This(), .decl_struct, Field);
         pub const structToken = tokenAccessorFn(@This(), .kw_struct);
         pub const ident = tokenAccessorFn(@This(), .ident);
+        pub const generics = nthTreeAccessorFn(@This(), Generics, 0);
         pub const lBrace = tokenAccessorFn(@This(), .l_brace);
         pub const rBrace = tokenAccessorFn(@This(), .r_brace);
 
