@@ -14,6 +14,18 @@ pub fn main() !void {
         \\    field1 u32 = 1;
         \\    field2 *u32;
         \\}
+        \\enum Tag {
+        \\    float;
+        \\    integer;
+        \\}
+        \\union Number {
+        \\    float f32;
+        \\    integer i32;
+        \\}
+        \\variant TaggedNumber {
+        \\    float f32;
+        \\    integer i32;
+        \\}
         \\struct Node<T> {
         \\    next *Node;
         \\    data T;

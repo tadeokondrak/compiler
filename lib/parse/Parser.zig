@@ -27,12 +27,18 @@ pub fn at(p: *Parser, tag: syntax.pure.Token.Tag) bool {
     return p.nth(0) == tag;
 }
 
-pub fn atAny(p: *Parser, comptime tags: []const syntax.pure.Token.Tag) bool {
+pub fn atAny(p: *Parser, tags: []const syntax.pure.Token.Tag) bool {
     return std.mem.indexOfScalar(syntax.pure.Token.Tag, tags, p.nth(0)) != null;
 }
 
 pub fn eat(p: *Parser, tag: syntax.pure.Token.Tag) bool {
     if (!p.at(tag)) return false;
+    p.advance();
+    return true;
+}
+
+pub fn eatAny(p: *Parser, tags: []const syntax.pure.Token.Tag) bool {
+    if (!p.atAny(tags)) return false;
     p.advance();
     return true;
 }
@@ -48,6 +54,10 @@ pub fn expect(p: *Parser, comptime tag: syntax.pure.Token.Tag) bool {
 
 pub fn bump(p: *Parser, tag: syntax.pure.Token.Tag) void {
     std.debug.assert(p.eat(tag));
+}
+
+pub fn bumpAny(p: *Parser, tags: []const syntax.pure.Token.Tag) void {
+    std.debug.assert(p.eatAny(tags));
 }
 
 pub fn advance(p: *Parser) void {

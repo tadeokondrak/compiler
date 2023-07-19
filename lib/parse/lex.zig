@@ -19,6 +19,9 @@ const kw_map = std.ComptimeStringMap(syntax.pure.Token.Tag, .{
     .{ "continue", .kw_continue },
     .{ "mut", .kw_mut },
     .{ "let", .kw_let },
+    .{ "enum", .kw_enum },
+    .{ "union", .kw_union },
+    .{ "variant", .kw_variant },
 });
 
 pub const Lexer = struct {

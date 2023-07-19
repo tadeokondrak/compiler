@@ -159,6 +159,9 @@ pub const Token = struct {
         kw_continue,
         kw_mut,
         kw_let,
+        kw_enum,
+        kw_union,
+        kw_variant,
     };
 };
 

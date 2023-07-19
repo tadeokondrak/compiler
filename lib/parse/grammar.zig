@@ -44,6 +44,9 @@ const decl_first = [_]syntax.pure.Token.Tag{
     .kw_fn,
     .kw_struct,
     .kw_const,
+    .kw_enum,
+    .kw_union,
+    .kw_variant,
 };
 
 const expr_first = [_]syntax.pure.Token.Tag{
@@ -64,8 +67,11 @@ pub fn parseFile(p: *Parser) void {
             parseDecl(p);
         } else {
             const invalid_marker = p.builder.open();
-            while (!p.atAny(&decl_first))
-                p.advance();
+            if (!p.atAny(&decl_first)) {
+                p.builder.err("expected declaration");
+                while (!p.atAny(&decl_first))
+                    p.advance();
+            }
             p.builder.close(invalid_marker, .invalid);
         }
     }
@@ -76,8 +82,12 @@ fn parseDecl(p: *Parser) void {
     std.debug.assert(p.atAny(&decl_first));
     switch (p.nth(0)) {
         .kw_fn => parseFnDecl(p),
-        .kw_struct => parseStructDecl(p),
         .kw_const => parseConstDecl(p),
+        .kw_struct,
+        .kw_enum,
+        .kw_union,
+        .kw_variant,
+        => parseContainerDecl(p),
         else => unreachable,
     }
 }
@@ -158,21 +168,26 @@ fn parseFnReturnAnonymous(p: *Parser) void {
     p.builder.close(m, .fn_return);
 }
 
-fn parseStructDecl(p: *Parser) void {
+fn parseContainerDecl(p: *Parser) void {
     const m = p.builder.open();
-    p.bump(.kw_struct);
+    p.bumpAny(&.{
+        .kw_struct,
+        .kw_enum,
+        .kw_union,
+        .kw_variant,
+    });
     _ = p.expect(.ident);
     if (p.at(.lt))
         parseGenericParams(p);
     if (p.expect(.l_brace)) {
         while (p.at(.ident))
-            parseStructField(p);
+            parseContainerField(p);
         _ = p.expect(.r_brace);
     }
     p.builder.close(m, .decl_struct);
 }
 
-fn parseStructField(p: *Parser) void {
+fn parseContainerField(p: *Parser) void {
     const m = p.builder.open();
     _ = p.expect(.ident);
     parseTypeExpr(p);
