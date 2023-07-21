@@ -51,13 +51,13 @@ ExprIdent =
   'ident'
 
 Stmt =
-  expr:StmtExpr
-| block:StmtBlock
-| return:StmtReturn
-| if:StmtIf
-| loop:StmtLoop
-| while:StmtWhile
-| let:StmtLet
+  expr: StmtExpr
+| block: StmtBlock
+| return: StmtReturn
+| if: StmtIf
+| loop: StmtLoop
+| while: StmtWhile
+| let: StmtLet
 
 StmtExpr =
   Expr ';'
@@ -81,8 +81,8 @@ StmtLet =
   'let' 'ident' TypeExpr '=' Expr ';'
 
 TypeExpr =
-  unary:TypeExprUnary
-| ident:TypeExprIdent
+  unary: TypeExprUnary
+| ident: TypeExprIdent
 
 TypeExprUnary =
   '*' TypeExpr
