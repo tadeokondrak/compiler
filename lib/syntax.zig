@@ -22,34 +22,38 @@ pub const Children = struct {
     tree: *const Tree,
     child_nodes: []const pure.Node.Index,
     child_tags: []const pure.Node.Tag,
-    index: usize,
+    index: usize = 0,
+    last_yielded: ?Node = null,
 
-    pub fn next(children: *Children) error{OutOfMemory}!?Node {
-        if (children.index >= children.child_tags.len) return null;
-        const child_node = children.child_nodes[children.index];
-        const child_tag = children.child_tags[children.index];
-        children.index += 1;
+    pub fn next(iter: *Children) error{OutOfMemory}!?Node {
+        if (iter.last_yielded) |last_yielded| last_yielded.deinit();
+        if (iter.index >= iter.child_tags.len) return null;
+        const child_node = iter.child_nodes[iter.index];
+        const child_tag = iter.child_tags[iter.index];
+        iter.index += 1;
         if (child_node.isTree()) {
             const child_tree = child_node.asTree().?;
             const child_tree_tag = child_tag.asTreeTag().?;
-            const child = try children.tree.context.arena.create(Tree);
+            const child = try iter.tree.context.arena.create(Tree);
             child.* = .{
                 .tag = child_tree_tag,
                 .index = child_tree,
-                .context = children.tree.context,
-                .parent = children.tree,
+                .context = iter.tree.context,
+                .parent = iter.tree,
             };
+            iter.last_yielded = .{ .tree = child };
             return .{ .tree = child };
         } else if (child_node.isToken()) {
             const child_token = child_node.asToken().?;
             const child_token_tag = child_tag.asTokenTag().?;
-            const child = try children.tree.context.arena.create(Token);
+            const child = try iter.tree.context.arena.create(Token);
             child.* = .{
                 .tag = child_token_tag,
                 .index = child_token,
-                .parent = children.tree,
-                .context = children.tree.context,
+                .parent = iter.tree,
+                .context = iter.tree.context,
             };
+            iter.last_yielded = .{ .token = child };
             return .{ .token = child };
         } else {
             unreachable;
@@ -63,8 +67,13 @@ pub const Tree = struct {
     context: *Context,
     parent: ?*const Tree,
 
+    pub fn deinit(tree: *Tree) void {
+        tree.context.arena.destroy(tree);
+    }
+
     pub fn format(tree: *const Tree, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        for (tree.children() catch return) |child|
+        var iter = tree.children();
+        for (iter.next() catch return) |child|
             try writer.print("{}", .{child});
     }
 
@@ -73,7 +82,6 @@ pub const Tree = struct {
             .tree = tree,
             .child_nodes = tree.context.root.treeChildren(tree.index),
             .child_tags = tree.context.root.treeChildrenTags(tree.index),
-            .index = 0,
         };
     }
 
@@ -148,6 +156,10 @@ pub const Token = struct {
     parent: *const Tree,
     context: *Context,
 
+    pub fn deinit(token: *Token) void {
+        token.context.arena.destroy(token);
+    }
+
     pub fn format(token: Token, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         const data = token.context.root.tokenData(token.index);
         if (data.trivia_count != 0) {
@@ -188,8 +200,15 @@ pub const Token = struct {
 };
 
 pub const Node = union(enum) {
-    tree: *const Tree,
+    tree: *Tree,
     token: *Token,
+
+    pub fn deinit(node: Node) void {
+        switch (node) {
+            .tree => |tree| tree.deinit(),
+            .token => |token| token.deinit(),
+        }
+    }
 
     pub fn format(node: Node, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (node) {
