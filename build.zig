@@ -15,11 +15,47 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const ungrammar = b.addModule("ungrammar", .{
+        .source_file = .{ .path = "lib/ungrammar/ungrammar.zig" },
+    });
+
+    const ungrammar2json = b.addExecutable(.{
+        .name = "ungrammar2json",
+        .root_source_file = .{ .path = "cmd/ungrammar2json/ungrammar2json.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    ungrammar2json.addModule("ungrammar", ungrammar);
+
+    b.installArtifact(ungrammar2json);
+
+    const ast_codegen = b.addExecutable(.{
+        .name = "ast-codegen",
+        .root_source_file = .{ .path = "cmd/ast/ast.zig" },
+    });
+
+    ast_codegen.addModule("ungrammar", ungrammar);
+
+    const run_ast_codegen = b.addRunArtifact(ast_codegen);
+    run_ast_codegen.addFileSourceArg(.{ .path = "ast.ungram" });
+    const generated_ast_zig = run_ast_codegen.addOutputFileArg("ast.zig");
+
+    b.installArtifact(ast_codegen);
+
+    const ast = b.addModule("ast", .{
+        .source_file = generated_ast_zig,
+        .dependencies = &.{
+            .{ .name = "syntax", .module = syntax },
+        },
+    });
+
     const sema = b.addModule("sema", .{
         .source_file = .{ .path = "lib/sema.zig" },
         .dependencies = &.{
             .{ .name = "syntax", .module = syntax },
             .{ .name = "parse", .module = parse },
+            .{ .name = "ast", .module = ast },
         },
     });
 
@@ -33,6 +69,7 @@ pub fn build(b: *std.Build) void {
     exe.addModule("syntax", syntax);
     exe.addModule("parse", parse);
     exe.addModule("sema", sema);
+    exe.addModule("ast", ast);
 
     b.installArtifact(exe);
 
@@ -46,6 +83,7 @@ pub fn build(b: *std.Build) void {
     lsp.addModule("syntax", syntax);
     lsp.addModule("parse", parse);
     lsp.addModule("sema", sema);
+    lsp.addModule("ast", ast);
     lsp.addModule("zig-lsp", b.dependency("zig-lsp", .{}).module("zig-lsp"));
 
     b.installArtifact(lsp);

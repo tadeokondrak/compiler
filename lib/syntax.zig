@@ -1,6 +1,5 @@
 const std = @import("std");
 
-pub const ast = @import("syntax/ast.zig");
 pub const pure = @import("syntax/pure.zig");
 
 pub const Context = struct {
@@ -199,6 +198,5 @@ pub const Node = union(enum) {
 };
 
 comptime {
-    _ = ast;
     _ = pure;
 }

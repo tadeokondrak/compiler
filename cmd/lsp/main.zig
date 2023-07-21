@@ -3,6 +3,7 @@ const lsp = @import("zig-lsp");
 const syntax = @import("syntax");
 const parse = @import("parse");
 const sema = @import("sema");
+const ast = @import("ast");
 
 const LineIndex = sema.LineIndex;
 
@@ -18,14 +19,14 @@ const HoverResult = struct {
 fn hover(doc: *Document, token: *const syntax.Token) !?HoverResult {
     var tree: ?*const syntax.Tree = token.parent;
     while (tree) |it| : (tree = it.parent) {
-        if (syntax.ast.Expr.cast(it)) |expr| {
+        if (ast.Expr.cast(it)) |expr| {
             const ty = try doc.sema.analyzeExpr(expr, null);
             return .{
                 .span = expr.span(),
                 .data = .{ .ty = ty },
             };
         }
-        if (syntax.ast.TypeExpr.cast(it)) |type_expr| {
+        if (ast.TypeExpr.cast(it)) |type_expr| {
             const ty = try doc.sema.analyzeTypeExpr(type_expr);
             return .{
                 .span = type_expr.span(),

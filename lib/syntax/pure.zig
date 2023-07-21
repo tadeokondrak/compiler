@@ -203,14 +203,12 @@ pub const Tree = struct {
         type_expr_unary,
         type_expr_ident,
 
-        fn_params,
-        fn_param,
-        fn_returns,
-        fn_return,
-        call_args,
-        call_arg,
+        params,
+        param,
+        arguments,
+        argument,
 
-        struct_field,
+        field,
 
         generics,
         generic,

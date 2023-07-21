@@ -76,9 +76,9 @@ pub fn main() !void {
         });
     }
 
-    // std.debug.print("syntax: {}\n", .{ctx.root});
+    // std.debug.print("syntax: {}\n", .{sctx.root});
 
-    var it = try ctx.ast.iter();
+    var it = try ctx.ast.declNodes();
     while (it.next()) |decl_syntax|
         try ctx.analyzeDecl(decl_syntax);
 

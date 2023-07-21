@@ -130,7 +130,7 @@ fn parseFnParams(p: *Parser) void {
                 break;
     }
     _ = p.expect(.r_paren);
-    p.builder.close(m, .fn_params);
+    p.builder.close(m, .params);
 }
 
 fn parseFnParam(p: *Parser) bool {
@@ -138,7 +138,7 @@ fn parseFnParam(p: *Parser) bool {
     _ = p.expect(.ident);
     parseTypeExpr(p);
     const comma = p.eat(.comma);
-    p.builder.close(m, .fn_param);
+    p.builder.close(m, .param);
     return comma;
 }
 
@@ -151,7 +151,7 @@ fn parseFnReturns(p: *Parser) void {
     } else if (p.atAny(&type_expr_first)) {
         parseFnReturnAnonymous(p);
     }
-    p.builder.close(m, .fn_returns);
+    p.builder.close(m, .params);
 }
 
 fn parseFnReturnNamed(p: *Parser) void {
@@ -159,13 +159,13 @@ fn parseFnReturnNamed(p: *Parser) void {
     _ = p.expect(.ident);
     parseTypeExpr(p);
     _ = p.eat(.comma);
-    p.builder.close(m, .fn_return);
+    p.builder.close(m, .param);
 }
 
 fn parseFnReturnAnonymous(p: *Parser) void {
     const m = p.builder.open();
     parseTypeExpr(p);
-    p.builder.close(m, .fn_return);
+    p.builder.close(m, .param);
 }
 
 fn parseContainerDecl(p: *Parser) void {
@@ -194,7 +194,7 @@ fn parseContainerField(p: *Parser) void {
     if (p.eat(.eq))
         parseExpr(p);
     _ = p.expect(.semi);
-    p.builder.close(m, .struct_field);
+    p.builder.close(m, .field);
 }
 
 fn parseConstDecl(p: *Parser) void {
@@ -335,12 +335,12 @@ fn parseExprPrecedence(p: *Parser, left_precedence: u8) void {
                         const arg = p.builder.open();
                         parseExpr(p);
                         const comma = p.eat(.comma);
-                        p.builder.close(arg, .call_arg);
+                        p.builder.close(arg, .argument);
                         if (!comma)
                             break;
                     }
                     _ = p.expect(.r_paren);
-                    p.builder.close(args, .call_args);
+                    p.builder.close(args, .arguments);
                     p.builder.close(lhs, .expr_call);
                 },
                 .l_bracket => {
