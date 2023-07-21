@@ -18,13 +18,8 @@ pub fn main() !void {
     const in = try std.fs.cwd().openFileZ(in_path, .{});
     defer in.close();
 
-    const out = try std.fs.cwd().createFileZ(out_path, .{});
-    defer out.close();
-
     const src = try in.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(src);
-
-    var buffered_writer = std.io.bufferedWriter(out.writer());
 
     var result = try ungrammar.parse(allocator, src);
     defer result.deinit(allocator);
@@ -37,7 +32,10 @@ pub fn main() !void {
         },
     };
 
-    try buffered_writer.writer().writeAll(
+    var buf = std.ArrayList(u8).init(allocator);
+    defer buf.deinit();
+
+    try buf.appendSlice(
         \\const std = @import("std");
         \\const syntax = @import("syntax");
         \\
@@ -75,8 +73,24 @@ pub fn main() !void {
         \\
     );
 
-    try emitGrammar(buffered_writer.writer(), grammar, allocator);
-    try buffered_writer.flush();
+    try emitGrammar(buf.writer(), grammar, allocator);
+
+    const zig_src = try buf.toOwnedSliceSentinel(0);
+    defer allocator.free(zig_src);
+
+    // Run it through zig fmt to turn raw identifiers into normal identifiers
+    // because zls gets confused when you mix them.
+    // In the future we could just emit the right identifier kind
+    var ast = try std.zig.Ast.parse(allocator, zig_src, .zig);
+    defer ast.deinit(allocator);
+
+    const formatted = try ast.render(allocator);
+    defer allocator.free(formatted);
+
+    const out = try std.fs.cwd().createFileZ(out_path, .{});
+    defer out.close();
+
+    try out.writeAll(formatted);
 }
 
 fn emitGrammar(ws: anytype, grammar: ungrammar.Grammar, allocator: std.mem.Allocator) !void {

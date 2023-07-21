@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -40,6 +40,28 @@ pub fn build(b: *std.Build) void {
     const run_ast_codegen = b.addRunArtifact(ast_codegen);
     run_ast_codegen.addFileSourceArg(.{ .path = "ast.ungram" });
     const generated_ast_zig = run_ast_codegen.addOutputFileArg("ast.zig");
+
+    {
+        // ZLS hack
+
+        var iterable = try std.fs.cwd().openIterableDir("zig-cache/o", .{});
+        defer iterable.close();
+
+        var walker = try iterable.walk(b.allocator);
+        defer walker.deinit();
+
+        var max_ctime: i128 = 0;
+        while (try walker.next()) |entry| {
+            if (std.mem.eql(u8, entry.basename, "ast.zig")) {
+                const stat = try entry.dir.statFile(entry.basename);
+                if (stat.ctime > max_ctime) {
+                    const path = try std.fs.path.join(b.allocator, &.{ "zig-cache/o", entry.path });
+                    @constCast(generated_ast_zig.generated).path = path;
+                    max_ctime = stat.ctime;
+                }
+            }
+        }
+    }
 
     b.installArtifact(ast_codegen);
 
