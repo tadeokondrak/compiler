@@ -61,7 +61,7 @@ pub const Type = union(enum) {
                     const ident = try structure.identToken() orelse
                         return typeTodo(ctx, structure.span(), @src());
 
-                    try ctx.structures.append(ctx.gpa, .{ .syntax = structure, .name = ident.text() });
+                    try ctx.structures.append(ctx.gpa, .{ .syntax = structure.ptr(), .name = ident.text() });
                     break :blk .{ .structure = @enumFromInt(struct_index) };
                 },
                 .function => |function_ptr| blk: {
@@ -71,7 +71,7 @@ pub const Type = union(enum) {
                     const ident = try function.identToken() orelse
                         return typeTodo(ctx, function.span(), @src());
 
-                    try ctx.functions.append(ctx.gpa, .{ .syntax = function, .name = ident.text() });
+                    try ctx.functions.append(ctx.gpa, .{ .syntax = function.ptr(), .name = ident.text() });
                     break :blk .{ .function = @enumFromInt(function_index) };
                 },
             });
@@ -86,8 +86,8 @@ pub const Type = union(enum) {
             .generic => .generic,
             .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
             .pointer => |pointee| .{ .pointer = pointee },
-            .structure => |structure| .{ .structure = structPtr(ctx, structure).syntax.ptr() },
-            .function => |function| .{ .function = fnPtr(ctx, function).syntax.ptr() },
+            .structure => |structure| .{ .structure = structPtr(ctx, structure).syntax },
+            .function => |function| .{ .function = fnPtr(ctx, function).syntax },
         };
     }
 
@@ -109,7 +109,7 @@ pub const Type = union(enum) {
 
 const Struct = struct {
     analysis: enum { unanalyzed, analyzing, analyzed } = .unanalyzed,
-    syntax: ast.DeclStruct,
+    syntax: ast.Ptr(ast.DeclStruct),
     name: []const u8,
     fields: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
 
@@ -121,7 +121,7 @@ const Struct = struct {
 
 const Fn = struct {
     analysis: enum { unanalyzed, analyzing, analyzed } = .unanalyzed,
-    syntax: ast.DeclFn,
+    syntax: ast.Ptr(ast.DeclFn),
     name: []const u8,
     params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
     returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
@@ -568,8 +568,10 @@ fn analyzeFn(ctx: *Context, function: *Fn) !void {
 
     function.analysis = .analyzing;
 
+    const function_syntax = try function.syntax.deref(ctx.ast.tree);
+
     params: {
-        const params = try function.syntax.paramsNode() orelse
+        const params = try function_syntax.paramsNode() orelse
             break :params;
 
         var it = try params.paramNodes();
@@ -586,7 +588,7 @@ fn analyzeFn(ctx: *Context, function: *Fn) !void {
     }
 
     returns: {
-        const returns = try function.syntax.returnsNode() orelse
+        const returns = try function_syntax.returnsNode() orelse
             break :returns;
 
         var it = try returns.paramNodes();
@@ -602,8 +604,8 @@ fn analyzeFn(ctx: *Context, function: *Fn) !void {
         }
     }
 
-    const body = try function.syntax.stmtBlockNode() orelse
-        return todo(ctx, function.syntax.span(), @src());
+    const body = try function_syntax.stmtBlockNode() orelse
+        return todo(ctx, function.syntax.span, @src());
 
     try checkBlock(ctx, function, body);
 
@@ -616,7 +618,8 @@ fn analyzeStruct(ctx: *Context, structure: *Struct) !void {
     structure.analysis = .analyzing;
 
     std.debug.assert(structure.fields.entries.len == 0);
-    var it = try structure.syntax.fieldNodes();
+    const function_syntax = try structure.syntax.deref(ctx.ast.tree);
+    var it = try function_syntax.fieldNodes();
     while (it.next()) |field| {
         const name_syntax = try field.identToken() orelse
             return err(ctx, field.span(), "struct field without name", .{});
@@ -884,12 +887,12 @@ fn checkBlock(
         if (child != .tree) continue;
 
         const stmt = ast.Stmt.cast(child.tree) orelse
-            return todo(ctx, function.syntax.span(), @src());
+            return todo(ctx, function.syntax.span, @src());
 
         switch (stmt) {
             .expr => |expr_stmt| {
                 const expr = try expr_stmt.exprNode() orelse
-                    return todo(ctx, function.syntax.span(), @src());
+                    return todo(ctx, function.syntax.span, @src());
 
                 try checkExpr(ctx, function, expr, null);
             },
@@ -900,7 +903,7 @@ fn checkBlock(
                 var exprs = try return_stmt.exprNodes();
                 for (function.returns.values()) |ret_ty| {
                     const expr = exprs.next() orelse
-                        return todo(ctx, function.syntax.span(), @src());
+                        return todo(ctx, function.syntax.span, @src());
                     try checkExpr(ctx, function, expr, ret_ty);
                 }
                 if (exprs.next()) |expr| {
