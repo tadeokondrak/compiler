@@ -78,8 +78,8 @@ pub fn main() !void {
 
     // std.debug.print("syntax: {}\n", .{sctx.root});
 
-    var it = try ctx.ast.declNodes();
-    while (it.next()) |decl_syntax|
+    var it = ctx.ast.declNodes();
+    while (try it.next()) |decl_syntax|
         try ctx.analyzeDecl(decl_syntax);
 
     try ctx.dump(std.io.getStdErr().writer());

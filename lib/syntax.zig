@@ -18,6 +18,45 @@ pub const Context = struct {
     }
 };
 
+pub const Children = struct {
+    tree: *const Tree,
+    child_nodes: []const pure.Node.Index,
+    child_tags: []const pure.Node.Tag,
+    index: usize,
+
+    pub fn next(children: *Children) error{OutOfMemory}!?Node {
+        if (children.index >= children.child_tags.len) return null;
+        const child_node = children.child_nodes[children.index];
+        const child_tag = children.child_tags[children.index];
+        children.index += 1;
+        if (child_node.isTree()) {
+            const child_tree = child_node.asTree().?;
+            const child_tree_tag = child_tag.asTreeTag().?;
+            const child = try children.tree.context.arena.create(Tree);
+            child.* = .{
+                .tag = child_tree_tag,
+                .index = child_tree,
+                .context = children.tree.context,
+                .parent = children.tree,
+            };
+            return .{ .tree = child };
+        } else if (child_node.isToken()) {
+            const child_token = child_node.asToken().?;
+            const child_token_tag = child_tag.asTokenTag().?;
+            const child = try children.tree.context.arena.create(Token);
+            child.* = .{
+                .tag = child_token_tag,
+                .index = child_token,
+                .parent = children.tree,
+                .context = children.tree.context,
+            };
+            return .{ .token = child };
+        } else {
+            unreachable;
+        }
+    }
+};
+
 pub const Tree = struct {
     tag: pure.Tree.Tag,
     index: pure.Tree.Index,
@@ -29,39 +68,13 @@ pub const Tree = struct {
             try writer.print("{}", .{child});
     }
 
-    pub fn children(tree: *const Tree) error{OutOfMemory}![]Node {
-        const child_nodes = tree.context.root.treeChildren(tree.index);
-        const child_tags = tree.context.root.treeChildrenTags(tree.index);
-        const nodes = try tree.context.arena.alloc(Node, child_nodes.len);
-        errdefer tree.context.arena.free(nodes);
-        for (0.., child_nodes, child_tags) |i, child_node, child_tag| {
-            if (child_node.isTree()) {
-                const child_tree = child_node.asTree().?;
-                const child_tree_tag = child_tag.asTreeTag().?;
-                const child = try tree.context.arena.create(Tree);
-                child.* = .{
-                    .tag = child_tree_tag,
-                    .index = child_tree,
-                    .context = tree.context,
-                    .parent = tree,
-                };
-                nodes[i] = .{ .tree = child };
-            } else if (child_node.isToken()) {
-                const child_token = child_node.asToken().?;
-                const child_token_tag = child_tag.asTokenTag().?;
-                const child = try tree.context.arena.create(Token);
-                child.* = .{
-                    .tag = child_token_tag,
-                    .index = child_token,
-                    .parent = tree,
-                    .context = tree.context,
-                };
-                nodes[i] = .{ .token = child };
-            } else {
-                unreachable;
-            }
-        }
-        return nodes;
+    pub fn children(tree: *const Tree) Children {
+        return .{
+            .tree = tree,
+            .child_nodes = tree.context.root.treeChildren(tree.index),
+            .child_tags = tree.context.root.treeChildrenTags(tree.index),
+            .index = 0,
+        };
     }
 
     pub fn span(tree: Tree) pure.Span {
@@ -75,7 +88,8 @@ pub const Tree = struct {
             return tree;
         }
 
-        for (try tree.children()) |child| {
+        var iter = tree.children();
+        while (try iter.next()) |child| {
             switch (child) {
                 .tree => |child_tree| {
                     if (try child_tree.getTree(tree_span)) |found_tree|
@@ -89,7 +103,8 @@ pub const Tree = struct {
     }
 
     pub fn getToken(tree: *const Tree, token_span: pure.Span) !?*Token {
-        for (try tree.children()) |child| {
+        var iter = tree.children();
+        while (try iter.next()) |child| {
             switch (child) {
                 .tree => |child_tree| {
                     const token = try child_tree.getToken(span);
@@ -108,7 +123,8 @@ pub const Tree = struct {
     }
 
     pub fn findToken(tree: *const Tree, pos: pure.Pos) !?*Token {
-        for (try tree.children()) |child| {
+        var iter = tree.children();
+        while (try iter.next()) |child| {
             switch (child) {
                 .tree => |child_tree| {
                     const node = try child_tree.findToken(pos);

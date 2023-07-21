@@ -58,21 +58,15 @@ pub fn main() !void {
         \\    };
         \\}
         \\
-        \\pub fn TreeIterator(comptime T: type) type {
+        \\pub fn Children(comptime T: type) type {
         \\    return struct {
-        \\        nodes: []syntax.Node,
+        \\        children: syntax.Children,
         \\
-        \\        pub fn next(this: *@This()) ?T {
-        \\            for (this.nodes, 0..) |node, i| {
-        \\                switch (node) {
-        \\                    .tree => |tree| {
-        \\                        if (T.cast(tree)) |correct_tree| {
-        \\                            this.nodes = this.nodes[i + 1 ..];
-        \\                            return correct_tree;
-        \\                        }
-        \\                    },
-        \\                    .token => {},
-        \\                }
+        \\        pub fn next(this: *@This()) error{OutOfMemory}!?T {
+        \\            while (try this.children.next()) |child| {
+        \\                if (child != .tree) continue;
+        \\                if (T.cast(child.tree)) |correct|
+        \\                    return correct;
         \\            }
         \\            return null;
         \\        }
@@ -225,7 +219,8 @@ fn emitStructMethodWithName(ws: anytype, grammar: ungrammar.Grammar, name: []con
                 result.value_ptr.* = 0;
             try ws.print(
                 \\        var i: usize = 0;
-                \\        for (try this.tree.children()) |child| {{
+                \\        var iter = this.tree.children();
+                \\        while (try iter.next()) |child| {{
                 \\            switch (child) {{
                 \\                .tree => |child_tree| {{
                 \\                    if ({s}.cast(child_tree)) |correct_tree| {{
@@ -250,7 +245,8 @@ fn emitStructMethodWithName(ws: anytype, grammar: ungrammar.Grammar, name: []con
                 fmtLowerCamel(stripKwPrefix(tokenName(name))),
             });
             try ws.print(
-                \\        for (try this.tree.children()) |child| {{
+                \\        var iter = this.tree.children();
+                \\        while (try iter.next()) |child| {{
                 \\            switch (child) {{
                 \\                .tree => {{}},
                 \\                .token => |token| {{
@@ -276,12 +272,12 @@ fn emitStructMethodWithName(ws: anytype, grammar: ungrammar.Grammar, name: []con
             }
             const node = grammar.ruleNode(data);
             const node_name = grammar.nodeName(node);
-            try ws.print("    pub fn {}Nodes(this: @This()) error{{OutOfMemory}}!TreeIterator({s}) {{\n", .{
+            try ws.print("    pub fn {}Nodes(this: @This()) Children({s}) {{\n", .{
                 fmtLowerCamel(name),
                 node_name,
             });
             try ws.writeAll(
-                \\        return .{ .nodes = try this.tree.children() };
+                \\        return .{ .children = this.tree.children() };
                 \\    }
                 \\
                 \\

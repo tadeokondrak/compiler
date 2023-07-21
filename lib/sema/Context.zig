@@ -272,8 +272,8 @@ pub const Scope = struct {
             },
             .file => |file_ptr| {
                 const file = try file_ptr.deref(ctx.ast.tree);
-                var decls = try file.declNodes();
-                while (decls.next()) |decl| {
+                var decls = file.declNodes();
+                while (try decls.next()) |decl| {
                     const decl_ident = switch (decl) {
                         inline else => |specific| try specific.identToken() orelse continue,
                     };
@@ -283,8 +283,8 @@ pub const Scope = struct {
             },
             .generics => |generics_ptr| {
                 const generics = try generics_ptr.deref(ctx.ast.tree);
-                var generics_iter = try generics.genericNodes();
-                while (generics_iter.next()) |generic| {
+                var generics_iter = generics.genericNodes();
+                while (try generics_iter.next()) |generic| {
                     const generic_ident = try generic.identToken() orelse continue;
                     if (std.mem.eql(u8, name, generic_ident.text()))
                         return .{ .generic = generic.ptr() };
@@ -292,8 +292,8 @@ pub const Scope = struct {
             },
             .params => |params_ptr| {
                 const params = try params_ptr.deref(ctx.ast.tree);
-                var params_iter = try params.paramNodes();
-                while (params_iter.next()) |param| {
+                var params_iter = params.paramNodes();
+                while (try params_iter.next()) |param| {
                     const param_ident = try param.identToken() orelse continue;
                     if (std.mem.eql(u8, name, param_ident.text()))
                         return .{ .fn_param = param.ptr() };
@@ -574,8 +574,8 @@ fn analyzeFn(ctx: *Context, function: *Fn) !void {
         const params = try function_syntax.paramsNode() orelse
             break :params;
 
-        var it = try params.paramNodes();
-        while (it.next()) |param| {
+        var it = params.paramNodes();
+        while (try it.next()) |param| {
             const name_syntax = try param.identToken() orelse
                 return err(ctx, param.span(), "function parameter without name", .{});
 
@@ -591,8 +591,8 @@ fn analyzeFn(ctx: *Context, function: *Fn) !void {
         const returns = try function_syntax.returnsNode() orelse
             break :returns;
 
-        var it = try returns.paramNodes();
-        while (it.next()) |param| {
+        var it = returns.paramNodes();
+        while (try it.next()) |param| {
             const name_syntax = try param.identToken() orelse
                 return err(ctx, param.span(), "function return without name", .{});
 
@@ -619,8 +619,8 @@ fn analyzeStruct(ctx: *Context, structure: *Struct) !void {
 
     std.debug.assert(structure.fields.entries.len == 0);
     const function_syntax = try structure.syntax.deref(ctx.ast.tree);
-    var it = try function_syntax.fieldNodes();
-    while (it.next()) |field| {
+    var it = function_syntax.fieldNodes();
+    while (try it.next()) |field| {
         const name_syntax = try field.identToken() orelse
             return err(ctx, field.span(), "struct field without name", .{});
 
@@ -781,9 +781,9 @@ pub fn analyzeExpr(
             const args_wrapper = try call_expr.argumentsNode() orelse
                 return typeTodo(ctx, call_expr.span(), @src());
 
-            var args = try args_wrapper.argumentNodes();
+            var args = args_wrapper.argumentNodes();
             for (params.values()) |param_ty| {
-                const arg = args.next() orelse
+                const arg = try args.next() orelse
                     return typeTodo(ctx, call_expr.span(), @src());
 
                 const arg_expr = try arg.exprNode() orelse
@@ -794,7 +794,7 @@ pub fn analyzeExpr(
                     return typeTodo(ctx, call_expr.span(), @src());
             }
 
-            if (args.next()) |_|
+            if (try args.next()) |_|
                 return typeTodo(ctx, call_expr.span(), @src());
 
             if (function.returns.values().len != 1)
@@ -883,12 +883,8 @@ fn checkBlock(
     function: *Fn,
     body: ast.StmtBlock,
 ) error{OutOfMemory}!void {
-    for (try body.tree.children()) |child| {
-        if (child != .tree) continue;
-
-        const stmt = ast.Stmt.cast(child.tree) orelse
-            return todo(ctx, function.syntax.span, @src());
-
+    var iter = body.stmtNodes();
+    while (try iter.next()) |stmt| {
         switch (stmt) {
             .expr => |expr_stmt| {
                 const expr = try expr_stmt.exprNode() orelse
@@ -900,13 +896,13 @@ fn checkBlock(
                 try checkBlock(ctx, function, block_stmt);
             },
             .@"return" => |return_stmt| {
-                var exprs = try return_stmt.exprNodes();
+                var exprs = return_stmt.exprNodes();
                 for (function.returns.values()) |ret_ty| {
-                    const expr = exprs.next() orelse
+                    const expr = try exprs.next() orelse
                         return todo(ctx, function.syntax.span, @src());
                     try checkExpr(ctx, function, expr, ret_ty);
                 }
-                if (exprs.next()) |expr| {
+                if (try exprs.next()) |expr| {
                     try err(ctx, expr.span(), "too many return values", .{});
                     return;
                 }
