@@ -1,4 +1,4 @@
-const Context = @This();
+const Sema = @This();
 
 const std = @import("std");
 const syntax = @import("syntax");
@@ -40,7 +40,7 @@ pub const Type = union(enum) {
         function: ast.Ptr(ast.DeclFn),
     };
 
-    pub fn get(ctx: *Context, key: Type.Key) error{OutOfMemory}!Type.Index {
+    pub fn get(ctx: *Sema, key: Type.Key) error{OutOfMemory}!Type.Index {
         const result = try ctx.type_pool.getOrPutAdapted(
             ctx.gpa,
             key,
@@ -79,7 +79,7 @@ pub const Type = union(enum) {
         return @enumFromInt(result.index);
     }
 
-    fn toKey(ctx: *Context, ty: Type) Key {
+    fn toKey(ctx: *Sema, ty: Type) Key {
         return switch (ty) {
             .invalid => .invalid,
             .bool => .bool,
@@ -92,7 +92,7 @@ pub const Type = union(enum) {
     }
 
     const HashContext = struct {
-        ctx: *Context,
+        ctx: *Sema,
 
         pub fn hash(_: @This(), key: Key) u32 {
             var hasher = std.hash.Wyhash.init(0);
@@ -169,7 +169,7 @@ pub const Scope = struct {
         null,
     };
 
-    pub fn toKey(ctx: *Context, scope: Scope) Key {
+    pub fn toKey(ctx: *Sema, scope: Scope) Key {
         _ = ctx;
         return switch (scope.data) {
             .builtin => .builtin,
@@ -179,7 +179,7 @@ pub const Scope = struct {
         };
     }
 
-    pub fn get(ctx: *Context, key: Scope.Key) error{OutOfMemory}!Scope.Index {
+    pub fn get(ctx: *Sema, key: Scope.Key) error{OutOfMemory}!Scope.Index {
         const result = try ctx.scope_pool.getOrPutAdapted(
             ctx.gpa,
             key,
@@ -227,7 +227,7 @@ pub const Scope = struct {
         return @enumFromInt(result.index);
     }
 
-    pub fn find(ctx: *Context, node_arg: *const syntax.Tree) error{OutOfMemory}!Scope.Index {
+    pub fn find(ctx: *Sema, node_arg: *const syntax.Tree) error{OutOfMemory}!Scope.Index {
         var node: ?*const syntax.Tree = node_arg;
         while (node) |current_node| : (node = current_node.parent) {
             switch (current_node.tag) {
@@ -255,7 +255,7 @@ pub const Scope = struct {
     }
 
     fn lookUp(
-        ctx: *Context,
+        ctx: *Sema,
         scope_index: Index,
         name: []const u8,
     ) !?LookupResult {
@@ -308,7 +308,7 @@ pub const Scope = struct {
     }
 
     const HashContext = struct {
-        ctx: *Context,
+        ctx: *Sema,
 
         pub fn hash(_: @This(), key: Key) u32 {
             var hasher = std.hash.Wyhash.init(0);
@@ -323,24 +323,24 @@ pub const Scope = struct {
     };
 };
 
-pub fn typePtr(ctx: *Context, i: Type.Index) *Type {
+pub fn typePtr(ctx: *Sema, i: Type.Index) *Type {
     return &ctx.types.items[@intFromEnum(i)];
 }
 
-pub fn scopePtr(ctx: *Context, i: Scope.Index) *Scope {
+pub fn scopePtr(ctx: *Sema, i: Scope.Index) *Scope {
     return &ctx.scopes.items[@intFromEnum(i)];
 }
 
-pub fn structPtr(ctx: *Context, i: Struct.Index) *Struct {
+pub fn structPtr(ctx: *Sema, i: Struct.Index) *Struct {
     return &ctx.structures.items[@intFromEnum(i)];
 }
 
-pub fn fnPtr(ctx: *Context, i: Fn.Index) *Fn {
+pub fn fnPtr(ctx: *Sema, i: Fn.Index) *Fn {
     return &ctx.functions.items[@intFromEnum(i)];
 }
 
 fn err(
-    ctx: *Context,
+    ctx: *Sema,
     span: syntax.pure.Span,
     comptime fmt: []const u8,
     args: anytype,
@@ -352,7 +352,7 @@ fn err(
 }
 
 fn todo(
-    ctx: *Context,
+    ctx: *Sema,
     span: syntax.pure.Span,
     src: std.builtin.SourceLocation,
 ) error{OutOfMemory}!void {
@@ -365,7 +365,7 @@ fn todo(
 }
 
 fn typeErr(
-    ctx: *Context,
+    ctx: *Sema,
     span: syntax.pure.Span,
     comptime fmt: []const u8,
     args: anytype,
@@ -375,7 +375,7 @@ fn typeErr(
 }
 
 fn typeTodo(
-    ctx: *Context,
+    ctx: *Sema,
     span: syntax.pure.Span,
     src: std.builtin.SourceLocation,
 ) error{OutOfMemory}!Type.Index {
@@ -383,7 +383,7 @@ fn typeTodo(
     return Type.get(ctx, .invalid);
 }
 
-const FormatFnArgs = struct { ctx: *Context, function: Fn.Index };
+const FormatFnArgs = struct { ctx: *Sema, function: Fn.Index };
 
 fn formatFn(
     args: FormatFnArgs,
@@ -405,11 +405,11 @@ fn formatFn(
     try writer.print(")", .{});
 }
 
-pub fn fmtFn(ctx: *Context, function: Fn.Index) std.fmt.Formatter(formatFn) {
+pub fn fmtFn(ctx: *Sema, function: Fn.Index) std.fmt.Formatter(formatFn) {
     return .{ .data = .{ .ctx = ctx, .function = function } };
 }
 
-const FormatStructArgs = struct { ctx: *Context, structure: Struct.Index };
+const FormatStructArgs = struct { ctx: *Sema, structure: Struct.Index };
 
 fn formatStruct(
     args: FormatStructArgs,
@@ -431,11 +431,11 @@ fn formatStruct(
     }
 }
 
-pub fn fmtStruct(ctx: *Context, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
+pub fn fmtStruct(ctx: *Sema, structure: Struct.Index) std.fmt.Formatter(formatStruct) {
     return .{ .data = .{ .ctx = ctx, .structure = structure } };
 }
 
-const FormatScopeArgs = struct { ctx: *Context, scope: Scope.Index };
+const FormatScopeArgs = struct { ctx: *Sema, scope: Scope.Index };
 
 fn formatScope(
     args: FormatScopeArgs,
@@ -449,11 +449,11 @@ fn formatScope(
     try writer.writeAll(@tagName(scope.data));
 }
 
-pub fn fmtScope(ctx: *Context, scope: Scope.Index) std.fmt.Formatter(formatScope) {
+pub fn fmtScope(ctx: *Sema, scope: Scope.Index) std.fmt.Formatter(formatScope) {
     return .{ .data = .{ .ctx = ctx, .scope = scope } };
 }
 
-const FormatTypeArgs = struct { ctx: *Context, ty: Type.Index };
+const FormatTypeArgs = struct { ctx: *Sema, ty: Type.Index };
 
 fn formatType(
     args: FormatTypeArgs,
@@ -472,12 +472,12 @@ fn formatType(
     };
 }
 
-pub fn fmtType(ctx: *Context, ty: Type.Index) std.fmt.Formatter(formatType) {
+pub fn fmtType(ctx: *Sema, ty: Type.Index) std.fmt.Formatter(formatType) {
     return .{ .data = .{ .ctx = ctx, .ty = ty } };
 }
 
 pub fn printDiagnostics(
-    ctx: *Context,
+    ctx: *Sema,
     src: []const u8,
     writer: anytype,
 ) (@TypeOf(writer).Error || error{OutOfMemory})!bool {
@@ -505,7 +505,7 @@ pub fn printDiagnostics(
     return true;
 }
 
-pub fn deinit(ctx: *Context) void {
+pub fn deinit(ctx: *Sema) void {
     for (ctx.diagnostics.items(.message)) |message|
         ctx.gpa.free(message);
     ctx.diagnostics.deinit(ctx.gpa);
@@ -523,14 +523,14 @@ pub fn deinit(ctx: *Context) void {
     ctx.types.deinit(ctx.gpa);
 }
 
-pub fn dump(ctx: *Context, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
+pub fn dump(ctx: *Sema, writer: anytype) (@TypeOf(writer).Error || error{OutOfMemory})!void {
     for (0..ctx.type_pool.entries.len) |i|
         try writer.print("Type {}: {#}\n", .{ i, fmtType(ctx, @enumFromInt(i)) });
     for (0..ctx.scope_pool.entries.len) |i|
         try writer.print("Scope {}: {}\n", .{ i, fmtScope(ctx, @enumFromInt(i)) });
 }
 
-pub fn analyzeDecl(ctx: *Context, decl: ast.Decl) error{OutOfMemory}!void {
+pub fn analyzeDecl(ctx: *Sema, decl: ast.Decl) error{OutOfMemory}!void {
     switch (decl) {
         .structure => |struct_syntax| {
             var type_index = try Type.get(ctx, .{ .structure = struct_syntax.ptr() });
@@ -563,7 +563,7 @@ pub fn analyzeDecl(ctx: *Context, decl: ast.Decl) error{OutOfMemory}!void {
     }
 }
 
-fn analyzeFn(ctx: *Context, function: *Fn) !void {
+fn analyzeFn(ctx: *Sema, function: *Fn) !void {
     if (function.analysis == .analyzed or function.analysis == .analyzing) return;
 
     function.analysis = .analyzing;
@@ -612,7 +612,7 @@ fn analyzeFn(ctx: *Context, function: *Fn) !void {
     function.analysis = .analyzed;
 }
 
-fn analyzeStruct(ctx: *Context, structure: *Struct) !void {
+fn analyzeStruct(ctx: *Sema, structure: *Struct) !void {
     if (structure.analysis == .analyzed or structure.analysis == .analyzing) return;
 
     structure.analysis = .analyzing;
@@ -636,7 +636,7 @@ fn analyzeStruct(ctx: *Context, structure: *Struct) !void {
 
 // may return a type other than/incompatible with expected_type
 pub fn analyzeExpr(
-    ctx: *Context,
+    ctx: *Sema,
     expr: ast.Expr,
     maybe_expected_type: ?Type.Index,
 ) error{OutOfMemory}!Type.Index {
@@ -806,7 +806,7 @@ pub fn analyzeExpr(
     }
 }
 
-pub fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) error{OutOfMemory}!Type.Index {
+pub fn analyzeTypeExpr(ctx: *Sema, type_expr: ast.TypeExpr) error{OutOfMemory}!Type.Index {
     switch (type_expr) {
         .ident => |ident| {
             const ident_token = try ident.identToken() orelse
@@ -859,7 +859,7 @@ pub fn analyzeTypeExpr(ctx: *Context, type_expr: ast.TypeExpr) error{OutOfMemory
 }
 
 fn typeOfDecl(
-    ctx: *Context,
+    ctx: *Sema,
     decl: ast.Decl,
 ) error{OutOfMemory}!Type.Index {
     switch (decl) {
@@ -879,7 +879,7 @@ fn typeOfDecl(
 }
 
 fn checkBlock(
-    ctx: *Context,
+    ctx: *Sema,
     function: *Fn,
     body: ast.StmtBlock,
 ) error{OutOfMemory}!void {
@@ -947,7 +947,7 @@ fn checkBlock(
 }
 
 fn checkExpr(
-    ctx: *Context,
+    ctx: *Sema,
     function: *Fn,
     expr: ast.Expr,
     maybe_expected_type: ?Type.Index,

@@ -60,7 +60,7 @@ pub fn main() !void {
         .root = parsed.root,
     };
 
-    var ctx: sema.Context = .{
+    var ctx: sema.Sema = .{
         .gpa = gpa.allocator(),
         .ast = .{ .tree = try sctx.createTree(@enumFromInt(0)) },
     };
