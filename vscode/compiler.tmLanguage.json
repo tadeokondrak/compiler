@@ -12,7 +12,19 @@
         },
         {
             "name": "keyword.other",
-            "match": "\\b(const|struct|fn)\\b"
+            "match": "\\b(const|struct|union|variant|enum|fn|let|mut)\\b"
+        },
+        {
+            "name": "storage.type",
+            "match": "\\b((u|i|f)\\d+)\\b"
+        },
+        {
+            "name": "constant.numeric",
+            "match": "\\b(\\d+)\\b"
+        },
+        {
+            "name": "constant.language",
+            "match": "\\b(true|false|null)\\b"
         }
     ]
 }
