@@ -170,7 +170,9 @@ pub fn lex_one(s: &str) -> Token {
         return Token::empty();
     }
     let mut it = s.chars();
-    let Some(first_char) = it.next() else { return Token::empty(); };
+    let Some(first_char) = it.next() else {
+        return Token::empty();
+    };
     let simple_token = match first_char {
         '+' => Some(TokenKind::Plus),
         '-' => Some(TokenKind::Minus),
