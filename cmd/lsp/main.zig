@@ -12,7 +12,7 @@ const Connection = lsp.Connection(std.fs.File.Reader, std.fs.File.Writer, Contex
 const HoverResult = struct {
     span: syntax.pure.Span,
     data: union(enum) {
-        ty: sema.Context.Type.Index,
+        ty: sema.Sema.Type.Index,
     },
 };
 
@@ -39,7 +39,7 @@ fn hover(doc: *Document, token: *const syntax.Token) !?HoverResult {
 
 const Document = struct {
     arena: std.heap.ArenaAllocator,
-    sema: sema.Context,
+    sema: sema.Sema,
     syntax: syntax.Context,
     line_index: LineIndex,
 
@@ -64,6 +64,9 @@ const Document = struct {
             });
         }
         doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
+        var iter = doc.sema.ast.declNodes();
+        while (try iter.next()) |decl_syntax|
+            try doc.sema.analyzeDecl(decl_syntax);
     }
 
     fn updateContent(doc: *Document, allocator: std.mem.Allocator, src: []const u8) !void {
@@ -88,6 +91,9 @@ const Document = struct {
         doc.syntax.root = (try parse.parseFile(doc.arena.allocator(), src)).root;
         doc.line_index.deinit(doc.arena.allocator());
         doc.line_index = try LineIndex.make(doc.arena.allocator(), src);
+        var iter = doc.sema.ast.declNodes();
+        while (try iter.next()) |decl_syntax|
+            try doc.sema.analyzeDecl(decl_syntax);
     }
 
     fn translateSpan(doc: *Document, span: syntax.pure.Span) lsp.types.Range {
