@@ -27,7 +27,6 @@ pub const Type = union(enum) {
     function: Fn.Index,
 
     pub const Index = enum(usize) {
-        invalid = std.math.maxInt(usize),
         _,
     };
 
@@ -131,7 +130,6 @@ const Fn = struct {
     return_ty: ?Type.Index = null,
 
     const Index = enum(usize) {
-        invalid = std.math.maxInt(usize),
         _,
     };
 };
@@ -160,7 +158,7 @@ pub const Scope = struct {
     };
 
     pub const Index = enum(usize) {
-        invalid = std.math.maxInt(usize),
+        null = std.math.maxInt(usize),
         _,
     };
 
@@ -193,10 +191,10 @@ pub const Scope = struct {
             std.debug.assert(result.index == ctx.scopes.items.len);
             const scope = try ctx.scopes.addOne(ctx.gpa);
             switch (key) {
-                .builtin => scope.* = .{ .parent = .invalid, .data = .builtin },
+                .builtin => scope.* = .{ .parent = .null, .data = .builtin },
                 .file => |file_ptr| {
                     scope.* = .{
-                        .parent = .invalid,
+                        .parent = .null,
                         .data = .{ .file = file_ptr },
                     };
                     scope.parent = try get(ctx, .builtin);
@@ -204,7 +202,7 @@ pub const Scope = struct {
                 .generics => |generics_ptr| {
                     const generics = try generics_ptr.deref(ctx.ast.tree);
                     scope.* = .{
-                        .parent = .invalid,
+                        .parent = .null,
                         .data = .{ .generics = generics_ptr },
                     };
                     scope.parent = if (ast.DeclFn.cast(generics.tree.parent.?)) |function|
@@ -217,7 +215,7 @@ pub const Scope = struct {
                 .params => |params_ptr| {
                     const params = try params_ptr.deref(ctx.ast.tree);
                     scope.* = .{
-                        .parent = .invalid,
+                        .parent = .null,
                         .data = .{ .params = params_ptr },
                     };
                     const function = ast.DeclFn.cast(params.tree.parent.?).?;
@@ -305,7 +303,7 @@ pub const Scope = struct {
             },
         }
 
-        return if (scope.parent != .invalid)
+        return if (scope.parent != .null)
             Scope.lookUp(ctx, scope.parent, name)
         else
             null;
@@ -556,7 +554,7 @@ pub fn analyzeDecl(ctx: *Sema, decl: ast.Decl) error{OutOfMemory}!void {
                 return err(ctx, constant_syntax.span(), "constant without initializer", .{});
 
             const expr_ty = try analyzeExpr(ctx, expr, ty);
-            if (ty != expr_ty) {
+            if (ty != expr_ty and typePtr(ctx, expr_ty).* != .invalid) {
                 try err(ctx, expr.span(), "expected {}, got {}", .{
                     fmtType(ctx, ty),
                     fmtType(ctx, expr_ty),
@@ -689,6 +687,8 @@ pub fn analyzeExpr(
                             "expected {}, got untyped null",
                             .{fmtType(ctx, expected_type)},
                         );
+
+                        return Type.get(ctx, .invalid);
                     }
 
                     return typeTodo(ctx, ident_expr.span(), @src());
