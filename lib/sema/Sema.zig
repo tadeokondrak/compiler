@@ -18,9 +18,10 @@ diagnostics: std.MultiArrayList(Diagnostic) = .{},
 
 pub const Type = union(enum) {
     invalid,
+    void,
     bool,
     generic,
-    unsigned_integer: struct { bits: u32 },
+    integer: struct { signed: bool, bits: u32 },
     pointer: Type.Index,
     structure: Struct.Index,
     function: Fn.Index,
@@ -32,9 +33,10 @@ pub const Type = union(enum) {
 
     const Key = union(enum) {
         invalid,
+        void,
         bool,
         generic,
-        unsigned_integer: struct { bits: u32 },
+        integer: struct { signed: bool, bits: u32 },
         pointer: Type.Index,
         structure: ast.Ptr(ast.DeclStruct),
         function: ast.Ptr(ast.DeclFn),
@@ -51,8 +53,9 @@ pub const Type = union(enum) {
             try ctx.types.append(ctx.gpa, switch (key) {
                 .invalid => .invalid,
                 .bool => .bool,
+                .void => .void,
                 .generic => .generic,
-                .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
+                .integer => |data| .{ .integer = .{ .signed = data.signed, .bits = data.bits } },
                 .pointer => |pointee| .{ .pointer = pointee },
                 .structure => |structure_ptr| blk: {
                     const structure = try structure_ptr.deref(ctx.ast.tree);
@@ -83,8 +86,9 @@ pub const Type = union(enum) {
         return switch (ty) {
             .invalid => .invalid,
             .bool => .bool,
+            .void => .void,
             .generic => .generic,
-            .unsigned_integer => |data| .{ .unsigned_integer = .{ .bits = data.bits } },
+            .integer => |data| .{ .integer = .{ .signed = data.signed, .bits = data.bits } },
             .pointer => |pointee| .{ .pointer = pointee },
             .structure => |structure| .{ .structure = structPtr(ctx, structure).syntax },
             .function => |function| .{ .function = fnPtr(ctx, function).syntax },
@@ -124,7 +128,7 @@ const Fn = struct {
     syntax: ast.Ptr(ast.DeclFn),
     name: []const u8,
     params: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
-    returns: std.StringArrayHashMapUnmanaged(Type.Index) = .{},
+    return_ty: ?Type.Index = null,
 
     const Index = enum(usize) {
         invalid = std.math.maxInt(usize),
@@ -397,12 +401,9 @@ fn formatFn(
         if (i > 0) try writer.print(", ", .{});
         try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value) });
     }
-    try writer.print(") (", .{});
-    for (function.returns.keys(), function.returns.values(), 0..) |key, value, i| {
-        if (i > 0) try writer.print(", ", .{});
-        try writer.print("{s}: {}", .{ key, fmtType(args.ctx, value) });
-    }
-    try writer.print(")", .{});
+    try writer.print(") ", .{});
+    if (function.return_ty) |return_ty|
+        try writer.print("{}", .{fmtType(args.ctx, return_ty)});
 }
 
 pub fn fmtFn(ctx: *Sema, function: Fn.Index) std.fmt.Formatter(formatFn) {
@@ -464,8 +465,9 @@ fn formatType(
     return switch (typePtr(args.ctx, args.ty).*) {
         .invalid => writer.print("invalid", .{}),
         .bool => writer.print("bool", .{}),
+        .void => writer.print("void", .{}),
         .generic => writer.print("?", .{}),
-        .unsigned_integer => |unsigned_integer| writer.print("u{}", .{unsigned_integer.bits}),
+        .integer => |integer| writer.print("{c}{}", .{ @as(u8, if (integer.signed) 'i' else 'u'), integer.bits }),
         .pointer => |pointee| writer.print("*{}", .{fmtType(args.ctx, pointee)}),
         .structure => |structure| fmtStruct(args.ctx, structure).format(fmt, .{}, writer),
         .function => |function| fmtFn(args.ctx, function).format(fmt, .{}, writer),
@@ -509,10 +511,8 @@ pub fn deinit(ctx: *Sema) void {
     for (ctx.diagnostics.items(.message)) |message|
         ctx.gpa.free(message);
     ctx.diagnostics.deinit(ctx.gpa);
-    for (ctx.functions.items) |*function| {
+    for (ctx.functions.items) |*function|
         function.params.deinit(ctx.gpa);
-        function.returns.deinit(ctx.gpa);
-    }
     for (ctx.structures.items) |*structure|
         structure.fields.deinit(ctx.gpa);
     ctx.structures.deinit(ctx.gpa);
@@ -537,6 +537,9 @@ pub fn analyzeDecl(ctx: *Sema, decl: ast.Decl) error{OutOfMemory}!void {
             var struct_index = typePtr(ctx, type_index).structure;
             var structure = structPtr(ctx, struct_index);
             try analyzeStruct(ctx, structure);
+        },
+        .enumeration => {
+            // TODO
         },
         .function => |function_syntax| {
             var type_index = try Type.get(ctx, .{ .function = function_syntax.ptr() });
@@ -587,21 +590,10 @@ fn analyzeFn(ctx: *Sema, function: *Fn) !void {
         }
     }
 
-    returns: {
-        const returns = try function_syntax.returnsNode() orelse
-            break :returns;
-
-        var it = returns.paramNodes();
-        while (try it.next()) |param| {
-            const name_syntax = try param.identToken() orelse
-                return err(ctx, param.span(), "function return without name", .{});
-
-            const type_syntax = try param.typeExprNode() orelse
-                return err(ctx, param.span(), "function return without type", .{});
-
-            const ty = try analyzeTypeExpr(ctx, type_syntax);
-            try function.returns.put(ctx.gpa, name_syntax.text(), ty);
-        }
+    if (try function_syntax.typeExprNode()) |return_ty| {
+        function.return_ty = try analyzeTypeExpr(ctx, return_ty);
+    } else {
+        function.return_ty = try Type.get(ctx, .void);
     }
 
     const body = try function_syntax.stmtBlockNode() orelse
@@ -649,7 +641,7 @@ pub fn analyzeExpr(
         .literal => |literal_expr| {
             if (try literal_expr.numberToken()) |_| {
                 if (maybe_expected_type) |expected_type| {
-                    if (typePtr(ctx, expected_type).* == .unsigned_integer)
+                    if (typePtr(ctx, expected_type).* == .integer)
                         return expected_type;
 
                     try err(
@@ -659,7 +651,7 @@ pub fn analyzeExpr(
                         .{fmtType(ctx, expected_type)},
                     );
                 } else {
-                    return Type.get(ctx, .{ .unsigned_integer = .{ .bits = 32 } });
+                    return Type.get(ctx, .{ .integer = .{ .signed = false, .bits = 32 } });
                 }
             }
 
@@ -797,11 +789,7 @@ pub fn analyzeExpr(
             if (try args.next()) |_|
                 return typeTodo(ctx, call_expr.span(), @src());
 
-            if (function.returns.values().len != 1)
-                return typeTodo(ctx, call_expr.span(), @src());
-
-            const ret_type = function.returns.values()[0];
-            return ret_type;
+            return function.return_ty.?;
         },
     }
 }
@@ -813,9 +801,9 @@ pub fn analyzeTypeExpr(ctx: *Sema, type_expr: ast.TypeExpr) error{OutOfMemory}!T
                 return typeTodo(ctx, ident.span(), @src());
 
             const ident_text = ident_token.text();
-            if (ident_text.len > 0 and ident_text[0] == 'u') {
+            if (ident_text.len > 0 and (ident_text[0] == 'u' or ident_text[0] == 'i')) {
                 if (std.fmt.parseInt(u32, ident_text[1..], 10)) |bits| {
-                    return Type.get(ctx, .{ .unsigned_integer = .{ .bits = bits } });
+                    return Type.get(ctx, .{ .integer = .{ .signed = ident_text[0] == 'i', .bits = bits } });
                 } else |e| switch (e) {
                     error.Overflow => return typeTodo(ctx, ident.span(), @src()),
                     error.InvalidCharacter => {},
@@ -834,8 +822,10 @@ pub fn analyzeTypeExpr(ctx: *Sema, type_expr: ast.TypeExpr) error{OutOfMemory}!T
                         .structure => |structure| {
                             return Type.get(ctx, .{ .structure = structure.ptr() });
                         },
-                        .function => return typeTodo(ctx, ident.span(), @src()),
-                        .constant => return typeTodo(ctx, ident.span(), @src()),
+                        .enumeration,
+                        .function,
+                        .constant,
+                        => return typeTodo(ctx, ident.span(), @src()),
                     }
                 },
                 .generic => return Type.get(ctx, .generic),
@@ -865,6 +855,9 @@ fn typeOfDecl(
     switch (decl) {
         .structure => |struct_syntax| {
             return Type.get(ctx, .{ .structure = struct_syntax.ptr() });
+        },
+        .enumeration => {
+            return typeTodo(ctx, decl.span(), @src());
         },
         .function => |function_syntax| {
             return Type.get(ctx, .{ .function = function_syntax.ptr() });
@@ -896,15 +889,9 @@ fn checkBlock(
                 try checkBlock(ctx, function, block_stmt);
             },
             .@"return" => |return_stmt| {
-                var exprs = return_stmt.exprNodes();
-                for (function.returns.values()) |ret_ty| {
-                    const expr = try exprs.next() orelse
-                        return todo(ctx, function.syntax.span, @src());
-                    try checkExpr(ctx, function, expr, ret_ty);
-                }
-                if (try exprs.next()) |expr| {
-                    try err(ctx, expr.span(), "too many return values", .{});
-                    return;
+                const return_ty = function.return_ty.?;
+                if (try return_stmt.exprNode()) |expr| {
+                    try checkExpr(ctx, function, expr, return_ty);
                 }
             },
             .@"if" => |if_stmt| {

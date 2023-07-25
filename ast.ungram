@@ -4,6 +4,7 @@ File =
 Decl =
   function: DeclFn
 | structure: DeclStruct
+| enumeration: DeclEnum
 | constant: DeclConst
 
 DeclFn =
@@ -11,11 +12,14 @@ DeclFn =
   'ident'
   Generics
   params: Params
-  returns: Params
+  TypeExpr
   StmtBlock
 
 DeclStruct =
   'struct' 'ident' Generics '{' Field* '}'
+
+DeclEnum =
+  'enum' 'ident' '{' Variant* '}'
 
 DeclConst =
   'const' 'ident' TypeExpr '=' Expr ';'
@@ -66,7 +70,7 @@ StmtBlock =
   '{' Stmt* '}'
 
 StmtReturn =
-  'return' Expr* ';'
+  'return' Expr ';'
 
 StmtIf =
   'if' Expr then:StmtBlock 'else' else:StmtBlock
@@ -110,3 +114,6 @@ Param =
 
 Field =
   'ident' TypeExpr ';'
+
+Variant =
+  'ident' ';'

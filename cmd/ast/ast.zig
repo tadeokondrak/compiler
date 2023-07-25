@@ -439,6 +439,7 @@ fn tokenName(s: []const u8) []const u8 {
         .{ "ident", "ident" },
         .{ "string", "string" },
         .{ "number", "number" },
+        .{ "enum", "kw_enum" },
     });
     return map.get(s) orelse @panic(s);
 }

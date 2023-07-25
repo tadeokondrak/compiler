@@ -69,7 +69,7 @@ pub fn parseFile(p: *Parser) void {
             const invalid_marker = p.builder.open();
             if (!p.atAny(&decl_first)) {
                 p.builder.err("expected declaration");
-                while (!p.atAny(&decl_first))
+                while (!p.atAny(&decl_first) and !p.at(.eof))
                     p.advance();
             }
             p.builder.close(invalid_marker, .invalid);
@@ -84,10 +84,10 @@ fn parseDecl(p: *Parser) void {
         .kw_fn => parseFnDecl(p),
         .kw_const => parseConstDecl(p),
         .kw_struct,
-        .kw_enum,
         .kw_union,
         .kw_variant,
         => parseContainerDecl(p),
+        .kw_enum => parseEnumDecl(p),
         else => unreachable,
     }
 }
@@ -100,8 +100,8 @@ fn parseFnDecl(p: *Parser) void {
         parseGenericParams(p);
     if (p.at(.l_paren))
         parseFnParams(p);
-    if (p.at(.l_paren) or p.atAny(&type_expr_first))
-        parseFnReturns(p);
+    if (p.atAny(&type_expr_first))
+        parseTypeExpr(p);
     parseBlockStmt(p);
     p.builder.close(m, .decl_fn);
 }
@@ -142,37 +142,10 @@ fn parseFnParam(p: *Parser) bool {
     return comma;
 }
 
-fn parseFnReturns(p: *Parser) void {
-    const m = p.builder.open();
-    if (p.eat(.l_paren)) {
-        while (p.at(.ident) or p.atAny(&expr_first))
-            parseFnReturnNamed(p);
-        _ = p.expect(.r_paren);
-    } else if (p.atAny(&type_expr_first)) {
-        parseFnReturnAnonymous(p);
-    }
-    p.builder.close(m, .params);
-}
-
-fn parseFnReturnNamed(p: *Parser) void {
-    const m = p.builder.open();
-    _ = p.expect(.ident);
-    parseTypeExpr(p);
-    _ = p.eat(.comma);
-    p.builder.close(m, .param);
-}
-
-fn parseFnReturnAnonymous(p: *Parser) void {
-    const m = p.builder.open();
-    parseTypeExpr(p);
-    p.builder.close(m, .param);
-}
-
 fn parseContainerDecl(p: *Parser) void {
     const m = p.builder.open();
     p.bumpAny(&.{
         .kw_struct,
-        .kw_enum,
         .kw_union,
         .kw_variant,
     });
@@ -195,6 +168,27 @@ fn parseContainerField(p: *Parser) void {
         parseExpr(p);
     _ = p.expect(.semi);
     p.builder.close(m, .field);
+}
+
+fn parseEnumDecl(p: *Parser) void {
+    const m = p.builder.open();
+    p.bump(.kw_enum);
+    _ = p.expect(.ident);
+    if (p.expect(.l_brace)) {
+        while (p.at(.ident))
+            parseEnumVariant(p);
+        _ = p.expect(.r_brace);
+    }
+    p.builder.close(m, .decl_enum);
+}
+
+fn parseEnumVariant(p: *Parser) void {
+    const m = p.builder.open();
+    _ = p.expect(.ident);
+    if (p.eat(.eq))
+        parseExpr(p);
+    _ = p.expect(.semi);
+    p.builder.close(m, .variant);
 }
 
 fn parseConstDecl(p: *Parser) void {

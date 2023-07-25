@@ -180,6 +180,7 @@ pub const Tree = struct {
         decl_fn,
         decl_const,
         decl_struct,
+        decl_enum,
 
         expr_unary,
         expr_binary,
@@ -209,6 +210,7 @@ pub const Tree = struct {
         argument,
 
         field,
+        variant,
 
         generics,
         generic,

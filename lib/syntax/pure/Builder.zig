@@ -237,6 +237,7 @@ pub fn build(
             }
 
             const stack_element = stack.pop();
+            std.debug.assert(stack_element.num_children > 0); // empty tree?
             root.trees.items(.children_pos)[@intFromEnum(stack_element.tree_id)] =
                 std.math.cast(u32, root.children.len) orelse return error.OutOfMemory;
             root.trees.items(.children_len)[@intFromEnum(stack_element.tree_id)] =

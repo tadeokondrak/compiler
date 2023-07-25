@@ -61,6 +61,7 @@ pub fn bumpAny(p: *Parser, tags: []const syntax.pure.Token.Tag) void {
 }
 
 pub fn advance(p: *Parser) void {
+    std.debug.assert(!p.at(.eof));
     p.builder.token();
     p.token_pos += 1;
     p.fuel = 255;

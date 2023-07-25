@@ -19,12 +19,12 @@ pub fn main() !void {
         \\    integer;
         \\}
         \\union Number {
-        \\    float f32;
-        \\    integer i32;
+        \\    signed i32;
+        \\    unsigned u32;
         \\}
         \\variant TaggedNumber {
-        \\    float f32;
-        \\    integer i32;
+        \\    signed i32;
+        \\    unsigned u32;
         \\}
         \\struct Node<T> {
         \\    next *Node;
@@ -33,20 +33,20 @@ pub fn main() !void {
         \\struct Other {
         \\    field1 Struct;
         \\}
-        \\fn infinite_loop() (ret u32) {
+        \\fn infinite_loop() u32 {
         \\    loop {}
         \\}
-        \\fn add(a u32, b u32) (ret u32) {
+        \\fn add(a u32, b u32) u32 {
         \\    let result = a + b;
         \\    return result;
         \\}
-        \\fn fib(n u32) (ret u32) {
+        \\fn fib(n u32) u32 {
         \\    if n <= 1 {
         \\        return 1;
         \\    }
         \\    return add(fib(n - 1), fib(n - 2));
         \\}
-        \\fn add_generic<T>(a T, b T) (ret T) { return a + b; }
+        \\fn add_generic<T>(a T, b T) T { return a + b; }
     ;
 
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
