@@ -1,0 +1,80 @@
+File = Item*
+
+Stmt =
+  ItemStmt
+| ExprStmt
+
+ItemStmt = Item ';'
+ExprStmt = Expr ';'
+
+Item =
+  LetItem
+| FnItem
+| EnumItem
+| UnionItem
+| StructItem
+| VariantItem
+| ConstantItem
+
+LetItem = 'let' 'identifier' (':' ty:Type)? '=' Expr
+FnItem = 'fn' 'identifier' '(' Parameter* ')' return_ty:Type body:BlockExpr
+EnumItem = 'enum' 'identifier' Variant*
+UnionItem = 'union' 'identifier' Member*
+StructItem = 'struct' 'identifier' Member*
+VariantItem = 'variant' 'identifier' Member*
+ConstantItem = 'const' 'identifier' '=' ('number' | 'character' | 'string')
+
+Expr =
+  ParenExpr
+| NameExpr
+| LiteralExpr
+| IfExpr
+| LoopExpr
+| WhileExpr
+| BlockExpr
+| UnaryExpr
+| BinaryExpr
+| BreakExpr
+| ReturnExpr
+| ContinueExpr
+| CallExpr
+| IndexExpr
+| FieldExpr
+
+ParenExpr = '(' inner:Expr ')'
+NameExpr = 'identifier'
+LiteralExpr = 'number' | 'character' | 'string'
+IfExpr = 'if' condition:Expr then_body:BlockExpr ('else' else_body:BlockExpr)?
+LoopExpr = 'loop' body:BlockExpr
+WhileExpr = 'while' condition:Expr body:BlockExpr
+BlockExpr = '{' Stmt* '}'
+UnaryExpr = ('!' | '-' | 'ref' | 'deref') operand:Expr
+BinaryExpr =
+  lhs:Expr
+  ( '+'  | '-'  | '*'  | '/'  | '%'  | '&'  | '|'  | '^'  | '<<'  | '>>'
+  | '+=' | '-=' | '*=' | '/=' | '%=' | '&=' | '|=' | '^=' | '<<=' | '>>='
+  | '<' | '>' | '==' | '!=' | '<=' | '>='
+  )
+  rhs:Expr
+BreakExpr = 'break' value:Expr?
+ReturnExpr = 'return' value:Expr?
+ContinueExpr = 'continue' value:Expr?
+CallExpr = callee:Expr '(' Argument* ')'
+IndexExpr = base:Expr '[' index:Expr ']'
+FieldExpr = base:Expr '.' name:'identifier'
+
+Type =
+  ParenType
+| NameType
+| SliceType
+| PointerType
+
+ParenType = '(' ty:Type ')'
+NameType = 'identifier'
+SliceType = 'slice' elem_ty:Type
+PointerType = 'ptr' dest_ty:Type
+
+Member = 'identifier' ty:Type (';' | 'newline')?
+Variant = 'identifier' (';' | 'newline')?
+Argument = Expr (',' | 'newline')?
+Parameter = 'identifier' ty:Type (',' | 'newline')?

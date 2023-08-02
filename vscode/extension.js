@@ -16,11 +16,11 @@ function activate(context) {
         "compiler",
         {
             run: {
-                command: "/home/tdeo/repos/github.com/tadeokondrak/compiler/zig-out/bin/lsp",
+                command: "/home/tdeo/repos/github.com/tadeokondrak/compiler/rewrite2/target/debug/lsp",
                 transport: TransportKind.stdio,
             },
             debug: {
-                command: "/home/tdeo/repos/github.com/tadeokondrak/compiler/zig-out/bin/lsp",
+                command: "/home/tdeo/repos/github.com/tadeokondrak/compiler/rewrite2/target/debug/lsp",
                 transport: TransportKind.stdio,
             },
         },
