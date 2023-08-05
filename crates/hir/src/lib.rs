@@ -3,9 +3,11 @@
 mod lower;
 mod pretty;
 
+pub use lower::lower_function;
+pub use pretty::print_function;
+
 use core::fmt;
 use la_arena::{Arena, Idx};
-use lower::lower_function;
 use std::collections::HashMap;
 use syntax::ast;
 
@@ -16,17 +18,38 @@ type TypeRefId = Idx<TypeRef>;
 #[derive(Debug)]
 pub struct Function {
     pub name: Name,
-    pub exprs: Arena<Expr>,
     pub type_refs: Arena<TypeRef>,
     pub return_ty: TypeRefId,
     pub param_tys: Box<[TypeRefId]>,
-    pub body: Idx<Expr>,
+    pub body: FunctionBody,
+}
+
+#[derive(Debug)]
+pub struct FunctionBody {
+    pub param_names: Box<[Name]>,
+    pub exprs: Arena<Expr>,
+    pub expr: Idx<Expr>,
 }
 
 #[derive(Debug)]
 pub enum Name {
     Missing,
     Present(String),
+}
+
+impl From<Option<String>> for Name {
+    fn from(value: Option<String>) -> Self {
+        value.map(Name::Present).unwrap_or(Name::Missing)
+    }
+}
+
+impl PartialEq<str> for Name {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            Name::Missing => false,
+            Name::Present(name) => name == other,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -38,7 +61,7 @@ pub enum Expr {
     If {
         cond: ExprId,
         then_expr: ExprId,
-        else_expr: ExprId,
+        else_expr: Option<ExprId>,
     },
     Loop {
         body: ExprId,
@@ -70,7 +93,7 @@ pub enum Expr {
     },
     Field {
         base: ExprId,
-        name: String,
+        name: Option<String>,
     },
 }
 
@@ -103,7 +126,7 @@ impl fmt::Display for BinaryOp {
 
 #[derive(Debug)]
 pub enum Stmt {
-    Let(String, ExprId),
+    Let(Name, ExprId),
     Expr(ExprId),
 }
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -122,6 +145,10 @@ pub enum Type {
 
 type ItemId = Idx<Item>;
 
+enum Scope {}
+
+struct Scopes {}
+
 #[derive(Debug)]
 struct ItemTree {
     items: Arena<Item>,
@@ -139,7 +166,6 @@ fn items(file: ast::File) -> ItemTree {
         items: file
             .items()
             .map(|item| match item {
-                ast::Item::LetItem(_) => todo!(),
                 ast::Item::FnItem(it) => Item::Function(lower_function(it)),
                 ast::Item::EnumItem(_) => todo!(),
                 ast::Item::UnionItem(_) => todo!(),
@@ -182,7 +208,7 @@ fn infer(db: &mut Db, items: &ItemTree, func: &Function) -> InferenceResult {
         .collect::<Vec<TypeId>>()
         .into_boxed_slice();
     let return_ty = lower_type_ref(db, func, func.return_ty);
-    infer_expr(db, items, func, func.body);
+    infer_expr(db, items, func, func.body.expr);
 
     InferenceResult {
         return_ty,
@@ -193,11 +219,11 @@ fn infer(db: &mut Db, items: &ItemTree, func: &Function) -> InferenceResult {
 fn lookup_name_in_func(items: &ItemTree, func: &Function) {}
 
 fn infer_expr(db: &mut Db, items: &ItemTree, func: &Function, expr: ExprId) -> TypeId {
-    match &func.exprs[expr] {
+    match &func.body.exprs[expr] {
         Expr::Missing => db.get_type(Type::Error),
         Expr::Unit => db.get_type(Type::Unit),
         Expr::Name(name) => {
-            let ty = items
+            let item_ty = items
                 .items
                 .values()
                 .find_map(|item| match item {
@@ -215,8 +241,17 @@ fn infer_expr(db: &mut Db, items: &ItemTree, func: &Function, expr: ExprId) -> T
                         .collect::<Vec<TypeId>>()
                         .into_boxed_slice(),
                 })
-                .unwrap_or(Type::Error);
-            db.get_type(ty)
+                .map(|ty| db.get_type(ty));
+            let param_ty = func
+                .body
+                .param_names
+                .iter()
+                .enumerate()
+                .find(|&(_, it)| it == name.as_str())
+                .map(|(i, _)| lower_type_ref(db, func, func.param_tys[i]));
+            param_ty
+                .or(item_ty)
+                .unwrap_or_else(|| db.get_type(Type::Error))
         }
         Expr::Number(_) => db.get_type(Type::Uint32),
         &Expr::If {
@@ -226,7 +261,7 @@ fn infer_expr(db: &mut Db, items: &ItemTree, func: &Function, expr: ExprId) -> T
         } => {
             infer_expr(db, items, func, cond);
             infer_expr(db, items, func, then_expr);
-            infer_expr(db, items, func, else_expr);
+            else_expr.map(|expr| infer_expr(db, items, func, expr));
             db.get_type(Type::Unit)
         }
         &Expr::Loop { body } => {
@@ -301,9 +336,7 @@ mod tests {
         let file = syntax::parse_file(
             "
 fn fib(n u32) u32 {
-    if n <= 1 {
-        return 1
-    }
+    if n <= 1 { return 1 }
     return fib(n - 1) + fib(n - 2)
 }",
         );
@@ -314,6 +347,7 @@ fn fib(n u32) u32 {
                 Item::Function(func) => {
                     let result = infer(&mut db, &items, func);
                     dbg!(&db);
+                    eprintln!("{}", print_function(func));
                 }
             }
         }

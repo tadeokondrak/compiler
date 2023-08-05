@@ -1,21 +1,47 @@
-use crate::{Expr, ExprId, Function, Name, Stmt};
+use crate::{Expr, ExprId, Function, Name, Stmt, TypeRefId, TypeRef};
 use la_arena::Arena;
 use std::fmt::Write;
 
-pub(crate) fn print_function(s: &mut String, function: &Function) {
+pub fn print_function(function: &Function) -> String {
+    let mut s = String::new();
+    print_function_(&mut s, function);
+    s
+}
+
+fn print_function_(s: &mut String, function: &Function) {
     s.push_str("fn");
     s.push(' ');
     print_name(s, &function.name);
     s.push('(');
+    for (i, ty) in function.param_tys.iter().copied().enumerate() {
+        if i > 0 {
+            s.push(',');
+            s.push(' ');
+        }
+        print_type_ref(s, function, ty);
+    }
     s.push(')');
     s.push(' ');
-    print_expr(s, &function.exprs, function.body, 0);
+    print_type_ref(s, function, function.return_ty);
+    s.push(' ');
+    print_expr(s, &function.body.exprs, function.body.expr, 0);
+}
+
+fn print_type_ref(s: &mut String, function: &Function, ty: TypeRefId) {
+    match &function.type_refs[ty] {
+        TypeRef::Error => s.push_str("Error"),
+        TypeRef::Name(name) => s.push_str(name),
+        &TypeRef::Ptr(dest) => {
+            s.push_str("ptr ");
+            print_type_ref(s, function, dest);
+        }
+    }
 }
 
 fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
     match &exprs[id] {
         Expr::Missing => {
-            s.push_str("todo: Missing");
+            s.push_str("<missing>");
         }
         Expr::Unit => {
             s.push_str("<unit>");
@@ -36,13 +62,16 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
             print_expr(s, exprs, cond, indent);
             s.push(' ');
             print_expr(s, exprs, then_expr, indent);
-            s.push(' ');
-            s.push_str("else");
-            s.push(' ');
-            print_expr(s, exprs, else_expr, indent);
+            if let Some(else_expr) = else_expr {
+                s.push(' ');
+                s.push_str("else");
+                s.push(' ');
+                print_expr(s, exprs, else_expr, indent);
+            }
         }
-        Expr::Loop { body: _ } => {
-            s.push_str("todo: Loop");
+        &Expr::Loop { body } => {
+            s.push_str("loop");
+            print_expr(s, exprs, body, indent)
         }
         Expr::Block { body } => {
             s.push('{');
@@ -63,20 +92,17 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
             print_expr(s, exprs, rhs, indent);
         }
         Expr::Break => {
-            s.push_str("todo: Break");
+            s.push_str("break");
         }
         Expr::Continue => {
-            s.push_str("todo: Continue");
+            s.push_str("continue");
         }
         &Expr::Return { value } => {
             s.push_str("return");
             s.push(' ');
             print_expr(s, exprs, value, indent)
         }
-        Expr::Call {
-            callee,
-            args,
-        } => {
+        Expr::Call { callee, args } => {
             print_expr(s, exprs, *callee, indent);
             s.push('(');
             for (i, arg) in args.iter().copied().enumerate() {
@@ -88,11 +114,16 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
             }
             s.push(')');
         }
-        Expr::Index { base: _, index: _ } => {
-            s.push_str("todo: Index");
+        &Expr::Index { base, index } => {
+            print_expr(s, exprs, base, indent);
+            s.push('[');
+            print_expr(s, exprs, index, indent);
+            s.push(']');
         }
-        Expr::Field { base: _, name: _ } => {
-            s.push_str("todo: Field");
+        Expr::Field { base, name } => {
+            print_expr(s, exprs, *base, indent);
+            s.push('.');
+            s.push_str(name.as_ref().map(AsRef::as_ref).unwrap_or("<missing name>"));
         }
     }
 }

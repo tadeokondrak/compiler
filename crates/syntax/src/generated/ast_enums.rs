@@ -1,7 +1,6 @@
 use crate::{ast::*, AstNode, Language, Syntax, SyntaxNode};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Item {
-    LetItem(LetItem),
     FnItem(FnItem),
     EnumItem(EnumItem),
     UnionItem(UnionItem),
@@ -14,13 +13,12 @@ impl AstNode for Item {
     type Language = Language;
     fn can_cast(kind: Syntax) -> bool {
         matches!(
-            kind, Syntax::LetItem | Syntax::FnItem | Syntax::EnumItem | Syntax::UnionItem
-            | Syntax::StructItem | Syntax::VariantItem | Syntax::ConstantItem
+            kind, Syntax::FnItem | Syntax::EnumItem | Syntax::UnionItem |
+            Syntax::StructItem | Syntax::VariantItem | Syntax::ConstantItem
         )
     }
     fn cast(node: SyntaxNode) -> Option<Item> {
         match node.kind() {
-            Syntax::LetItem => Some(Item::LetItem(LetItem { node })),
             Syntax::FnItem => Some(Item::FnItem(FnItem { node })),
             Syntax::EnumItem => Some(Item::EnumItem(EnumItem { node })),
             Syntax::UnionItem => Some(Item::UnionItem(UnionItem { node })),
@@ -32,7 +30,6 @@ impl AstNode for Item {
     }
     fn syntax(&self) -> &SyntaxNode {
         match self {
-            Item::LetItem(LetItem { node }) => node,
             Item::FnItem(FnItem { node }) => node,
             Item::EnumItem(EnumItem { node }) => node,
             Item::UnionItem(UnionItem { node }) => node,
@@ -46,17 +43,19 @@ impl AstNode for Item {
 pub enum Stmt {
     ItemStmt(ItemStmt),
     ExprStmt(ExprStmt),
+    LetStmt(LetStmt),
 }
 #[rustfmt::skip]
 impl AstNode for Stmt {
     type Language = Language;
     fn can_cast(kind: Syntax) -> bool {
-        matches!(kind, Syntax::ItemStmt | Syntax::ExprStmt)
+        matches!(kind, Syntax::ItemStmt | Syntax::ExprStmt | Syntax::LetStmt)
     }
     fn cast(node: SyntaxNode) -> Option<Stmt> {
         match node.kind() {
             Syntax::ItemStmt => Some(Stmt::ItemStmt(ItemStmt { node })),
             Syntax::ExprStmt => Some(Stmt::ExprStmt(ExprStmt { node })),
+            Syntax::LetStmt => Some(Stmt::LetStmt(LetStmt { node })),
             _ => None,
         }
     }
@@ -64,6 +63,7 @@ impl AstNode for Stmt {
         match self {
             Stmt::ItemStmt(ItemStmt { node }) => node,
             Stmt::ExprStmt(ExprStmt { node }) => node,
+            Stmt::LetStmt(LetStmt { node }) => node,
         }
     }
 }

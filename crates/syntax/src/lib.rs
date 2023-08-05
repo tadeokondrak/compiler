@@ -277,6 +277,16 @@ pub mod ast {
             }
         }
     }
+
+    impl IndexExpr {
+        pub fn base(&self) -> Option<Expr> {
+            self.syntax().children().filter_map(Expr::cast).next()
+        }
+
+        pub fn index(&self) -> Option<Expr> {
+            self.syntax().children().filter_map(Expr::cast).skip(1).next()
+        }
+    }
 }
 
 pub use generated::syntax::Syntax;
@@ -404,7 +414,8 @@ pub use rowan::ast::{AstChildren, AstNode};
 pub use rowan::NodeOrToken;
 
 pub fn parse_file(src: &str) -> ast::File {
-    let (node, _errors) = parser::parse_file(src);
+    let (node, errors) = parser::parse_file(src);
+    assert!(errors.is_empty());
     let node = SyntaxNode::new_root(node);
     ast::File::cast(node).unwrap()
 }

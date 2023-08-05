@@ -254,7 +254,7 @@ fn test_gen() {
         let nodes = ast_node
             .nodes
             .iter()
-            .filter(|_| ast_node.name != "BinaryExpr" && ast_node.name != "IfExpr")
+            .filter(|_| !["BinaryExpr", "IfExpr", "IndexExpr"].contains(&ast_node.name.as_str()))
             .map(|(label, kind)| {
                 let name = format_ident!("{}", label);
                 let kind = format_ident!("{kind}");

@@ -1,152 +1,194 @@
-use crate::{
-    BinaryOp, Expr, ExprId, Function, Name, Stmt, TypeRef, TypeRefId,
-};
+use crate::{BinaryOp, Expr, ExprId, Function, FunctionBody, Name, Stmt, TypeRef, TypeRefId};
 use la_arena::Arena;
 use syntax::{ast, t, AstNode, NodeOrToken};
 
-pub(crate) fn lower_function(func: ast::FnItem) -> Function {
-    let mut exprs = Arena::new();
-    let mut type_refs = Arena::new();
+#[derive(Default)]
+struct Ctx {
+    exprs: Arena<Expr>,
+    type_refs: Arena<TypeRef>,
+}
 
-    let name = func
-        .identifier_token()
-        .map(|tok| Name::Present(tok.text().to_owned()))
-        .unwrap_or(Name::Missing);
-    let return_ty = lower_type_ref_opt(&mut type_refs, func.return_ty());
-    let body = lower_expr_opt(&mut exprs, func.body().map(ast::Expr::BlockExpr));
+impl Ctx {
+    fn alloc_expr(&mut self, expr: Expr) -> ExprId {
+        self.exprs.alloc(expr)
+    }
 
-    let param_tys = func
-        .parameters()
-        .map(|param| lower_type_ref_opt(&mut type_refs, param.ty()))
-        .collect::<Vec<TypeRefId>>()
-        .into_boxed_slice();
+    fn alloc_type_ref(&mut self, type_ref: TypeRef) -> TypeRefId {
+        self.type_refs.alloc(type_ref)
+    }
 
-    Function {
-        exprs,
-        type_refs,
-        return_ty,
-        param_tys,
-        name,
-        body,
+    fn lower_expr_opt(&mut self, expr: Option<ast::Expr>) -> ExprId {
+        match expr {
+            Some(it) => self.lower_expr(it),
+            None => self.alloc_expr(Expr::Missing),
+        }
+    }
+
+    fn lower_expr(&mut self, expr: ast::Expr) -> la_arena::Idx<Expr> {
+        match expr {
+            ast::Expr::ParenExpr(it) => self.lower_expr_opt(it.inner()),
+            ast::Expr::NameExpr(it) => self.alloc_expr(
+                it.identifier_token()
+                    .map(|it| it.text().to_owned())
+                    .map(Expr::Name)
+                    .unwrap_or(Expr::Missing),
+            ),
+            ast::Expr::LiteralExpr(it) => self.alloc_expr(
+                it.number_token()
+                    .and_then(|it| it.text().parse().map(Expr::Number).ok())
+                    .unwrap_or(Expr::Missing),
+            ),
+            ast::Expr::IfExpr(it) => {
+                let expr = Expr::If {
+                    cond: self.lower_expr_opt(it.condition()),
+                    then_expr: self.lower_expr_opt(it.then_body().map(ast::Expr::BlockExpr)),
+                    else_expr: it
+                        .else_body()
+                        .map(ast::Expr::BlockExpr)
+                        .map(|expr| self.lower_expr(expr)),
+                };
+                self.alloc_expr(expr)
+            }
+            ast::Expr::LoopExpr(_) => self.alloc_expr(Expr::Missing),
+            ast::Expr::WhileExpr(_) => self.alloc_expr(Expr::Missing),
+            ast::Expr::BlockExpr(it) => {
+                let expr = Expr::Block {
+                    body: it
+                        .stmts()
+                        .filter_map(|stmt| self.lower_stmt(stmt))
+                        .collect::<Vec<Stmt>>()
+                        .into_boxed_slice(),
+                };
+                self.alloc_expr(expr)
+            }
+            ast::Expr::UnaryExpr(_) => self.alloc_expr(Expr::Missing),
+            ast::Expr::BinaryExpr(it) => {
+                let op = it
+                    .syntax()
+                    .children_with_tokens()
+                    .filter_map(NodeOrToken::into_token)
+                    .filter(|it| !it.kind().is_trivia())
+                    .next()
+                    .unwrap()
+                    .kind();
+                let op = match op {
+                    t!("+") => BinaryOp::Add,
+                    t!("-") => BinaryOp::Sub,
+                    t!("<=") => BinaryOp::Lte,
+                    _ => todo!("{op:?}"),
+                };
+                let expr = Expr::Binary {
+                    op,
+                    lhs: self.lower_expr_opt(it.lhs()),
+                    rhs: self.lower_expr_opt(it.rhs()),
+                };
+                self.alloc_expr(expr)
+            }
+            ast::Expr::BreakExpr(_) => self.alloc_expr(Expr::Break),
+            ast::Expr::ReturnExpr(it) => {
+                let value = self.lower_expr_opt(it.value());
+                self.alloc_expr(Expr::Return { value })
+            }
+            ast::Expr::ContinueExpr(_) => self.alloc_expr(Expr::Continue),
+            ast::Expr::CallExpr(it) => {
+                let callee = self.lower_expr_opt(it.callee());
+                let args = it
+                    .arguments()
+                    .map(|arg| self.lower_expr_opt(arg.expr()))
+                    .collect::<Vec<ExprId>>()
+                    .into_boxed_slice();
+                self.alloc_expr(Expr::Call { callee, args })
+            }
+            ast::Expr::IndexExpr(it) => {
+                let base = self.lower_expr_opt(it.base());
+                let index = self.lower_expr_opt(it.index());
+                self.alloc_expr(Expr::Index { base, index })
+            }
+            ast::Expr::FieldExpr(it) => {
+                let base = self.lower_expr_opt(it.base());
+                self.alloc_expr(Expr::Field {
+                    base,
+                    name: it.identifier_token().map(|s| s.text().to_owned()),
+                })
+            }
+        }
+    }
+
+    fn lower_stmt(&mut self, stmt: ast::Stmt) -> Option<Stmt> {
+        match stmt {
+            ast::Stmt::ItemStmt(_) => None,
+            ast::Stmt::ExprStmt(it) => Some(Stmt::Expr(self.lower_expr_opt(it.expr()))),
+            ast::Stmt::LetStmt(it) => Some(Stmt::Let(
+                it.identifier_token()
+                    .map(|it| it.text().to_owned())
+                    .into(),
+                self.lower_expr_opt(it.expr()),
+            )),
+        }
+    }
+
+    fn lower_type_ref(&mut self, ty: ast::Type) -> TypeRefId {
+        match ty {
+            ast::Type::ParenType(it) => self.lower_type_ref_opt(it.ty()),
+            ast::Type::NameType(it) => self.alloc_type_ref(
+                it.identifier_token()
+                    .map(|it| TypeRef::Name(it.text().to_owned()))
+                    .unwrap_or(TypeRef::Error),
+            ),
+            ast::Type::SliceType(_) => todo!(),
+            ast::Type::PointerType(it) => {
+                let dest_type = self.lower_type_ref_opt(it.dest_ty());
+                self.alloc_type_ref(TypeRef::Ptr(dest_type))
+            }
+        }
+    }
+
+    fn lower_type_ref_opt(&mut self, ty: Option<ast::Type>) -> TypeRefId {
+        match ty {
+            Some(it) => self.lower_type_ref(it),
+            None => self.alloc_type_ref(TypeRef::Error),
+        }
+    }
+
+    fn lower_function(mut self, func: ast::FnItem) -> Function {
+        let name = func
+            .identifier_token()
+            .map(|tok| tok.text().to_owned())
+            .into();
+        let return_ty = self.lower_type_ref_opt(func.return_ty());
+        let body = self.lower_expr_opt(func.body().map(ast::Expr::BlockExpr));
+
+        let param_tys = func
+            .parameters()
+            .map(|param| self.lower_type_ref_opt(param.ty()))
+            .collect::<Vec<TypeRefId>>()
+            .into_boxed_slice();
+
+        let param_names = func
+            .parameters()
+            .map(|param| {
+                param
+                    .identifier_token()
+                    .map(|it| it.text().to_owned())
+                    .into()
+            })
+            .collect::<Vec<Name>>()
+            .into_boxed_slice();
+
+        Function {
+            type_refs: self.type_refs,
+            return_ty,
+            param_tys,
+            name,
+            body: FunctionBody {
+                param_names,
+                exprs: self.exprs,
+                expr: body,
+            },
+        }
     }
 }
 
-fn lower_expr_opt(exprs: &mut Arena<Expr>, expr: Option<ast::Expr>) -> ExprId {
-    match expr {
-        Some(it) => lower_expr(exprs, it),
-        None => exprs.alloc(Expr::Missing),
-    }
-}
-
-fn lower_expr(exprs: &mut Arena<Expr>, expr: ast::Expr) -> la_arena::Idx<Expr> {
-    match expr {
-        ast::Expr::ParenExpr(it) => lower_expr_opt(exprs, it.inner()),
-        ast::Expr::NameExpr(it) => exprs.alloc(
-            it.identifier_token()
-                .map(|it| it.text().to_owned())
-                .map(Expr::Name)
-                .unwrap_or(Expr::Missing),
-        ),
-        ast::Expr::LiteralExpr(it) => exprs.alloc(
-            it.number_token()
-                .and_then(|it| it.text().parse().map(Expr::Number).ok())
-                .unwrap_or(Expr::Missing),
-        ),
-        ast::Expr::IfExpr(it) => {
-            let expr = Expr::If {
-                cond: lower_expr_opt(exprs, it.condition()),
-                then_expr: lower_expr_opt(exprs, it.then_body().map(ast::Expr::BlockExpr)),
-                else_expr: it
-                    .else_body()
-                    .map(ast::Expr::BlockExpr)
-                    .map(|expr| lower_expr(exprs, expr))
-                    .unwrap_or_else(|| exprs.alloc(Expr::Unit)),
-            };
-            exprs.alloc(expr)
-        }
-        ast::Expr::LoopExpr(_) => exprs.alloc(Expr::Missing),
-        ast::Expr::WhileExpr(_) => exprs.alloc(Expr::Missing),
-        ast::Expr::BlockExpr(it) => {
-            let expr = Expr::Block {
-                body: it
-                    .stmts()
-                    .map(|stmt| lower_stmt(exprs, stmt))
-                    .collect::<Vec<Stmt>>()
-                    .into_boxed_slice(),
-            };
-            exprs.alloc(expr)
-        }
-        ast::Expr::UnaryExpr(_) => exprs.alloc(Expr::Missing),
-        ast::Expr::BinaryExpr(it) => {
-            let op = it
-                .syntax()
-                .children_with_tokens()
-                .filter_map(NodeOrToken::into_token)
-                .filter(|it| !it.kind().is_trivia())
-                .next()
-                .unwrap()
-                .kind();
-            let op = match op {
-                t!("+") => BinaryOp::Add,
-                t!("-") => BinaryOp::Sub,
-                t!("<=") => BinaryOp::Lte,
-                _ => todo!("{op:?}"),
-            };
-            let expr = Expr::Binary {
-                op,
-                lhs: lower_expr_opt(exprs, it.lhs()),
-                rhs: lower_expr_opt(exprs, it.rhs()),
-            };
-            exprs.alloc(expr)
-        }
-        ast::Expr::BreakExpr(_) => exprs.alloc(Expr::Missing),
-        ast::Expr::ReturnExpr(it) => {
-            let value = lower_expr_opt(exprs, it.value());
-            exprs.alloc(Expr::Return { value })
-        }
-        ast::Expr::ContinueExpr(_) => exprs.alloc(Expr::Missing),
-        ast::Expr::CallExpr(it) => {
-            let callee = lower_expr_opt(exprs, it.callee());
-            let args = it
-                .arguments()
-                .map(|arg| lower_expr_opt(exprs, arg.expr()))
-                .collect::<Vec<ExprId>>()
-                .into_boxed_slice();
-            exprs.alloc(Expr::Call { callee, args })
-        }
-        ast::Expr::IndexExpr(_) => exprs.alloc(Expr::Missing),
-        ast::Expr::FieldExpr(_) => exprs.alloc(Expr::Missing),
-    }
-}
-
-fn lower_stmt(exprs: &mut Arena<Expr>, stmt: ast::Stmt) -> Stmt {
-    match stmt {
-        ast::Stmt::ItemStmt(_it) => {
-            todo!()
-        }
-        ast::Stmt::ExprStmt(it) => Stmt::Expr(lower_expr_opt(exprs, it.expr())),
-    }
-}
-
-fn lower_type_ref(type_refs: &mut Arena<TypeRef>, ty: ast::Type) -> TypeRefId {
-    match ty {
-        ast::Type::ParenType(it) => lower_type_ref_opt(type_refs, it.ty()),
-        ast::Type::NameType(it) => type_refs.alloc(
-            it.identifier_token()
-                .map(|it| TypeRef::Name(it.text().to_owned()))
-                .unwrap_or(TypeRef::Error),
-        ),
-        ast::Type::SliceType(_) => todo!(),
-        ast::Type::PointerType(it) => {
-            let dest_type = lower_type_ref_opt(type_refs, it.dest_ty());
-            type_refs.alloc(TypeRef::Ptr(dest_type))
-        }
-    }
-}
-
-fn lower_type_ref_opt(type_refs: &mut Arena<TypeRef>, ty: Option<ast::Type>) -> TypeRefId {
-    match ty {
-        Some(it) => lower_type_ref(type_refs, it),
-        None => type_refs.alloc(TypeRef::Error),
-    }
+pub fn lower_function(func: ast::FnItem) -> Function {
+    Ctx::default().lower_function(func)
 }

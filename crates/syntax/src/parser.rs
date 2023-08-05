@@ -17,10 +17,11 @@ enum Event {
     Begin { kind: Syntax },
     Token { kind: Syntax, n_input: usize },
     Newline,
+    Error { s: Box<str> },
     End,
 }
 
-pub(super) fn parse_file(s: &str) -> (GreenNode, Vec<()>) {
+pub(super) fn parse_file(s: &str) -> (GreenNode, Vec<String>) {
     let mut parser = Parser {
         pos: 0,
         tokens: Vec::new(),
@@ -78,8 +79,9 @@ pub(super) fn parse_file(s: &str) -> (GreenNode, Vec<()>) {
     let mut token_pos = 0;
     let mut depth = 0;
     let mut builder = GreenNodeBuilder::new();
-    for event in &parser.events {
-        match *event {
+    let mut errors = Vec::new();
+    for event in parser.events {
+        match event {
             Event::Begin { kind } => {
                 if depth > 0 {
                     while token_pos < all_tokens.len() {
@@ -135,10 +137,13 @@ pub(super) fn parse_file(s: &str) -> (GreenNode, Vec<()>) {
                     }
                 }
             }
+            Event::Error { s } => {
+                errors.push(s.into_string());
+            },
         }
     }
 
-    (builder.finish(), Vec::new())
+    (builder.finish(), errors)
 }
 
 impl Syntax {
@@ -304,8 +309,8 @@ impl Parser {
         }
     }
 
-    pub(crate) fn error(&self, arg: &str) {
-        eprintln!("error: {arg}")
+    pub(crate) fn error(&mut self, s: &str) {
+        self.events.push(Event::Error { s: String::from(s).into_boxed_str() })
     }
 
     pub(crate) fn expect(&mut self, kind: Syntax) {
@@ -335,7 +340,7 @@ mod tests {
     fn test_parse() {
         fn check(src: &str, expected: Expect) {
             let (green, errors) = parse_file(src);
-            assert_eq!(errors, &[]);
+            assert!(errors.is_empty());
             expected.assert_debug_eq(&SyntaxNode::new_root(green));
         }
         check(

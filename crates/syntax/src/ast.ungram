@@ -3,20 +3,20 @@ File = Item*
 Stmt =
   ItemStmt
 | ExprStmt
+| LetStmt
 
 ItemStmt = Item ';'
 ExprStmt = Expr ';'
+LetStmt = 'let' 'identifier' (':' ty:Type)? '=' Expr
 
 Item =
-  LetItem
-| FnItem
+  FnItem
 | EnumItem
 | UnionItem
 | StructItem
 | VariantItem
 | ConstantItem
 
-LetItem = 'let' 'identifier' (':' ty:Type)? '=' Expr
 FnItem = 'fn' 'identifier' '(' Parameter* ')' return_ty:Type body:BlockExpr
 EnumItem = 'enum' 'identifier' Variant*
 UnionItem = 'union' 'identifier' Member*

@@ -52,17 +52,17 @@ impl AstNode for ExprStmt {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct LetItem {
+pub struct LetStmt {
     pub(super) node: SyntaxNode,
 }
 #[rustfmt::skip]
-impl AstNode for LetItem {
+impl AstNode for LetStmt {
     type Language = Language;
     fn can_cast(kind: Syntax) -> bool {
-        kind == Syntax::LetItem
+        kind == Syntax::LetStmt
     }
-    fn cast(node: SyntaxNode) -> Option<LetItem> {
-        if LetItem::can_cast(node.kind()) { Some(LetItem { node }) } else { None }
+    fn cast(node: SyntaxNode) -> Option<LetStmt> {
+        if LetStmt::can_cast(node.kind()) { Some(LetStmt { node }) } else { None }
     }
     fn syntax(&self) -> &SyntaxNode {
         &self.node
@@ -606,7 +606,7 @@ impl ExprStmt {
     }
 }
 #[rustfmt::skip]
-impl LetItem {
+impl LetStmt {
     pub fn ty(&self) -> Option<Type> {
         child(&self.node)
     }
@@ -897,12 +897,6 @@ impl CallExpr {
 }
 #[rustfmt::skip]
 impl IndexExpr {
-    pub fn base(&self) -> Option<Expr> {
-        child(&self.node)
-    }
-    pub fn index(&self) -> Option<Expr> {
-        child(&self.node)
-    }
     pub fn left_square_bracket_token(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::LeftSquareBracket)
     }

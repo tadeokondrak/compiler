@@ -12,7 +12,14 @@ fn parse_stmt(p: &mut Parser) {
     assert!(p.at_any(EXPR_START) || p.at_any(ITEM_START));
     let m = p.begin();
     match p.current() {
-        t!("identifier") if p.at_keyword(t!("let")) => parse_item(p),
+        t!("identifier") if p.at_keyword(t!("let")) => {
+            let m = p.begin();
+            p.bump(t!("let"));
+            p.expect(t!("identifier"));
+            p.expect(t!("="));
+            parse_expr(p);
+            p.end(m, Syntax::LetStmt);
+        }
         _ if p.at_any(EXPR_START) => parse_expr(p),
         _ if p.at_any(ITEM_START) => parse_item(p),
         _ => unreachable!(),
@@ -43,14 +50,6 @@ const TYPE_START: &[Syntax] = &[t!("identifier"), t!("(")];
 fn parse_item(p: &mut Parser) {
     assert!(p.at_any(ITEM_START));
     match p.current() {
-        t!("identifier") if p.at_keyword(t!("let")) => {
-            let m = p.begin();
-            p.bump(t!("let"));
-            p.expect(t!("identifier"));
-            p.expect(t!("="));
-            parse_expr(p);
-            p.end(m, Syntax::LetItem);
-        }
         t!("identifier") if p.at_keyword(t!("fn")) => {
             let m = p.begin();
             p.bump(t!("fn"));

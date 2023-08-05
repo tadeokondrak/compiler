@@ -76,7 +76,7 @@ pub enum Syntax {
     File,
     ItemStmt,
     ExprStmt,
-    LetItem,
+    LetStmt,
     FnItem,
     EnumItem,
     UnionItem,
