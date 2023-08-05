@@ -166,6 +166,9 @@ macro_rules! t {
     ("~") => {
         $crate ::Syntax::Tilde
     };
+    ("and") => {
+        $crate ::Syntax::AndKeyword
+    };
     ("break") => {
         $crate ::Syntax::BreakKeyword
     };
@@ -195,6 +198,9 @@ macro_rules! t {
     };
     ("loop") => {
         $crate ::Syntax::LoopKeyword
+    };
+    ("or") => {
+        $crate ::Syntax::OrKeyword
     };
     ("ptr") => {
         $crate ::Syntax::PtrKeyword
@@ -236,9 +242,9 @@ mod generated {
 }
 
 pub mod ast {
-    pub use super::generated::ast_enums::*;
-    pub use super::generated::ast_nodes::*;
-    use rowan::ast::AstNode;
+    pub use super::generated::{ast_enums::*, ast_nodes::*};
+    use crate::{ArithOp, BinaryOp, CmpOp, LogicOp, SyntaxToken, UnaryOp};
+    use rowan::{ast::AstNode, NodeOrToken};
 
     impl BinaryExpr {
         pub fn lhs(&self) -> Option<Expr> {
@@ -284,7 +290,74 @@ pub mod ast {
         }
 
         pub fn index(&self) -> Option<Expr> {
-            self.syntax().children().filter_map(Expr::cast).skip(1).next()
+            self.syntax()
+                .children()
+                .filter_map(Expr::cast)
+                .skip(1)
+                .next()
+        }
+    }
+
+    impl UnaryExpr {
+        pub fn op_token(&self) -> Option<SyntaxToken> {
+            self.syntax()
+                .children_with_tokens()
+                .filter(|it| !it.kind().is_trivia())
+                .find_map(NodeOrToken::into_token)
+        }
+
+        pub fn op(&self) -> UnaryOp {
+            match self.op_token().unwrap().kind() {
+                t!("!") => UnaryOp::Not,
+                t!("-") => UnaryOp::Neg,
+                t!("ref") => UnaryOp::Ref,
+                t!("deref") => UnaryOp::Deref,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    impl BinaryExpr {
+        pub fn op_token(&self) -> Option<SyntaxToken> {
+            self.syntax()
+                .children_with_tokens()
+                .filter(|it| !it.kind().is_trivia())
+                .find_map(NodeOrToken::into_token)
+        }
+
+        pub fn op(&self) -> BinaryOp {
+            match self.op_token().unwrap().kind() {
+                t!("+") => BinaryOp::Arith(ArithOp::Add),
+                t!("-") => BinaryOp::Arith(ArithOp::Sub),
+                t!("*") => BinaryOp::Arith(ArithOp::Mul),
+                t!("/") => BinaryOp::Arith(ArithOp::Div),
+                t!("%") => BinaryOp::Arith(ArithOp::Rem),
+                t!("&") => BinaryOp::Arith(ArithOp::And),
+                t!("|") => BinaryOp::Arith(ArithOp::Or),
+                t!("^") => BinaryOp::Arith(ArithOp::Xor),
+                t!("<<") => BinaryOp::Arith(ArithOp::Shl),
+                t!(">>") => BinaryOp::Arith(ArithOp::Shr),
+                t!("+=") => BinaryOp::Asg(Some(ArithOp::Add)),
+                t!("-=") => BinaryOp::Asg(Some(ArithOp::Sub)),
+                t!("*=") => BinaryOp::Asg(Some(ArithOp::Mul)),
+                t!("/=") => BinaryOp::Asg(Some(ArithOp::Div)),
+                t!("%=") => BinaryOp::Asg(Some(ArithOp::Rem)),
+                t!("&=") => BinaryOp::Asg(Some(ArithOp::And)),
+                t!("|=") => BinaryOp::Asg(Some(ArithOp::Or)),
+                t!("^=") => BinaryOp::Asg(Some(ArithOp::Xor)),
+                t!("<<=") => BinaryOp::Asg(Some(ArithOp::Shl)),
+                t!(">>=") => BinaryOp::Asg(Some(ArithOp::Shr)),
+                t!("=") => BinaryOp::Asg(None),
+                t!("<") => BinaryOp::Cmp(CmpOp::Lt),
+                t!(">") => BinaryOp::Cmp(CmpOp::Gt),
+                t!("==") => BinaryOp::Cmp(CmpOp::Eq),
+                t!("!=") => BinaryOp::Cmp(CmpOp::Ne),
+                t!("<=") => BinaryOp::Cmp(CmpOp::Lte),
+                t!(">=") => BinaryOp::Cmp(CmpOp::Gte),
+                t!("and") => BinaryOp::Logic(LogicOp::And),
+                t!("or") => BinaryOp::Logic(LogicOp::Or),
+                t => unreachable!("{t:?}"),
+            }
         }
     }
 }
@@ -303,16 +376,18 @@ enum Assoc {
 #[repr(i8)]
 enum ExprPrec {
     Zero = 0,
-    Asg = 10,
-    Cmp = 20,
-    Or = 30,
-    Xor = 40,
-    And = 50,
-    ShlShr = 60,
-    AddSub = 70,
-    MulDivRem = 80,
-    NotNegRefDeref = 90,
-    CallIndexMember = 100,
+    Asg = 2,
+    LogicOr = 4,
+    LogicAnd = 6,
+    Cmp = 8,
+    BitOr = 10,
+    BitXor = 12,
+    BitAnd = 14,
+    ShlShr = 16,
+    AddSub = 18,
+    MulDivRem = 20,
+    NotNegRefDeref = 22,
+    CallIndexMember = 24,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -345,17 +420,23 @@ impl Syntax {
             | t!("^=") | t!("+=") | t!("<<=") | t!(">>=") | t!("|=") => {
                 Some((ExprPrec::Asg, Assoc::Right))
             }
+            t!("or") => {
+                Some((ExprPrec::LogicOr, Assoc::Left))
+            }
+            t!("and") => {
+                Some((ExprPrec::LogicAnd, Assoc::Left))
+            }
             t!("!") | t!("!=") | t!("<") | t!("<=") | t!("==") | t!(">") | t!(">=") => {
                 Some((ExprPrec::Cmp, Assoc::None))
             }
             t!("|") => {
-                Some((ExprPrec::Or, Assoc::Left))
+                Some((ExprPrec::BitOr, Assoc::Left))
             }
             t!("^") => {
-                Some((ExprPrec::Xor, Assoc::Left))
+                Some((ExprPrec::BitXor, Assoc::Left))
             }
             t!("&") => {
-                Some((ExprPrec::And, Assoc::Left))
+                Some((ExprPrec::BitAnd, Assoc::Left))
             }
             t!("<<") | t!(">>") => {
                 Some((ExprPrec::ShlShr, Assoc::Left))
@@ -412,6 +493,52 @@ pub type AstPtr = rowan::ast::AstPtr<Language>;
 pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<Language>;
 pub use rowan::ast::{AstChildren, AstNode};
 pub use rowan::NodeOrToken;
+
+#[derive(Debug, Clone, Copy)]
+pub enum UnaryOp {
+    Not,
+    Neg,
+    Ref,
+    Deref,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BinaryOp {
+    Asg(Option<ArithOp>),
+    Cmp(CmpOp),
+    Arith(ArithOp),
+    Logic(LogicOp),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CmpOp {
+    Eq,
+    Ne,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ArithOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum LogicOp {
+    And,
+    Or,
+}
 
 pub fn parse_file(src: &str) -> ast::File {
     let (node, errors) = parser::parse_file(src);

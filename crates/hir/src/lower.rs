@@ -1,6 +1,6 @@
-use crate::{BinaryOp, Expr, ExprId, Function, FunctionBody, Name, Stmt, TypeRef, TypeRefId};
+use crate::{Expr, ExprId, Function, FunctionBody, Name, Stmt, TypeRef, TypeRefId};
 use la_arena::Arena;
-use syntax::{ast, t, AstNode, NodeOrToken};
+use syntax::ast;
 
 #[derive(Default)]
 struct Ctx {
@@ -63,22 +63,8 @@ impl Ctx {
             }
             ast::Expr::UnaryExpr(_) => self.alloc_expr(Expr::Missing),
             ast::Expr::BinaryExpr(it) => {
-                let op = it
-                    .syntax()
-                    .children_with_tokens()
-                    .filter_map(NodeOrToken::into_token)
-                    .filter(|it| !it.kind().is_trivia())
-                    .next()
-                    .unwrap()
-                    .kind();
-                let op = match op {
-                    t!("+") => BinaryOp::Add,
-                    t!("-") => BinaryOp::Sub,
-                    t!("<=") => BinaryOp::Lte,
-                    _ => todo!("{op:?}"),
-                };
                 let expr = Expr::Binary {
-                    op,
+                    op: it.op(),
                     lhs: self.lower_expr_opt(it.lhs()),
                     rhs: self.lower_expr_opt(it.rhs()),
                 };
@@ -119,9 +105,7 @@ impl Ctx {
             ast::Stmt::ItemStmt(_) => None,
             ast::Stmt::ExprStmt(it) => Some(Stmt::Expr(self.lower_expr_opt(it.expr()))),
             ast::Stmt::LetStmt(it) => Some(Stmt::Let(
-                it.identifier_token()
-                    .map(|it| it.text().to_owned())
-                    .into(),
+                it.identifier_token().map(|it| it.text().to_owned()).into(),
                 self.lower_expr_opt(it.expr()),
             )),
         }
@@ -189,6 +173,6 @@ impl Ctx {
     }
 }
 
-pub(crate)fn lower_function(func: ast::FnItem) -> Function {
+pub(crate) fn lower_function(func: ast::FnItem) -> Function {
     Ctx::default().lower_function(func)
 }

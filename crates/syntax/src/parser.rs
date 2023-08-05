@@ -218,6 +218,8 @@ impl Parser {
 
     pub(crate) fn nth_operator(&self, n: usize) -> Syntax {
         match self.nth_keyword(n) {
+            t!("identifier") if self.nth_at(n, t!("and")) => t!("and"),
+            t!("identifier") if self.nth_at(n, t!("or")) => t!("or"),
             t!("!") if self.nth_at(n, t!("!=")) => t!("!="),
             t!("%") if self.nth_at(n, t!("%=")) => t!("%="),
             t!("&") if self.nth_at(n, t!("&=")) => t!("&="),

@@ -87,7 +87,7 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
         &Expr::Binary { op, lhs, rhs } => {
             print_expr(s, exprs, lhs, indent);
             s.push(' ');
-            _ = write!(s, "{op}");
+            _ = write!(s, "{op:?}");
             s.push(' ');
             print_expr(s, exprs, rhs, indent);
         }

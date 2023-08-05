@@ -169,6 +169,7 @@ const PUNCTUATION_TOKENS: &[&str] = &[
 
 #[rustfmt::skip]
 const KEYWORDS: &[&str] = &[
+    "and",
     "break",
     "const",
     "continue",
@@ -179,6 +180,7 @@ const KEYWORDS: &[&str] = &[
     "if",
     "let",
     "loop",
+    "or",
     "ptr",
     "ref",
     "return",

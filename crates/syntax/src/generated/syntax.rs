@@ -55,6 +55,7 @@ pub enum Syntax {
     VerticalLineEqualsSign,
     RightCurlyBracket,
     Tilde,
+    AndKeyword,
     BreakKeyword,
     ConstKeyword,
     ContinueKeyword,
@@ -65,6 +66,7 @@ pub enum Syntax {
     IfKeyword,
     LetKeyword,
     LoopKeyword,
+    OrKeyword,
     PtrKeyword,
     RefKeyword,
     ReturnKeyword,
@@ -161,6 +163,7 @@ impl Syntax {
     }
     pub(crate) fn from_keyword_str(s: &str) -> Option<Syntax> {
         match s {
+            "and" => Some(Syntax::AndKeyword),
             "break" => Some(Syntax::BreakKeyword),
             "const" => Some(Syntax::ConstKeyword),
             "continue" => Some(Syntax::ContinueKeyword),
@@ -171,6 +174,7 @@ impl Syntax {
             "if" => Some(Syntax::IfKeyword),
             "let" => Some(Syntax::LetKeyword),
             "loop" => Some(Syntax::LoopKeyword),
+            "or" => Some(Syntax::OrKeyword),
             "ptr" => Some(Syntax::PtrKeyword),
             "ref" => Some(Syntax::RefKeyword),
             "return" => Some(Syntax::ReturnKeyword),

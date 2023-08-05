@@ -1,5 +1,6 @@
 use hir::TypeId;
 use std::fmt::Write;
+use syntax::{ArithOp, BinaryOp, CmpOp, UnaryOp};
 
 #[derive(Debug)]
 pub struct Function {
@@ -287,23 +288,24 @@ impl Ctx<'_> {
                 }
                 None
             }
-            hir::Expr::Unary { op, operand } => todo!(),
+            &hir::Expr::Unary { op, operand } => {
+                let ty = self.type_of(operand);
+                let operand = self.lower_expr(operand).unwrap();
+                let dst = self.reg();
+                match op {
+                    UnaryOp::Not => todo!(),
+                    UnaryOp::Neg => todo!(),
+                    UnaryOp::Ref => todo!(),
+                    UnaryOp::Deref => todo!(),
+                }
+                Some(dst)
+            },
             &hir::Expr::Binary { op, lhs, rhs } => {
                 let ty = self.type_of(lhs);
                 let lhs = self.lower_expr(lhs).unwrap();
                 let rhs = self.lower_expr(rhs).unwrap();
                 let dst = self.reg();
-                self.push(match op {
-                    hir::BinaryOp::Add => Inst::Iadd { ty, dst, lhs, rhs },
-                    hir::BinaryOp::Sub => Inst::Isub { ty, dst, lhs, rhs },
-                    hir::BinaryOp::Lte => Inst::Icmp {
-                        ty,
-                        cmp: Cmp::Slte,
-                        dst,
-                        lhs,
-                        rhs,
-                    },
-                });
+                self.push(bin_op(op, ty, dst, lhs, rhs));
                 Some(dst)
             }
             hir::Expr::Break => todo!(),
@@ -387,7 +389,32 @@ impl Ctx<'_> {
     }
 }
 
-fn lower(db: &hir::Db, function: &hir::Function, inference: &hir::InferenceResult) -> Function {
+
+#[rustfmt::skip]
+fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
+    match op {
+        BinaryOp::Asg(_) => todo!(),
+        BinaryOp::Cmp(CmpOp::Eq) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Eq },
+        BinaryOp::Cmp(CmpOp::Ne) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Ne },
+        BinaryOp::Cmp(CmpOp::Lt) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Slt },
+        BinaryOp::Cmp(CmpOp::Lte) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Slte },
+        BinaryOp::Cmp(CmpOp::Gt) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Sgt },
+        BinaryOp::Cmp(CmpOp::Gte) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Sgte },
+        BinaryOp::Arith(ArithOp::Add) => Inst::Iadd { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Sub) => Inst::Isub { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Mul) => Inst::Imul { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Div) => Inst::Sdiv { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Rem) => Inst::Srem { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::And) => Inst::And { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Or) => Inst::Or { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Xor) => Inst::Xor { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Shl) => Inst::Shl { ty, dst, lhs, rhs },
+        BinaryOp::Arith(ArithOp::Shr) => Inst::Lshr { ty, dst, lhs, rhs },
+        BinaryOp::Logic(_) => todo!(),
+    }
+}
+
+pub fn lower(db: &hir::Db, function: &hir::Function, inference: &hir::InferenceResult) -> Function {
     let ctx = Ctx {
         db,
         function,
@@ -401,7 +428,7 @@ fn lower(db: &hir::Db, function: &hir::Function, inference: &hir::InferenceResul
     ctx.lower_function()
 }
 
-fn print_function(function: &Function) -> String {
+pub fn print_function(function: &Function) -> String {
     let mut s = String::new();
     print_function_(&mut s, function);
     s

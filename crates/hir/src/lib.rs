@@ -5,11 +5,10 @@ mod pretty;
 
 pub use pretty::print_function;
 
-use core::fmt;
 use la_arena::{Arena, Idx};
 use lower::lower_function;
 use std::{collections::HashMap, ops::Index};
-use syntax::ast;
+use syntax::{ast, UnaryOp, BinaryOp};
 
 pub type ExprId = Idx<Expr>;
 pub type TypeId = Idx<Type>;
@@ -102,26 +101,6 @@ pub enum TypeRef {
     Error,
     Name(String),
     Ptr(TypeRefId),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum UnaryOp {}
-
-#[derive(Debug, Clone, Copy)]
-pub enum BinaryOp {
-    Add,
-    Sub,
-    Lte,
-}
-
-impl fmt::Display for BinaryOp {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BinaryOp::Add => f.write_str("+"),
-            BinaryOp::Sub => f.write_str("-"),
-            BinaryOp::Lte => f.write_str("<="),
-        }
-    }
 }
 
 #[derive(Debug)]
