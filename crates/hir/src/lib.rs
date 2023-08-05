@@ -31,7 +31,7 @@ pub struct FunctionBody {
     pub expr: Idx<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Name {
     Missing,
     Present(String),
@@ -129,15 +129,20 @@ pub enum Stmt {
     Let(Name, ExprId),
     Expr(ExprId),
 }
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Type {
     Error,
     Never,
     Unit,
     Uint32,
     Ptr(TypeId),
-    Fn {
+    GenericFn {
+        ret_ty: TypeId,
+        param_tys: Box<[TypeId]>,
+    },
+    SpecificFn {
+        name: Name,
         ret_ty: TypeId,
         param_tys: Box<[TypeId]>,
     },
@@ -251,7 +256,8 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         _ => None,
                     },
                 })
-                .map(|func| Type::Fn {
+                .map(|func| Type::SpecificFn {
+                    name: func.name.clone(),
                     ret_ty: lower_type_ref(ctx, func.return_ty),
                     param_tys: func
                         .param_tys
@@ -316,7 +322,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         }
         Expr::Call { callee, args } => {
             let callee_ty = infer_expr(ctx, *callee);
-            let &Type::Fn { ret_ty, .. } = &ctx.db.types[callee_ty] else {
+            let &Type::SpecificFn { ret_ty, .. } = &ctx.db.types[callee_ty] else {
                 return ctx.db.get_type(Type::Error);
             };
             for &arg in args.iter() {

@@ -1,3 +1,6 @@
+use hir::TypeId;
+use std::fmt::Write;
+
 #[derive(Debug)]
 pub struct Function {
     pub funcs: Vec<FuncData>,
@@ -13,19 +16,45 @@ pub struct FuncData {
 
 #[derive(Debug, Default)]
 pub struct BlockData {
-    pub args: Vec<Type>,
+    pub arg_tys: Vec<Type>,
+    pub arg_regs: Vec<Reg>,
     pub vars: Vec<Type>,
     pub insts: Vec<Inst>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Reg(u32);
-#[derive(Debug, Clone, Copy)]
+
+impl std::fmt::Debug for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "%{}", self.0)
+    }
+}
+#[derive(Clone, Copy)]
 pub struct Var(u32);
-#[derive(Debug, Clone, Copy)]
+
+impl std::fmt::Debug for Var {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "${}", self.0)
+    }
+}
+#[derive(Clone, Copy)]
 pub struct Func(u32);
-#[derive(Debug, Clone, Copy)]
+
+impl std::fmt::Debug for Func {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "f{}", self.0)
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Block(u32);
+
+impl std::fmt::Debug for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "b{}", self.0)
+    }
+}
 
 #[rustfmt::skip]
 #[derive(Debug)]
@@ -60,7 +89,6 @@ pub enum Inst {
     Halt,
 }
 
-#[derive(Debug)]
 pub enum Cmp {
     Eq,
     Ne,
@@ -74,14 +102,46 @@ pub enum Cmp {
     Slte,
 }
 
-#[derive(Debug)]
+impl std::fmt::Debug for Cmp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cmp::Eq => write!(f, "eq"),
+            Cmp::Ne => write!(f, "ne"),
+            Cmp::Ugt => write!(f, "ugt"),
+            Cmp::Ult => write!(f, "ult"),
+            Cmp::Ugte => write!(f, "ugte"),
+            Cmp::Ulte => write!(f, "ulte"),
+            Cmp::Sgt => write!(f, "sgt"),
+            Cmp::Slt => write!(f, "slt"),
+            Cmp::Sgte => write!(f, "sgte"),
+            Cmp::Slte => write!(f, "slte"),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub enum Type {
+    Invalid,
     Int8,
     Int16,
     Int32,
     Int64,
     Float32,
     Float64,
+}
+
+impl std::fmt::Debug for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Invalid => write!(f, "invalid"),
+            Type::Int8 => write!(f, "i8"),
+            Type::Int16 => write!(f, "i16"),
+            Type::Int32 => write!(f, "i32"),
+            Type::Int64 => write!(f, "i64"),
+            Type::Float32 => write!(f, "f32"),
+            Type::Float64 => write!(f, "f64"),
+        }
+    }
 }
 
 struct Ctx<'a> {
@@ -124,6 +184,12 @@ impl Ctx<'_> {
 
     fn lower_function(mut self) -> Function {
         let entry = self.block();
+        for param_ty in self.inference.param_tys.iter() {
+            let param_ty = self.lower_ty(*param_ty);
+            let reg = self.reg();
+            self.blocks[entry.0 as usize].arg_tys.push(param_ty);
+            self.blocks[entry.0 as usize].arg_regs.push(reg);
+        }
         self.switch_to_block(entry);
         self.lower_expr(self.function.body.expr);
         Function {
@@ -136,15 +202,18 @@ impl Ctx<'_> {
         match &self.function.body.exprs[expr] {
             hir::Expr::Missing => todo!(),
             hir::Expr::Unit => todo!(),
-            hir::Expr::Name(_) => {
-                // TODO
-                let reg = self.reg();
-                self.push(Inst::Const {
-                    ty: Type::Int32,
-                    dst: reg,
-                    value: 0,
-                });
-                Some(reg)
+            hir::Expr::Name(name) => {
+                let param_index = self
+                    .function
+                    .body
+                    .param_names
+                    .iter()
+                    .enumerate()
+                    .find(|&(_, it)| it == name.as_str())
+                    .unwrap()
+                    .0;
+                let entry_block = &self.blocks[0];
+                Some(entry_block.arg_regs[param_index])
             }
             &hir::Expr::Number(value) => {
                 let reg = self.reg();
@@ -246,14 +315,46 @@ impl Ctx<'_> {
                 None
             }
             hir::Expr::Call { callee, args } => {
-                let hir::Type::Fn { ret_ty, param_tys } = &self.db[self.inference.exprs[callee]] else {
+                let hir::Type::SpecificFn {
+                    name: hir::Name::Present(name),
+                    ret_ty,
+                    param_tys,
+                } = &self.db[self.inference.exprs[callee]]
+                else {
                     todo!()
                 };
+                let mut arg_regs = Vec::new();
                 for &arg in args.iter() {
-                    self.lower_expr(arg);
+                    arg_regs.push(self.lower_expr(arg).unwrap());
                 }
-                // TODO
-                Some(Reg(!0))
+                if self.db[*ret_ty] == hir::Type::Unit {
+                    let func = Func(self.funcs.len() as u32);
+                    self.funcs.push(FuncData {
+                        name: name.clone(),
+                        ret: None,
+                        args: self.lower_tys(param_tys),
+                    });
+                    self.push(Inst::Call {
+                        func,
+                        args: arg_regs.into_boxed_slice(),
+                    });
+                    None
+                } else {
+                    let ret_ty = self.lower_ty(*ret_ty);
+                    let func = Func(self.funcs.len() as u32);
+                    self.funcs.push(FuncData {
+                        name: name.clone(),
+                        ret: Some(ret_ty),
+                        args: self.lower_tys(param_tys),
+                    });
+                    let reg = self.reg();
+                    self.push(Inst::Callv {
+                        ty: ret_ty,
+                        func,
+                        args: arg_regs.into_boxed_slice(),
+                    });
+                    Some(reg)
+                }
             }
             hir::Expr::Index { base, index } => todo!(),
             hir::Expr::Field { base, name } => todo!(),
@@ -261,13 +362,26 @@ impl Ctx<'_> {
     }
 
     fn type_of(&self, lhs: hir::ExprId) -> Type {
-        match &self.db[self.inference.exprs[&lhs]] {
+        self.lower_ty(self.inference.exprs[&lhs])
+    }
+
+    fn lower_tys(&self, tys: &[TypeId]) -> Vec<Type> {
+        tys.iter().map(|&ty| self.lower_ty(ty)).collect()
+    }
+
+    fn lower_ty(&self, ty: TypeId) -> Type {
+        match &self.db[ty] {
             hir::Type::Error => todo!(),
             hir::Type::Never => todo!(),
             hir::Type::Unit => todo!(),
             hir::Type::Uint32 => Type::Int32,
             hir::Type::Ptr(_) => todo!(),
-            hir::Type::Fn { ret_ty, param_tys } => todo!(),
+            hir::Type::SpecificFn {
+                ret_ty,
+                param_tys,
+                name,
+            } => todo!(),
+            hir::Type::GenericFn { ret_ty, param_tys } => todo!(),
         }
     }
 }
@@ -284,6 +398,97 @@ fn lower(db: &hir::Db, function: &hir::Function, inference: &hir::InferenceResul
         next_reg: 0,
     };
     ctx.lower_function()
+}
+
+fn print_function(function: &Function) -> String {
+    let mut s = String::new();
+    print_function_(&mut s, function);
+    s
+}
+
+fn print_function_(s: &mut String, function: &Function) {
+    for (i, block) in function.blocks.iter().enumerate() {
+        s.push('b');
+        _ = write!(s, "{i}");
+        if !block.arg_regs.is_empty() {
+            s.push('(');
+            for (i, (reg, ty)) in block.arg_regs.iter().zip(block.arg_tys.iter()).enumerate() {
+                if i != 0 {
+                    s.push(',');
+                }
+                _ = write!(s, "{reg:?} {ty:?}");
+            }
+            s.push(')');
+        }
+        s.push(':');
+        s.push('\n');
+
+        for inst in block.insts.iter() {
+            _ = write!(s, "    ");
+            print_inst(s, inst);
+            _ = writeln!(s);
+        }
+    }
+}
+
+#[rustfmt::skip]
+fn print_inst(s: &mut String, inst: &Inst) {
+    match inst {
+        Inst::Const { ty, dst, value } => _ =
+            write!(s, "{dst:?} = const {ty:?} {value:?}"),
+        Inst::Load { ty, dst, src } => _ =
+            write!(s, "{dst:?} = load {ty:?} {src:?}"),
+        Inst::Store { ty, dst, src } => _ =
+            write!(s, "{dst:?} = store {ty:?} {src:?}"),
+        Inst::Zext { ty, dst, operand } => _ =
+            write!(s, "{dst:?} = zext {ty:?} {operand:?}"),
+        Inst::Sext { ty, dst, operand } => _ =
+            write!(s, "{dst:?} = sext {ty:?} {operand:?}"),
+        Inst::Trunc { ty, dst, operand } => _ =
+            write!(s, "{dst:?} = trunc {ty:?} {operand:?}"),
+        Inst::Iadd { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = iadd {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Isub { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = isub {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Imul { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = imul {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Sdiv { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = sdiv {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Udiv { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = udiv {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Srem { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = srem {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Urem { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = urem {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Icmp { ty, dst, lhs, rhs, cmp } => _ =
+            write!(s, "{dst:?} = cmp {cmp:?} {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Shl { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = shl {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Lshr { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = lshr {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Ashr { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = ashr {ty:?} {lhs:?} {rhs:?}"),
+        Inst::And { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = and {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Or { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = or {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Xor { ty, dst, lhs, rhs } => _ =
+            write!(s, "{dst:?} = xor {ty:?} {lhs:?} {rhs:?}"),
+        Inst::Call { func, args } => _ =
+            write!(s, "call {func:?} {args:?}"),
+        Inst::Callv { ty, func, args } => _ =
+            write!(s, "call {ty:?} {func:?} {args:?}"),
+        Inst::Ret => _ =
+            write!(s, "ret"),
+        Inst::Retv { ty, src } => _ =
+            write!(s, "ret {ty:?} {src:?}"),
+        Inst::Br { block } => _ =
+            write!(s, "br {block:?}"),
+        Inst::Cbr { cond, then_block, then_args, else_block, else_args } => _ =
+            write!(s, "cbr {cond:?} {then_block:?} {then_args:?} {else_block:?} {else_args:?}"),
+        Inst::Halt => _ =
+            write!(s, "halt"),
+    }
 }
 
 #[cfg(test)]
@@ -306,7 +511,7 @@ fn fib(n u32) u32 {
                 hir::Item::Function(func) => {
                     let inference = hir::infer(&mut db, &items, func);
                     let function = lower(&db, &func, &inference);
-                    dbg!(function);
+                    eprintln!("{}", print_function(&function));
                 }
             }
         }
