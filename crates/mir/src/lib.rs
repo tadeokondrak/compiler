@@ -246,6 +246,12 @@ impl Ctx<'_> {
                 None
             }
             hir::Expr::Call { callee, args } => {
+                let hir::Type::Fn { ret_ty, param_tys } = &self.db[self.inference.exprs[callee]] else {
+                    todo!()
+                };
+                for &arg in args.iter() {
+                    self.lower_expr(arg);
+                }
                 // TODO
                 Some(Reg(!0))
             }

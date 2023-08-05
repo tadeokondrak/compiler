@@ -314,11 +314,14 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             infer_expr(ctx, value);
             ctx.db.get_type(Type::Never)
         }
-        Expr::Call { callee, args: _ } => {
+        Expr::Call { callee, args } => {
             let callee_ty = infer_expr(ctx, *callee);
             let &Type::Fn { ret_ty, .. } = &ctx.db.types[callee_ty] else {
                 return ctx.db.get_type(Type::Error);
             };
+            for &arg in args.iter() {
+                infer_expr(ctx, arg);
+            }
             ret_ty
         }
         &Expr::Index { base, index: _ } => {
