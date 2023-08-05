@@ -3,17 +3,17 @@
 mod lower;
 mod pretty;
 
-pub use lower::lower_function;
 pub use pretty::print_function;
 
 use core::fmt;
 use la_arena::{Arena, Idx};
-use std::collections::HashMap;
+use lower::lower_function;
+use std::{collections::HashMap, ops::Index};
 use syntax::ast;
 
-type ExprId = Idx<Expr>;
-type TypeId = Idx<Type>;
-type TypeRefId = Idx<TypeRef>;
+pub type ExprId = Idx<Expr>;
+pub type TypeId = Idx<Type>;
+pub type TypeRefId = Idx<TypeRef>;
 
 #[derive(Debug)]
 pub struct Function {
@@ -143,25 +143,23 @@ pub enum Type {
     },
 }
 
-type ItemId = Idx<Item>;
-
-enum Scope {}
-
-struct Scopes {}
-
 #[derive(Debug)]
-struct ItemTree {
+pub struct ItemTree {
     items: Arena<Item>,
-    top_level: Box<[ItemId]>,
+}
+
+impl ItemTree {
+    pub fn items(&self) -> &Arena<Item> {
+        &self.items
+    }
 }
 
 #[derive(Debug)]
-enum Item {
+pub enum Item {
     Function(Function),
-    // Block
 }
 
-fn items(file: ast::File) -> ItemTree {
+pub fn items(file: ast::File) -> ItemTree {
     ItemTree {
         items: file
             .items()
@@ -174,12 +172,11 @@ fn items(file: ast::File) -> ItemTree {
                 ast::Item::ConstantItem(_) => todo!(),
             })
             .collect(),
-        top_level: Box::new([]),
     }
 }
 
 #[derive(Default, Debug)]
-struct Db {
+pub struct Db {
     types: Arena<Type>,
     cache: HashMap<Type, TypeId>,
 }
@@ -194,36 +191,58 @@ impl Db {
     }
 }
 
-#[derive(Debug)]
-pub struct InferenceResult {
-    param_tys: Box<[TypeId]>,
-    return_ty: TypeId,
+impl Index<TypeId> for Db {
+    type Output = Type;
+
+    fn index(&self, id: TypeId) -> &Self::Output {
+        &self.types[id]
+    }
 }
 
-fn infer(db: &mut Db, items: &ItemTree, func: &Function) -> InferenceResult {
+#[derive(Debug)]
+pub struct InferenceResult {
+    pub param_tys: Box<[TypeId]>,
+    pub return_ty: TypeId,
+    pub exprs: HashMap<ExprId, TypeId>,
+}
+
+pub fn infer(db: &mut Db, items: &ItemTree, func: &Function) -> InferenceResult {
+    let mut ctx = InferCtx {
+        db,
+        items,
+        func,
+        exprs: HashMap::new(),
+    };
     let param_tys = func
         .param_tys
         .iter()
-        .map(|&ty| lower_type_ref(db, func, ty))
+        .map(|&ty| lower_type_ref(&mut ctx, ty))
         .collect::<Vec<TypeId>>()
         .into_boxed_slice();
-    let return_ty = lower_type_ref(db, func, func.return_ty);
-    infer_expr(db, items, func, func.body.expr);
+    let return_ty = lower_type_ref(&mut ctx, func.return_ty);
+    infer_expr(&mut ctx, func.body.expr);
 
     InferenceResult {
         return_ty,
         param_tys,
+        exprs: ctx.exprs,
     }
 }
 
-fn lookup_name_in_func(items: &ItemTree, func: &Function) {}
+struct InferCtx<'a> {
+    db: &'a mut Db,
+    items: &'a ItemTree,
+    func: &'a Function,
+    exprs: HashMap<ExprId, TypeId>,
+}
 
-fn infer_expr(db: &mut Db, items: &ItemTree, func: &Function, expr: ExprId) -> TypeId {
-    match &func.body.exprs[expr] {
-        Expr::Missing => db.get_type(Type::Error),
-        Expr::Unit => db.get_type(Type::Unit),
+fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
+    let type_id = match &ctx.func.body.exprs[expr] {
+        Expr::Missing => ctx.db.get_type(Type::Error),
+        Expr::Unit => ctx.db.get_type(Type::Unit),
         Expr::Name(name) => {
-            let item_ty = items
+            let item_ty = ctx
+                .items
                 .items
                 .values()
                 .find_map(|item| match item {
@@ -233,96 +252,99 @@ fn infer_expr(db: &mut Db, items: &ItemTree, func: &Function, expr: ExprId) -> T
                     },
                 })
                 .map(|func| Type::Fn {
-                    ret_ty: lower_type_ref(db, func, func.return_ty),
+                    ret_ty: lower_type_ref(ctx, func.return_ty),
                     param_tys: func
                         .param_tys
                         .iter()
-                        .map(|&ty| lower_type_ref(db, func, ty))
+                        .map(|&ty| lower_type_ref(ctx, ty))
                         .collect::<Vec<TypeId>>()
                         .into_boxed_slice(),
                 })
-                .map(|ty| db.get_type(ty));
-            let param_ty = func
+                .map(|ty| ctx.db.get_type(ty));
+            let param_ty = ctx
+                .func
                 .body
                 .param_names
                 .iter()
                 .enumerate()
                 .find(|&(_, it)| it == name.as_str())
-                .map(|(i, _)| lower_type_ref(db, func, func.param_tys[i]));
+                .map(|(i, _)| lower_type_ref(ctx, ctx.func.param_tys[i]));
             param_ty
                 .or(item_ty)
-                .unwrap_or_else(|| db.get_type(Type::Error))
+                .unwrap_or_else(|| ctx.db.get_type(Type::Error))
         }
-        Expr::Number(_) => db.get_type(Type::Uint32),
+        Expr::Number(_) => ctx.db.get_type(Type::Uint32),
         &Expr::If {
             cond,
             then_expr,
             else_expr,
         } => {
-            infer_expr(db, items, func, cond);
-            infer_expr(db, items, func, then_expr);
-            else_expr.map(|expr| infer_expr(db, items, func, expr));
-            db.get_type(Type::Unit)
+            infer_expr(ctx, cond);
+            infer_expr(ctx, then_expr);
+            else_expr.map(|expr| infer_expr(ctx, expr));
+            ctx.db.get_type(Type::Unit)
         }
         &Expr::Loop { body } => {
-            infer_expr(db, items, func, body);
-            db.get_type(Type::Never)
+            infer_expr(ctx, body);
+            ctx.db.get_type(Type::Never)
         }
         Expr::Block { body } => {
             for stmt in body.iter() {
                 match stmt {
                     Stmt::Let(_, _) => todo!(),
                     &Stmt::Expr(expr) => {
-                        infer_expr(db, items, func, expr);
+                        infer_expr(ctx, expr);
                     }
                 }
             }
-            db.get_type(Type::Unit)
+            ctx.db.get_type(Type::Unit)
         }
         &Expr::Unary { op: _, operand } => {
-            let operand_ty = infer_expr(db, items, func, operand);
+            let operand_ty = infer_expr(ctx, operand);
             operand_ty
         }
         &Expr::Binary { op: _, lhs, rhs } => {
-            let lhs_ty = infer_expr(db, items, func, lhs);
-            let _rhs_ty = infer_expr(db, items, func, rhs);
+            let lhs_ty = infer_expr(ctx, lhs);
+            let _rhs_ty = infer_expr(ctx, rhs);
             lhs_ty
         }
-        Expr::Break => db.get_type(Type::Never),
-        Expr::Continue => db.get_type(Type::Never),
+        Expr::Break => ctx.db.get_type(Type::Never),
+        Expr::Continue => ctx.db.get_type(Type::Never),
         &Expr::Return { value } => {
-            infer_expr(db, items, func, value);
-            db.get_type(Type::Never)
+            infer_expr(ctx, value);
+            ctx.db.get_type(Type::Never)
         }
         Expr::Call { callee, args: _ } => {
-            let callee_ty = infer_expr(db, items, func, *callee);
-            let &Type::Fn { ret_ty, .. } = &db.types[callee_ty] else {
-                return db.get_type(Type::Error);
+            let callee_ty = infer_expr(ctx, *callee);
+            let &Type::Fn { ret_ty, .. } = &ctx.db.types[callee_ty] else {
+                return ctx.db.get_type(Type::Error);
             };
             ret_ty
         }
         &Expr::Index { base, index: _ } => {
-            infer_expr(db, items, func, base);
+            infer_expr(ctx, base);
 
-            db.get_type(Type::Error)
+            ctx.db.get_type(Type::Error)
         }
         Expr::Field { base, name: _ } => {
-            infer_expr(db, items, func, *base);
-            db.get_type(Type::Error)
+            infer_expr(ctx, *base);
+            ctx.db.get_type(Type::Error)
         }
-    }
+    };
+    ctx.exprs.insert(expr, type_id);
+    type_id
 }
 
-fn lower_type_ref(db: &mut Db, func: &Function, ty: TypeRefId) -> TypeId {
-    match &func.type_refs[ty] {
-        TypeRef::Error => db.get_type(Type::Error),
+fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
+    match &ctx.func.type_refs[ty] {
+        TypeRef::Error => ctx.db.get_type(Type::Error),
         TypeRef::Name(name) => match name.as_str() {
-            "u32" => db.get_type(Type::Uint32),
-            _ => db.get_type(Type::Error),
+            "u32" => ctx.db.get_type(Type::Uint32),
+            _ => ctx.db.get_type(Type::Error),
         },
         &TypeRef::Ptr(dest) => {
-            let dest_ty = lower_type_ref(db, func, dest);
-            db.get_type(Type::Ptr(dest_ty))
+            let dest_ty = lower_type_ref(ctx, dest);
+            ctx.db.get_type(Type::Ptr(dest_ty))
         }
     }
 }
@@ -345,7 +367,7 @@ fn fib(n u32) u32 {
         for item in items.items.values() {
             match item {
                 Item::Function(func) => {
-                    let result = infer(&mut db, &items, func);
+                    let _result = infer(&mut db, &items, func);
                     dbg!(&db);
                     eprintln!("{}", print_function(func));
                 }

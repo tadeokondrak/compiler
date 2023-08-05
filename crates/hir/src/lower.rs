@@ -189,6 +189,6 @@ impl Ctx {
     }
 }
 
-pub fn lower_function(func: ast::FnItem) -> Function {
+pub(crate)fn lower_function(func: ast::FnItem) -> Function {
     Ctx::default().lower_function(func)
 }
