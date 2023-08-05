@@ -79,8 +79,8 @@ pub enum Inst {
     And   { ty: Type, dst: Reg, lhs: Reg, rhs: Reg },
     Or    { ty: Type, dst: Reg, lhs: Reg, rhs: Reg },
     Xor   { ty: Type, dst: Reg, lhs: Reg, rhs: Reg },
-    Call  {           func: Func, args: Box<[Reg]> },
-    Callv { ty: Type, func: Func, args: Box<[Reg]> },
+    Call  {                     func: Func, args: Box<[Reg]> },
+    Callv { ty: Type, dst: Reg, func: Func, args: Box<[Reg]> },
     Ret,
     Retv  { ty: Type, src: Reg },
     Br    { block: Block },
@@ -347,13 +347,14 @@ impl Ctx<'_> {
                         ret: Some(ret_ty),
                         args: self.lower_tys(param_tys),
                     });
-                    let reg = self.reg();
+                    let dst = self.reg();
                     self.push(Inst::Callv {
                         ty: ret_ty,
+                        dst,
                         func,
                         args: arg_regs.into_boxed_slice(),
                     });
-                    Some(reg)
+                    Some(dst)
                 }
             }
             hir::Expr::Index { base, index } => todo!(),
@@ -476,8 +477,8 @@ fn print_inst(s: &mut String, inst: &Inst) {
             write!(s, "{dst:?} = xor {ty:?} {lhs:?} {rhs:?}"),
         Inst::Call { func, args } => _ =
             write!(s, "call {func:?} {args:?}"),
-        Inst::Callv { ty, func, args } => _ =
-            write!(s, "call {ty:?} {func:?} {args:?}"),
+        Inst::Callv { dst, ty, func, args } => _ =
+            write!(s, "{dst:?} = call {ty:?} {func:?} {args:?}"),
         Inst::Ret => _ =
             write!(s, "ret"),
         Inst::Retv { ty, src } => _ =
