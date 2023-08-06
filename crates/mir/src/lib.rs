@@ -148,6 +148,7 @@ impl std::fmt::Debug for Type {
 struct Ctx<'a> {
     db: &'a hir::Db,
     function: &'a hir::Function,
+    body: &'a hir::FunctionBody,
     inference: &'a hir::InferenceResult,
     funcs: Vec<FuncData>,
     blocks: Vec<BlockData>,
@@ -192,7 +193,7 @@ impl Ctx<'_> {
             self.blocks[entry.0 as usize].arg_regs.push(reg);
         }
         self.switch_to_block(entry);
-        self.lower_expr(self.function.body.expr);
+        self.lower_expr(self.body.expr);
         Function {
             funcs: self.funcs,
             blocks: self.blocks,
@@ -200,12 +201,11 @@ impl Ctx<'_> {
     }
 
     fn lower_expr(&mut self, expr: hir::ExprId) -> Option<Reg> {
-        match &self.function.body.exprs[expr] {
+        match &self.body.exprs[expr] {
             hir::Expr::Missing => todo!(),
             hir::Expr::Unit => todo!(),
             hir::Expr::Name(name) => {
                 let param_index = self
-                    .function
                     .body
                     .param_names
                     .iter()
@@ -299,7 +299,7 @@ impl Ctx<'_> {
                     UnaryOp::Deref => todo!(),
                 }
                 Some(dst)
-            },
+            }
             &hir::Expr::Binary { op, lhs, rhs } => {
                 let ty = self.type_of(lhs);
                 let lhs = self.lower_expr(lhs).unwrap();
@@ -321,7 +321,7 @@ impl Ctx<'_> {
                     name: hir::Name::Present(name),
                     ret_ty,
                     param_tys,
-                } = &self.db[self.inference.exprs[callee]]
+                } = &self.db[self.inference.exprs[&callee]]
                 else {
                     todo!()
                 };
@@ -389,7 +389,6 @@ impl Ctx<'_> {
     }
 }
 
-
 #[rustfmt::skip]
 fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
     match op {
@@ -414,10 +413,16 @@ fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
     }
 }
 
-pub fn lower(db: &hir::Db, function: &hir::Function, inference: &hir::InferenceResult) -> Function {
+pub fn lower(
+    db: &hir::Db,
+    function: &hir::Function,
+    body: &hir::FunctionBody,
+    inference: &hir::InferenceResult,
+) -> Function {
     let ctx = Ctx {
         db,
         function,
+        body,
         inference,
         funcs: Vec::new(),
         blocks: Vec::new(),
@@ -522,6 +527,7 @@ fn print_inst(s: &mut String, inst: &Inst) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use syntax::AstNode;
 
     #[test]
     fn test_infer() {
@@ -537,9 +543,10 @@ fn fib(n u32) u32 {
         for item in items.items().values() {
             match item {
                 hir::Item::Function(func) => {
-                    let inference = hir::infer(&mut db, &items, func);
-                    let function = lower(&db, &func, &inference);
-                    eprintln!("{}", print_function(&function));
+                    let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
+                    let inference = hir::infer(&mut db, &items, func, &body);
+                    let func = lower(&db, &func, &body, &inference);
+                    eprintln!("{}", print_function(&func));
                 }
             }
         }

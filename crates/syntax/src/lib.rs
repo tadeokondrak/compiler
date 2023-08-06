@@ -489,9 +489,7 @@ pub type SyntaxElement = rowan::api::SyntaxElement<Language>;
 pub type SyntaxElementChildren = rowan::api::SyntaxElementChildren<Language>;
 pub type Preorder = rowan::api::Preorder<Language>;
 pub type PreorderWithTokens = rowan::api::PreorderWithTokens<Language>;
-pub type AstPtr = rowan::ast::AstPtr<Language>;
-pub type SyntaxNodePtr = rowan::ast::SyntaxNodePtr<Language>;
-pub use rowan::ast::{AstChildren, AstNode};
+pub use rowan::ast::{AstChildren, AstNode, AstPtr, SyntaxNodePtr};
 pub use rowan::NodeOrToken;
 
 #[derive(Debug, Clone, Copy)]

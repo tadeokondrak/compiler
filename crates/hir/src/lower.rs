@@ -1,20 +1,71 @@
 use crate::{Expr, ExprId, Function, FunctionBody, Name, Stmt, TypeRef, TypeRefId};
 use la_arena::Arena;
-use syntax::ast;
+use syntax::{ast, AstPtr};
 
 #[derive(Default)]
-struct Ctx {
-    exprs: Arena<Expr>,
+struct LowerCtx {
     type_refs: Arena<TypeRef>,
 }
 
-impl Ctx {
-    fn alloc_expr(&mut self, expr: Expr) -> ExprId {
-        self.exprs.alloc(expr)
-    }
+#[derive(Default)]
+struct LowerBodyCtx {
+    exprs: Arena<Expr>,
+}
 
+impl LowerCtx {
     fn alloc_type_ref(&mut self, type_ref: TypeRef) -> TypeRefId {
         self.type_refs.alloc(type_ref)
+    }
+
+    fn lower_type_ref(&mut self, ty: ast::Type) -> TypeRefId {
+        match ty {
+            ast::Type::ParenType(it) => self.lower_type_ref_opt(it.ty()),
+            ast::Type::NameType(it) => self.alloc_type_ref(
+                it.identifier_token()
+                    .map(|it| TypeRef::Name(it.text().to_owned()))
+                    .unwrap_or(TypeRef::Error),
+            ),
+            ast::Type::SliceType(_) => todo!(),
+            ast::Type::PointerType(it) => {
+                let dest_type = self.lower_type_ref_opt(it.dest_ty());
+                self.alloc_type_ref(TypeRef::Ptr(dest_type))
+            }
+        }
+    }
+
+    fn lower_type_ref_opt(&mut self, ty: Option<ast::Type>) -> TypeRefId {
+        match ty {
+            Some(it) => self.lower_type_ref(it),
+            None => self.alloc_type_ref(TypeRef::Error),
+        }
+    }
+
+    fn lower_function(mut self, syntax: ast::FnItem) -> Function {
+        let name = syntax
+            .identifier_token()
+            .map(|tok| tok.text().to_owned())
+            .into();
+        let return_ty = self.lower_type_ref_opt(syntax.return_ty());
+
+        let param_tys = syntax
+            .parameters()
+            .map(|param| self.lower_type_ref_opt(param.ty()))
+            .collect::<Vec<TypeRefId>>()
+            .into_boxed_slice();
+
+        Function {
+            ast: AstPtr::new(&syntax),
+            type_refs: self.type_refs,
+            return_ty,
+            param_tys,
+            name,
+        }
+    }
+}
+
+impl LowerBodyCtx {
+    fn alloc_expr(&mut self, expr: Expr) -> ExprId {
+        self.exprs.alloc(expr)
     }
 
     fn lower_expr_opt(&mut self, expr: Option<ast::Expr>) -> ExprId {
@@ -111,44 +162,9 @@ impl Ctx {
         }
     }
 
-    fn lower_type_ref(&mut self, ty: ast::Type) -> TypeRefId {
-        match ty {
-            ast::Type::ParenType(it) => self.lower_type_ref_opt(it.ty()),
-            ast::Type::NameType(it) => self.alloc_type_ref(
-                it.identifier_token()
-                    .map(|it| TypeRef::Name(it.text().to_owned()))
-                    .unwrap_or(TypeRef::Error),
-            ),
-            ast::Type::SliceType(_) => todo!(),
-            ast::Type::PointerType(it) => {
-                let dest_type = self.lower_type_ref_opt(it.dest_ty());
-                self.alloc_type_ref(TypeRef::Ptr(dest_type))
-            }
-        }
-    }
-
-    fn lower_type_ref_opt(&mut self, ty: Option<ast::Type>) -> TypeRefId {
-        match ty {
-            Some(it) => self.lower_type_ref(it),
-            None => self.alloc_type_ref(TypeRef::Error),
-        }
-    }
-
-    fn lower_function(mut self, func: ast::FnItem) -> Function {
-        let name = func
-            .identifier_token()
-            .map(|tok| tok.text().to_owned())
-            .into();
-        let return_ty = self.lower_type_ref_opt(func.return_ty());
-        let body = self.lower_expr_opt(func.body().map(ast::Expr::BlockExpr));
-
-        let param_tys = func
-            .parameters()
-            .map(|param| self.lower_type_ref_opt(param.ty()))
-            .collect::<Vec<TypeRefId>>()
-            .into_boxed_slice();
-
-        let param_names = func
+    fn lower_function_body(mut self, syntax: ast::FnItem) -> FunctionBody {
+        let body = self.lower_expr_opt(syntax.body().map(ast::Expr::BlockExpr));
+        let param_names = syntax
             .parameters()
             .map(|param| {
                 param
@@ -159,20 +175,18 @@ impl Ctx {
             .collect::<Vec<Name>>()
             .into_boxed_slice();
 
-        Function {
-            type_refs: self.type_refs,
-            return_ty,
-            param_tys,
-            name,
-            body: FunctionBody {
-                param_names,
-                exprs: self.exprs,
-                expr: body,
-            },
+        FunctionBody {
+            param_names,
+            exprs: self.exprs,
+            expr: body,
         }
     }
 }
 
-pub(crate) fn lower_function(func: ast::FnItem) -> Function {
-    Ctx::default().lower_function(func)
+pub fn lower_function(func: ast::FnItem) -> Function {
+    LowerCtx::default().lower_function(func)
+}
+
+pub fn lower_function_body(func: ast::FnItem) -> FunctionBody {
+    LowerBodyCtx::default().lower_function_body(func)
 }

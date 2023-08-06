@@ -6,9 +6,9 @@ mod pretty;
 pub use pretty::print_function;
 
 use la_arena::{Arena, Idx};
-use lower::lower_function;
+pub use lower::{lower_function, lower_function_body};
 use std::{collections::HashMap, ops::Index};
-use syntax::{ast, UnaryOp, BinaryOp};
+use syntax::{ast, UnaryOp, BinaryOp, AstPtr};
 
 pub type ExprId = Idx<Expr>;
 pub type TypeId = Idx<Type>;
@@ -16,11 +16,11 @@ pub type TypeRefId = Idx<TypeRef>;
 
 #[derive(Debug)]
 pub struct Function {
+    pub ast: AstPtr<ast::FnItem>,
     pub name: Name,
     pub type_refs: Arena<TypeRef>,
     pub return_ty: TypeRefId,
     pub param_tys: Box<[TypeRefId]>,
-    pub body: FunctionBody,
 }
 
 #[derive(Debug)]
@@ -190,11 +190,12 @@ pub struct InferenceResult {
     pub exprs: HashMap<ExprId, TypeId>,
 }
 
-pub fn infer(db: &mut Db, items: &ItemTree, func: &Function) -> InferenceResult {
+pub fn infer(db: &mut Db, items: &ItemTree, func: &Function, body: &FunctionBody) -> InferenceResult {
     let mut ctx = InferCtx {
         db,
         items,
         func,
+        body,
         exprs: HashMap::new(),
     };
     let param_tys = func
@@ -204,7 +205,7 @@ pub fn infer(db: &mut Db, items: &ItemTree, func: &Function) -> InferenceResult 
         .collect::<Vec<TypeId>>()
         .into_boxed_slice();
     let return_ty = lower_type_ref(&mut ctx, func.return_ty);
-    infer_expr(&mut ctx, func.body.expr);
+    infer_expr(&mut ctx, body.expr);
 
     InferenceResult {
         return_ty,
@@ -217,11 +218,12 @@ struct InferCtx<'a> {
     db: &'a mut Db,
     items: &'a ItemTree,
     func: &'a Function,
+    body: &'a FunctionBody,
     exprs: HashMap<ExprId, TypeId>,
 }
 
 fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
-    let type_id = match &ctx.func.body.exprs[expr] {
+    let type_id = match &ctx.body.exprs[expr] {
         Expr::Missing => ctx.db.get_type(Type::Error),
         Expr::Unit => ctx.db.get_type(Type::Unit),
         Expr::Name(name) => {
@@ -247,7 +249,6 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 })
                 .map(|ty| ctx.db.get_type(ty));
             let param_ty = ctx
-                .func
                 .body
                 .param_names
                 .iter()
@@ -340,6 +341,7 @@ fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use syntax::AstNode;
 
     #[test]
     fn test_infer() {
@@ -355,9 +357,10 @@ fn fib(n u32) u32 {
         for item in items.items.values() {
             match item {
                 Item::Function(func) => {
-                    let _result = infer(&mut db, &items, func);
+                    let body = lower_function_body(func.ast.to_node(file.syntax()));
+                    let _result = infer(&mut db, &items, func, &body);
                     dbg!(&db);
-                    eprintln!("{}", print_function(func));
+                    eprintln!("{}", print_function(func, &body));
                 }
             }
         }
