@@ -1,4 +1,6 @@
-use crate::{Expr, ExprId, Function, FunctionBody, Name, Stmt, TypeRef, TypeRefId};
+use crate::{
+    Expr, ExprId, Function, FunctionBody, Name, Stmt, Struct, StructField, TypeRef, TypeRefId,
+};
 use la_arena::Arena;
 use syntax::{ast, AstPtr};
 
@@ -61,6 +63,32 @@ impl LowerCtx {
             name,
         }
     }
+
+    fn lower_struct(mut self, syntax: ast::StructItem) -> Struct {
+        let name = syntax
+            .identifier_token()
+            .map(|tok| tok.text().to_owned())
+            .into();
+        let fields = syntax
+            .members()
+            .map(|member| self.lower_struct_member(member))
+            .collect::<Vec<StructField>>();
+        Struct {
+            ast: AstPtr::new(&syntax),
+            name,
+            type_refs: self.type_refs,
+            fields: fields.into_boxed_slice(),
+        }
+    }
+
+    fn lower_struct_member(&mut self, syntax: ast::Member) -> StructField {
+        let name = syntax
+            .identifier_token()
+            .map(|tok| tok.text().to_owned())
+            .into();
+        let ty = self.lower_type_ref_opt(syntax.ty());
+        StructField { name, ty }
+    }
 }
 
 impl LowerBodyCtx {
@@ -103,14 +131,18 @@ impl LowerBodyCtx {
             ast::Expr::LoopExpr(it) => {
                 let body = self.lower_expr_opt(it.body().map(ast::Expr::BlockExpr));
                 self.alloc_expr(Expr::Loop { body })
-            },
+            }
             ast::Expr::WhileExpr(it) => {
                 let cond = self.lower_expr_opt(it.condition());
                 let then_expr = self.lower_expr_opt(it.body().map(ast::Expr::BlockExpr));
                 let else_expr = Some(self.alloc_expr(Expr::Break));
-                let body = self.alloc_expr(Expr::If { cond, then_expr, else_expr });
+                let body = self.alloc_expr(Expr::If {
+                    cond,
+                    then_expr,
+                    else_expr,
+                });
                 self.alloc_expr(Expr::Loop { body })
-            },
+            }
             ast::Expr::BlockExpr(it) => {
                 let expr = Expr::Block {
                     body: it
@@ -127,7 +159,7 @@ impl LowerBodyCtx {
                     operand: self.lower_expr_opt(it.operand()),
                 };
                 self.alloc_expr(expr)
-            },
+            }
             ast::Expr::BinaryExpr(it) => {
                 let expr = Expr::Binary {
                     op: it.op(),
@@ -200,6 +232,10 @@ impl LowerBodyCtx {
 
 pub fn lower_function(func: ast::FnItem) -> Function {
     LowerCtx::default().lower_function(func)
+}
+
+pub fn lower_struct(func: ast::StructItem) -> Struct {
+    LowerCtx::default().lower_struct(func)
 }
 
 pub fn lower_function_body(func: ast::FnItem) -> FunctionBody {

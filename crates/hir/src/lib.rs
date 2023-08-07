@@ -3,12 +3,12 @@
 mod lower;
 mod pretty;
 
-pub use pretty::print_function;
-
 use la_arena::{Arena, Idx};
-pub use lower::{lower_function, lower_function_body};
 use std::{collections::HashMap, ops::Index};
 use syntax::{ast, AstPtr, BinaryOp, UnaryOp};
+
+pub use lower::{lower_function, lower_function_body, lower_struct};
+pub use pretty::print_function;
 
 pub type ExprId = Idx<Expr>;
 pub type TypeId = Idx<Type>;
@@ -21,6 +21,20 @@ pub struct Function {
     pub type_refs: Arena<TypeRef>,
     pub return_ty: TypeRefId,
     pub param_tys: Box<[TypeRefId]>,
+}
+
+#[derive(Debug)]
+pub struct Struct {
+    pub ast: AstPtr<ast::StructItem>,
+    pub name: Name,
+    pub type_refs: Arena<TypeRef>,
+    pub fields: Box<[StructField]>,
+}
+
+#[derive(Debug)]
+pub struct StructField {
+    pub name: Name,
+    pub ty: TypeRefId,
 }
 
 #[derive(Debug)]
@@ -161,6 +175,7 @@ impl Items {
 #[derive(Debug)]
 pub enum Item {
     Function(Function),
+    Struct(Struct),
 }
 
 pub fn file_items(file: ast::File) -> Items {
@@ -171,7 +186,7 @@ pub fn file_items(file: ast::File) -> Items {
                 ast::Item::FnItem(it) => Item::Function(lower_function(it)),
                 ast::Item::EnumItem(_) => todo!(),
                 ast::Item::UnionItem(_) => todo!(),
-                ast::Item::StructItem(_) => todo!(),
+                ast::Item::StructItem(it) => Item::Struct(lower_struct(it)),
                 ast::Item::VariantItem(_) => todo!(),
                 ast::Item::ConstantItem(_) => todo!(),
             })
@@ -256,6 +271,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         Name::Present(func_name) if func_name == name => Some(func),
                         _ => None,
                     },
+                    Item::Struct(_) => todo!(),
                 })
                 .map(|func| Type::SpecificFn {
                     name: func.name.clone(),
@@ -391,6 +407,7 @@ fn fib(n u32) u32 {
                     dbg!(&db);
                     eprintln!("{}", print_function(func, &body));
                 }
+                Item::Struct(_) => todo!(),
             }
         }
     }
