@@ -121,7 +121,13 @@ impl LowerBodyCtx {
                 };
                 self.alloc_expr(expr)
             }
-            ast::Expr::UnaryExpr(_) => self.alloc_expr(Expr::Missing),
+            ast::Expr::UnaryExpr(it) => {
+                let expr = Expr::Unary {
+                    op: it.op(),
+                    operand: self.lower_expr_opt(it.operand()),
+                };
+                self.alloc_expr(expr)
+            },
             ast::Expr::BinaryExpr(it) => {
                 let expr = Expr::Binary {
                     op: it.op(),
