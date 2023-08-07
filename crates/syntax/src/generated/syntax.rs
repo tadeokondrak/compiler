@@ -84,7 +84,7 @@ pub enum Syntax {
     UnionItem,
     StructItem,
     VariantItem,
-    ConstantItem,
+    ConstItem,
     Parameter,
     BlockExpr,
     Variant,

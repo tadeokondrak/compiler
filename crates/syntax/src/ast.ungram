@@ -15,14 +15,14 @@ Item =
 | UnionItem
 | StructItem
 | VariantItem
-| ConstantItem
+| ConstItem
 
 FnItem = 'fn' 'identifier' '(' Parameter* ')' return_ty:Type (body:BlockExpr | ';')
 EnumItem = 'enum' 'identifier' Variant*
 UnionItem = 'union' 'identifier' Member*
 StructItem = 'struct' 'identifier' Member*
 VariantItem = 'variant' 'identifier' Member*
-ConstantItem = 'const' 'identifier' '=' ('number' | 'character' | 'string')
+ConstItem = 'const' 'identifier' ':' ty:Type '=' Expr ';'
 
 Expr =
   ParenExpr

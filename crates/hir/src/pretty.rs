@@ -1,14 +1,14 @@
-use crate::{Expr, ExprId, Function, FunctionBody, Name, Stmt, TypeRef, TypeRefId};
+use crate::{Expr, ExprId, Function, Body, Name, Stmt, TypeRef, TypeRefId};
 use la_arena::Arena;
 use std::fmt::Write;
 
-pub fn print_function(function: &Function, body: &FunctionBody) -> String {
+pub fn print_function(function: &Function, body: &Body) -> String {
     let mut s = String::new();
     print_function_(&mut s, function, body);
     s
 }
 
-fn print_function_(s: &mut String, function: &Function, body: &FunctionBody) {
+fn print_function_(s: &mut String, function: &Function, body: &Body) {
     s.push_str("fn");
     s.push(' ');
     print_name(s, &function.name);

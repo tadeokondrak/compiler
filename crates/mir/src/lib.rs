@@ -150,7 +150,7 @@ impl std::fmt::Debug for Type {
 struct Ctx<'a> {
     db: &'a hir::Db,
     function: &'a hir::Function,
-    body: &'a hir::FunctionBody,
+    body: &'a hir::Body,
     inference: &'a hir::InferenceResult,
     funcs: Vec<FuncData>,
     blocks: Vec<BlockData>,
@@ -423,7 +423,7 @@ fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
 pub fn lower(
     db: &hir::Db,
     function: &hir::Function,
-    body: &hir::FunctionBody,
+    body: &hir::Body,
     inference: &hir::InferenceResult,
 ) -> Function {
     let ctx = Ctx {
@@ -559,6 +559,7 @@ fn fib(n u32) u32 {
                     eprintln!("{}", print_function(&func));
                 }
                 hir::Item::Struct(_) => todo!(),
+                hir::Item::Const(_) => todo!(),
             }
         }
     }

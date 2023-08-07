@@ -1,5 +1,5 @@
 use crate::{
-    Expr, ExprId, Function, FunctionBody, Name, Stmt, Struct, StructField, TypeRef, TypeRefId,
+    Body, Const, Expr, ExprId, Function, Name, Stmt, Struct, StructField, TypeRef, TypeRefId,
 };
 use la_arena::Arena;
 use syntax::{ast, AstPtr};
@@ -88,6 +88,20 @@ impl LowerCtx {
             .into();
         let ty = self.lower_type_ref_opt(syntax.ty());
         StructField { name, ty }
+    }
+
+    fn lower_const(mut self, syntax: ast::ConstItem) -> Const {
+        let name = syntax
+            .identifier_token()
+            .map(|tok| tok.text().to_owned())
+            .into();
+        let ty = self.lower_type_ref_opt(syntax.ty());
+        Const {
+            ast: AstPtr::new(&syntax),
+            name,
+            type_refs: self.type_refs,
+            ty,
+        }
     }
 }
 
@@ -209,7 +223,7 @@ impl LowerBodyCtx {
         }
     }
 
-    fn lower_function_body(mut self, syntax: ast::FnItem) -> FunctionBody {
+    fn lower_function_body(mut self, syntax: ast::FnItem) -> Body {
         let body = self.lower_expr_opt(syntax.body().map(ast::Expr::BlockExpr));
         let param_names = syntax
             .parameters()
@@ -222,8 +236,17 @@ impl LowerBodyCtx {
             .collect::<Vec<Name>>()
             .into_boxed_slice();
 
-        FunctionBody {
+        Body {
             param_names,
+            exprs: self.exprs,
+            expr: body,
+        }
+    }
+
+    pub fn lower_constant_body(mut self, syntax: ast::ConstItem) -> Body {
+        let body = self.lower_expr_opt(syntax.expr());
+        Body {
+            param_names: Box::new([]),
             exprs: self.exprs,
             expr: body,
         }
@@ -238,6 +261,14 @@ pub fn lower_struct(func: ast::StructItem) -> Struct {
     LowerCtx::default().lower_struct(func)
 }
 
-pub fn lower_function_body(func: ast::FnItem) -> FunctionBody {
+pub fn lower_const(func: ast::ConstItem) -> Const {
+    LowerCtx::default().lower_const(func)
+}
+
+pub fn lower_function_body(func: ast::FnItem) -> Body {
     LowerBodyCtx::default().lower_function_body(func)
+}
+
+pub fn lower_constant_body(func: ast::ConstItem) -> Body {
+    LowerBodyCtx::default().lower_constant_body(func)
 }

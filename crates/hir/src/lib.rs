@@ -7,7 +7,7 @@ use la_arena::{Arena, Idx};
 use std::{collections::HashMap, ops::Index};
 use syntax::{ast, AstPtr, BinaryOp, UnaryOp};
 
-pub use lower::{lower_function, lower_function_body, lower_struct};
+pub use lower::{lower_const, lower_function, lower_function_body, lower_struct};
 pub use pretty::print_function;
 
 pub type ExprId = Idx<Expr>;
@@ -32,13 +32,21 @@ pub struct Struct {
 }
 
 #[derive(Debug)]
+pub struct Const {
+    pub ast: AstPtr<ast::ConstItem>,
+    pub name: Name,
+    pub type_refs: Arena<TypeRef>,
+    pub ty: TypeRefId,
+}
+
+#[derive(Debug)]
 pub struct StructField {
     pub name: Name,
     pub ty: TypeRefId,
 }
 
 #[derive(Debug)]
-pub struct FunctionBody {
+pub struct Body {
     pub param_names: Box<[Name]>,
     pub exprs: Arena<Expr>,
     pub expr: Idx<Expr>,
@@ -176,6 +184,7 @@ impl Items {
 pub enum Item {
     Function(Function),
     Struct(Struct),
+    Const(Const),
 }
 
 pub fn file_items(file: ast::File) -> Items {
@@ -188,7 +197,7 @@ pub fn file_items(file: ast::File) -> Items {
                 ast::Item::UnionItem(_) => todo!(),
                 ast::Item::StructItem(it) => Item::Struct(lower_struct(it)),
                 ast::Item::VariantItem(_) => todo!(),
-                ast::Item::ConstantItem(_) => todo!(),
+                ast::Item::ConstItem(it) => Item::Const(lower_const(it)),
             })
             .collect(),
     }
@@ -225,7 +234,7 @@ pub struct InferenceResult {
     pub exprs: HashMap<ExprId, TypeId>,
 }
 
-pub fn infer(db: &mut Db, items: &Items, func: &Function, body: &FunctionBody) -> InferenceResult {
+pub fn infer(db: &mut Db, items: &Items, func: &Function, body: &Body) -> InferenceResult {
     let mut ctx = InferCtx {
         db,
         items,
@@ -253,7 +262,7 @@ struct InferCtx<'a> {
     db: &'a mut Db,
     items: &'a Items,
     func: &'a Function,
-    body: &'a FunctionBody,
+    body: &'a Body,
     exprs: HashMap<ExprId, TypeId>,
 }
 
@@ -272,6 +281,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         _ => None,
                     },
                     Item::Struct(_) => None,
+                    Item::Const(_) => None,
                 })
                 .map(|func| Type::SpecificFn {
                     name: func.name.clone(),
@@ -412,6 +422,7 @@ fn fib(n u32) u32 {
                     eprintln!("{}", print_function(func, &body));
                 }
                 Item::Struct(_structure) => {}
+                Item::Const(_) => todo!(),
             }
         }
     }

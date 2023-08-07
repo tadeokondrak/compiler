@@ -158,21 +158,17 @@ impl AstNode for VariantItem {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ConstantItem {
+pub struct ConstItem {
     pub(super) node: SyntaxNode,
 }
 #[rustfmt::skip]
-impl AstNode for ConstantItem {
+impl AstNode for ConstItem {
     type Language = Language;
     fn can_cast(kind: Syntax) -> bool {
-        kind == Syntax::ConstantItem
+        kind == Syntax::ConstItem
     }
-    fn cast(node: SyntaxNode) -> Option<ConstantItem> {
-        if ConstantItem::can_cast(node.kind()) {
-            Some(ConstantItem { node })
-        } else {
-            None
-        }
+    fn cast(node: SyntaxNode) -> Option<ConstItem> {
+        if ConstItem::can_cast(node.kind()) { Some(ConstItem { node }) } else { None }
     }
     fn syntax(&self) -> &SyntaxNode {
         &self.node
@@ -702,24 +698,27 @@ impl VariantItem {
     }
 }
 #[rustfmt::skip]
-impl ConstantItem {
+impl ConstItem {
+    pub fn ty(&self) -> Option<Type> {
+        child(&self.node)
+    }
+    pub fn expr(&self) -> Option<Expr> {
+        child(&self.node)
+    }
     pub fn const_keyword(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::ConstKeyword)
     }
     pub fn identifier_token(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::Identifier)
     }
+    pub fn colon_token(&self) -> Option<SyntaxToken> {
+        token(&self.node, Syntax::Colon)
+    }
     pub fn equals_sign_token(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::EqualsSign)
     }
-    pub fn number_token(&self) -> Option<SyntaxToken> {
-        token(&self.node, Syntax::Number)
-    }
-    pub fn character_token(&self) -> Option<SyntaxToken> {
-        token(&self.node, Syntax::Character)
-    }
-    pub fn string_token(&self) -> Option<SyntaxToken> {
-        token(&self.node, Syntax::String)
+    pub fn semicolon_token(&self) -> Option<SyntaxToken> {
+        token(&self.node, Syntax::Semicolon)
     }
 }
 #[rustfmt::skip]

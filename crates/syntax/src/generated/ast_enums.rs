@@ -6,7 +6,7 @@ pub enum Item {
     UnionItem(UnionItem),
     StructItem(StructItem),
     VariantItem(VariantItem),
-    ConstantItem(ConstantItem),
+    ConstItem(ConstItem),
 }
 #[rustfmt::skip]
 impl AstNode for Item {
@@ -14,7 +14,7 @@ impl AstNode for Item {
     fn can_cast(kind: Syntax) -> bool {
         matches!(
             kind, Syntax::FnItem | Syntax::EnumItem | Syntax::UnionItem |
-            Syntax::StructItem | Syntax::VariantItem | Syntax::ConstantItem
+            Syntax::StructItem | Syntax::VariantItem | Syntax::ConstItem
         )
     }
     fn cast(node: SyntaxNode) -> Option<Item> {
@@ -24,7 +24,7 @@ impl AstNode for Item {
             Syntax::UnionItem => Some(Item::UnionItem(UnionItem { node })),
             Syntax::StructItem => Some(Item::StructItem(StructItem { node })),
             Syntax::VariantItem => Some(Item::VariantItem(VariantItem { node })),
-            Syntax::ConstantItem => Some(Item::ConstantItem(ConstantItem { node })),
+            Syntax::ConstItem => Some(Item::ConstItem(ConstItem { node })),
             _ => None,
         }
     }
@@ -35,7 +35,7 @@ impl AstNode for Item {
             Item::UnionItem(UnionItem { node }) => node,
             Item::StructItem(StructItem { node }) => node,
             Item::VariantItem(VariantItem { node }) => node,
-            Item::ConstantItem(ConstantItem { node }) => node,
+            Item::ConstItem(ConstItem { node }) => node,
         }
     }
 }
