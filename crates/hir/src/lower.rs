@@ -100,8 +100,17 @@ impl LowerBodyCtx {
                 };
                 self.alloc_expr(expr)
             }
-            ast::Expr::LoopExpr(_) => self.alloc_expr(Expr::Missing),
-            ast::Expr::WhileExpr(_) => self.alloc_expr(Expr::Missing),
+            ast::Expr::LoopExpr(it) => {
+                let body = self.lower_expr_opt(it.body().map(ast::Expr::BlockExpr));
+                self.alloc_expr(Expr::Loop { body })
+            },
+            ast::Expr::WhileExpr(it) => {
+                let cond = self.lower_expr_opt(it.condition());
+                let then_expr = self.lower_expr_opt(it.body().map(ast::Expr::BlockExpr));
+                let else_expr = Some(self.alloc_expr(Expr::Break));
+                let body = self.alloc_expr(Expr::If { cond, then_expr, else_expr });
+                self.alloc_expr(Expr::Loop { body })
+            },
             ast::Expr::BlockExpr(it) => {
                 let expr = Expr::Block {
                     body: it
