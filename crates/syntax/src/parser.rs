@@ -125,17 +125,17 @@ pub(super) fn parse_file(s: &str) -> (GreenNode, Vec<String>) {
                 token_pos += 1;
             }
             Event::End => {
-                depth -= 1;
-                builder.finish_node();
                 if depth == 1 {
                     while token_pos < all_tokens.len() {
                         let kind = all_tokens[token_pos];
                         let text = &s[all_tokens_text_range[token_pos]];
-                        assert!(kind.is_trivia());
+                        assert!(kind.is_trivia(), "{kind:?}, {text:?}");
                         builder.token(kind.to_rowan(), text);
                         token_pos += 1;
                     }
                 }
+                depth -= 1;
+                builder.finish_node();
             }
             Event::Error { s } => {
                 errors.push(s.into_string());
