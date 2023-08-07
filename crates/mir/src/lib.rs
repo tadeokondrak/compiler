@@ -122,7 +122,7 @@ impl std::fmt::Debug for Cmp {
 
 #[derive(Clone, Copy)]
 pub enum Type {
-    Invalid,
+    Error,
     Int1,
     Int8,
     Int16,
@@ -135,7 +135,7 @@ pub enum Type {
 impl std::fmt::Debug for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Type::Invalid => write!(f, "invalid"),
+            Type::Error => write!(f, "error"),
             Type::Int1 => write!(f, "i1"),
             Type::Int8 => write!(f, "i8"),
             Type::Int16 => write!(f, "i16"),
@@ -204,7 +204,7 @@ impl Ctx<'_> {
 
     fn lower_expr(&mut self, expr: hir::ExprId) -> Option<Reg> {
         match &self.body.exprs[expr] {
-            hir::Expr::Missing => todo!(),
+            hir::Expr::Missing => None,
             hir::Expr::Unit => todo!(),
             hir::Expr::Name(name) => {
                 let param_index = self
@@ -376,7 +376,7 @@ impl Ctx<'_> {
 
     fn lower_ty(&self, ty: TypeId) -> Type {
         match &self.db[ty] {
-            hir::Type::Error => todo!(),
+            hir::Type::Error => Type::Error,
             hir::Type::Never => todo!(),
             hir::Type::Unit => todo!(),
             hir::Type::Bool => Type::Int1,
@@ -540,10 +540,13 @@ mod tests {
     fn test_infer() {
         let file = syntax::parse_file(
             "
+fn exit(n i32);
 fn fib(n u32) u32 {
     if n <= 1 { return 1 }
+    exit(0);
     return fib(n - 1) + fib(n - 2)
-}",
+}
+",
         );
         let items = hir::file_items(file.clone());
         let mut db = hir::Db::default();

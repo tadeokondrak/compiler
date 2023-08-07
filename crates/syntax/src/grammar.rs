@@ -59,10 +59,19 @@ fn parse_item(p: &mut Parser) {
                 parse_parameter(p);
             }
             p.expect(t!(")"));
-            if !p.at(t!("{")) {
+            // TODO allow newline here
+            if !p.at(t!("{")) && !p.at(t!(";")) && !p.at(Syntax::Eof) {
                 parse_type(p);
             }
-            parse_block_expr(p);
+            match p.current() {
+                t!("{") => {
+                    parse_block_expr(p);
+                }
+                t!(";") => {
+                    p.bump(t!(";"));
+                }
+                _ => p.error("expected { or ;"),
+            }
             p.end(m, Syntax::FnItem);
         }
         _ => unreachable!("{:?}", p.nth_keyword(0)),

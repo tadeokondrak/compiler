@@ -646,6 +646,9 @@ impl FnItem {
     pub fn right_parenthesis_token(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::RightParenthesis)
     }
+    pub fn semicolon_token(&self) -> Option<SyntaxToken> {
+        token(&self.node, Syntax::Semicolon)
+    }
     pub fn parameters(&self) -> AstChildren<Parameter> {
         children(&self.node)
     }

@@ -17,7 +17,7 @@ Item =
 | VariantItem
 | ConstantItem
 
-FnItem = 'fn' 'identifier' '(' Parameter* ')' return_ty:Type body:BlockExpr
+FnItem = 'fn' 'identifier' '(' Parameter* ')' return_ty:Type (body:BlockExpr | ';')
 EnumItem = 'enum' 'identifier' Variant*
 UnionItem = 'union' 'identifier' Member*
 StructItem = 'struct' 'identifier' Member*
