@@ -348,7 +348,16 @@ fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
     match &ctx.func.type_refs[ty] {
         TypeRef::Error => ctx.db.intern_type(Type::Error),
         TypeRef::Name(name) => match name.as_str() {
+            "u8" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size8)),
+            "u16" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size16)),
             "u32" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size32)),
+            "u64" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size64)),
+            "usize" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::SizePtr)),
+            "i8" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size8)),
+            "i16" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size16)),
+            "i32" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size32)),
+            "i64" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size64)),
+            "isize" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::SizePtr)),
             _ => ctx.db.intern_type(Type::Error),
         },
         &TypeRef::Ptr(dest) => {
