@@ -81,13 +81,14 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
             print_line(s, indent);
             s.push('}');
         }
-        Expr::Unary { op: _, operand: _ } => {
-            s.push_str("todo: Unary");
+        &Expr::Unary { op, operand } => {
+            _ = write!(s, "{op}");
+            print_expr(s, exprs, operand, indent);
         }
         &Expr::Binary { op, lhs, rhs } => {
             print_expr(s, exprs, lhs, indent);
             s.push(' ');
-            _ = write!(s, "{op:?}");
+            _ = write!(s, "{op}");
             s.push(' ');
             print_expr(s, exprs, rhs, indent);
         }

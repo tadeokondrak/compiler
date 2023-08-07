@@ -491,6 +491,7 @@ pub type Preorder = rowan::api::Preorder<Language>;
 pub type PreorderWithTokens = rowan::api::PreorderWithTokens<Language>;
 pub use rowan::ast::{AstChildren, AstNode, AstPtr, SyntaxNodePtr};
 pub use rowan::NodeOrToken;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
@@ -699,5 +700,67 @@ struct X {
     fn check(src: &str, expected: Expect) {
         let file = parse_file(src);
         expected.assert_debug_eq(&file);
+    }
+}
+
+
+impl fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnaryOp::Not => f.write_str("!"),
+            UnaryOp::Neg => f.write_str("-"),
+            UnaryOp::Ref => f.write_str("&"),
+            UnaryOp::Deref => f.write_str("*"),
+        }
+    }
+}
+
+impl fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BinaryOp::Asg(None) => f.write_str("="),
+            BinaryOp::Asg(Some(op)) => op.fmt(f),
+            BinaryOp::Cmp(op) => op.fmt(f),
+            BinaryOp::Arith(op) => op.fmt(f),
+            BinaryOp::Logic(op) => op.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for CmpOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CmpOp::Eq => f.write_str("=="),
+            CmpOp::Ne => f.write_str("!="),
+            CmpOp::Lt => f.write_str("<"),
+            CmpOp::Lte => f.write_str("<="),
+            CmpOp::Gt => f.write_str(">"),
+            CmpOp::Gte => f.write_str(">="),
+        }
+    }
+}
+impl fmt::Display for ArithOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ArithOp::Add => f.write_str("+"),
+            ArithOp::Sub => f.write_str("-"),
+            ArithOp::Mul => f.write_str("*"),
+            ArithOp::Div => f.write_str("/"),
+            ArithOp::Rem => f.write_str("%"),
+            ArithOp::And => f.write_str("&"),
+            ArithOp::Or => f.write_str("|"),
+            ArithOp::Xor => f.write_str("^"),
+            ArithOp::Shl => f.write_str("<<"),
+            ArithOp::Shr => f.write_str(">>"),
+        }
+    }
+}
+
+impl fmt::Display for LogicOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LogicOp::And => f.write_str("and"),
+            LogicOp::Or => f.write_str("or"),
+        }
     }
 }

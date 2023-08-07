@@ -271,7 +271,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         Name::Present(func_name) if func_name == name => Some(func),
                         _ => None,
                     },
-                    Item::Struct(_) => todo!(),
+                    Item::Struct(_) => None,
                 })
                 .map(|func| Type::SpecificFn {
                     name: func.name.clone(),
@@ -392,6 +392,10 @@ mod tests {
     fn test_infer() {
         let file = syntax::parse_file(
             "
+struct Numbers {
+    x i32;
+    y i32;
+}
 fn fib(n u32) u32 {
     if n <= 1 { return 1 }
     return fib(n - 1) + fib(n - 2)
@@ -407,7 +411,7 @@ fn fib(n u32) u32 {
                     dbg!(&db);
                     eprintln!("{}", print_function(func, &body));
                 }
-                Item::Struct(_) => todo!(),
+                Item::Struct(_structure) => {}
             }
         }
     }
