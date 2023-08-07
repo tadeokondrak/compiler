@@ -1,4 +1,4 @@
-use hir::TypeId;
+use hir::{IntSize, Signed, TypeId};
 use std::fmt::Write;
 use syntax::{ArithOp, BinaryOp, CmpOp, UnaryOp};
 
@@ -123,6 +123,7 @@ impl std::fmt::Debug for Cmp {
 #[derive(Clone, Copy)]
 pub enum Type {
     Invalid,
+    Int1,
     Int8,
     Int16,
     Int32,
@@ -135,6 +136,7 @@ impl std::fmt::Debug for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Invalid => write!(f, "invalid"),
+            Type::Int1 => write!(f, "i1"),
             Type::Int8 => write!(f, "i8"),
             Type::Int16 => write!(f, "i16"),
             Type::Int32 => write!(f, "i32"),
@@ -377,7 +379,12 @@ impl Ctx<'_> {
             hir::Type::Error => todo!(),
             hir::Type::Never => todo!(),
             hir::Type::Unit => todo!(),
-            hir::Type::Uint32 => Type::Int32,
+            hir::Type::Bool => Type::Int1,
+            hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size8) => Type::Int8,
+            hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size16) => Type::Int16,
+            hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size32) => Type::Int32,
+            hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size64) => Type::Int64,
+            hir::Type::Int(Signed::Yes | Signed::No, IntSize::SizePtr) => Type::Int64,
             hir::Type::Ptr(_) => todo!(),
             hir::Type::SpecificFn {
                 ret_ty,
@@ -538,7 +545,7 @@ fn fib(n u32) u32 {
     return fib(n - 1) + fib(n - 2)
 }",
         );
-        let items = hir::items(file.clone());
+        let items = hir::file_items(file.clone());
         let mut db = hir::Db::default();
         for item in items.items().values() {
             match item {
