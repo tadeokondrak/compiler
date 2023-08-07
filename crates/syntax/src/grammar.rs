@@ -74,6 +74,21 @@ fn parse_item(p: &mut Parser) {
             }
             p.end(m, Syntax::FnItem);
         }
+        t!("identifier") if p.at_keyword(t!("struct")) => {
+            let m = p.begin();
+            p.bump(t!("struct"));
+            p.expect(t!("identifier"));
+            p.expect(t!("{"));
+            while !p.at(t!("}")) && !p.at(Syntax::Eof) {
+                let member = p.begin();
+                p.expect(t!("identifier"));
+                parse_type(p);
+                p.expect(t!(";")); // TODO allow newline
+                p.end(member, Syntax::Member);
+            }
+            p.expect(t!("}"));
+            p.end(m, Syntax::StructItem);
+        }
         _ => unreachable!("{:?}", p.nth_keyword(0)),
     }
 }

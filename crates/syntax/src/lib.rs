@@ -548,119 +548,156 @@ pub fn parse_file(src: &str) -> ast::File {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use expect_test::expect;
+    use expect_test::{expect, Expect};
 
     #[test]
     fn test_parse() {
-        let file = parse_file(
+        check(
             "
-            fn fib(n u32) ptr u32 {
-                if n <= 1 {
-                    return 1
+fn fib(n u32) ptr u32 {
+    if n <= 1 {
+        return 1
+    }
+    return fib(n - 1) + fib(n - 2)
+}",
+            expect![[r#"
+                File {
+                    node: File@0..100
+                      Newline@0..1 "\n"
+                      FnItem@1..100
+                        FnKeyword@1..3 "fn"
+                        Space@3..4 " "
+                        Identifier@4..7 "fib"
+                        LeftParenthesis@7..8 "("
+                        Parameter@8..13
+                          Identifier@8..9 "n"
+                          Space@9..10 " "
+                          NameType@10..13
+                            Identifier@10..13 "u32"
+                        RightParenthesis@13..14 ")"
+                        Space@14..15 " "
+                        PointerType@15..22
+                          PtrKeyword@15..18 "ptr"
+                          Space@18..19 " "
+                          NameType@19..22
+                            Identifier@19..22 "u32"
+                        Space@22..23 " "
+                        BlockExpr@23..100
+                          LeftCurlyBracket@23..24 "{"
+                          Newline@24..25 "\n"
+                          Space@25..29 "    "
+                          ExprStmt@29..64
+                            IfExpr@29..63
+                              IfKeyword@29..31 "if"
+                              Space@31..32 " "
+                              BinaryExpr@32..38
+                                NameExpr@32..33
+                                  Identifier@32..33 "n"
+                                Space@33..34 " "
+                                LessThanSignEqualsSign@34..36 "<="
+                                Space@36..37 " "
+                                LiteralExpr@37..38
+                                  Number@37..38 "1"
+                              Space@38..39 " "
+                              BlockExpr@39..63
+                                LeftCurlyBracket@39..40 "{"
+                                Newline@40..41 "\n"
+                                Space@41..49 "        "
+                                ExprStmt@49..57
+                                  ReturnExpr@49..57
+                                    ReturnKeyword@49..55 "return"
+                                    Space@55..56 " "
+                                    LiteralExpr@56..57
+                                      Number@56..57 "1"
+                                Newline@57..58 "\n"
+                                Space@58..62 "    "
+                                RightCurlyBracket@62..63 "}"
+                            Newline@63..64 "\n"
+                          Space@64..68 "    "
+                          ExprStmt@68..98
+                            ReturnExpr@68..98
+                              ReturnKeyword@68..74 "return"
+                              Space@74..75 " "
+                              BinaryExpr@75..98
+                                CallExpr@75..85
+                                  NameExpr@75..78
+                                    Identifier@75..78 "fib"
+                                  LeftParenthesis@78..79 "("
+                                  Argument@79..84
+                                    BinaryExpr@79..84
+                                      NameExpr@79..80
+                                        Identifier@79..80 "n"
+                                      Space@80..81 " "
+                                      HyphenMinus@81..82 "-"
+                                      Space@82..83 " "
+                                      LiteralExpr@83..84
+                                        Number@83..84 "1"
+                                  RightParenthesis@84..85 ")"
+                                Space@85..86 " "
+                                PlusSign@86..87 "+"
+                                Space@87..88 " "
+                                CallExpr@88..98
+                                  NameExpr@88..91
+                                    Identifier@88..91 "fib"
+                                  LeftParenthesis@91..92 "("
+                                  Argument@92..97
+                                    BinaryExpr@92..97
+                                      NameExpr@92..93
+                                        Identifier@92..93 "n"
+                                      Space@93..94 " "
+                                      HyphenMinus@94..95 "-"
+                                      Space@95..96 " "
+                                      LiteralExpr@96..97
+                                        Number@96..97 "2"
+                                  RightParenthesis@97..98 ")"
+                          Newline@98..99 "\n"
+                          RightCurlyBracket@99..100 "}"
+                    ,
                 }
-                return fib(n - 1) + fib(n - 2)
-            }
-        ",
+            "#]],
         );
-        let expected = expect![[r#"
-            File {
-                node: File@0..181
-                  Newline@0..1 "\n"
-                  Space@1..13 "            "
-                  FnItem@13..172
-                    FnKeyword@13..15 "fn"
-                    Space@15..16 " "
-                    Identifier@16..19 "fib"
-                    LeftParenthesis@19..20 "("
-                    Parameter@20..25
-                      Identifier@20..21 "n"
-                      Space@21..22 " "
-                      NameType@22..25
-                        Identifier@22..25 "u32"
-                    RightParenthesis@25..26 ")"
-                    Space@26..27 " "
-                    PointerType@27..34
-                      PtrKeyword@27..30 "ptr"
-                      Space@30..31 " "
-                      NameType@31..34
-                        Identifier@31..34 "u32"
-                    Space@34..35 " "
-                    BlockExpr@35..172
-                      LeftCurlyBracket@35..36 "{"
-                      Newline@36..37 "\n"
-                      Space@37..53 "                "
-                      ExprStmt@53..112
-                        IfExpr@53..111
-                          IfKeyword@53..55 "if"
-                          Space@55..56 " "
-                          BinaryExpr@56..62
-                            NameExpr@56..57
-                              Identifier@56..57 "n"
-                            Space@57..58 " "
-                            LessThanSignEqualsSign@58..60 "<="
-                            Space@60..61 " "
-                            LiteralExpr@61..62
-                              Number@61..62 "1"
-                          Space@62..63 " "
-                          BlockExpr@63..111
-                            LeftCurlyBracket@63..64 "{"
-                            Newline@64..65 "\n"
-                            Space@65..85 "                    "
-                            ExprStmt@85..93
-                              ReturnExpr@85..93
-                                ReturnKeyword@85..91 "return"
-                                Space@91..92 " "
-                                LiteralExpr@92..93
-                                  Number@92..93 "1"
-                            Newline@93..94 "\n"
-                            Space@94..110 "                "
-                            RightCurlyBracket@110..111 "}"
-                        Newline@111..112 "\n"
-                      Space@112..128 "                "
-                      ExprStmt@128..158
-                        ReturnExpr@128..158
-                          ReturnKeyword@128..134 "return"
-                          Space@134..135 " "
-                          BinaryExpr@135..158
-                            CallExpr@135..145
-                              NameExpr@135..138
-                                Identifier@135..138 "fib"
-                              LeftParenthesis@138..139 "("
-                              Argument@139..144
-                                BinaryExpr@139..144
-                                  NameExpr@139..140
-                                    Identifier@139..140 "n"
-                                  Space@140..141 " "
-                                  HyphenMinus@141..142 "-"
-                                  Space@142..143 " "
-                                  LiteralExpr@143..144
-                                    Number@143..144 "1"
-                              RightParenthesis@144..145 ")"
-                            Space@145..146 " "
-                            PlusSign@146..147 "+"
-                            Space@147..148 " "
-                            CallExpr@148..158
-                              NameExpr@148..151
-                                Identifier@148..151 "fib"
-                              LeftParenthesis@151..152 "("
-                              Argument@152..157
-                                BinaryExpr@152..157
-                                  NameExpr@152..153
-                                    Identifier@152..153 "n"
-                                  Space@153..154 " "
-                                  HyphenMinus@154..155 "-"
-                                  Space@155..156 " "
-                                  LiteralExpr@156..157
-                                    Number@156..157 "2"
-                              RightParenthesis@157..158 ")"
-                      Newline@158..159 "\n"
-                      Space@159..171 "            "
-                      RightCurlyBracket@171..172 "}"
-                  Newline@172..173 "\n"
-                  Space@173..181 "        "
-                ,
-            }
-        "#]];
+        check(
+            "
+struct X {
+    field i32;
+    other u32;
+}",
+            expect![[r#"
+                File {
+                    node: File@0..43
+                      Newline@0..1 "\n"
+                      StructItem@1..43
+                        StructKeyword@1..7 "struct"
+                        Space@7..8 " "
+                        Identifier@8..9 "X"
+                        Space@9..10 " "
+                        LeftCurlyBracket@10..11 "{"
+                        Newline@11..12 "\n"
+                        Space@12..16 "    "
+                        Member@16..26
+                          Identifier@16..21 "field"
+                          Space@21..22 " "
+                          NameType@22..25
+                            Identifier@22..25 "i32"
+                          Semicolon@25..26 ";"
+                        Newline@26..27 "\n"
+                        Space@27..31 "    "
+                        Member@31..41
+                          Identifier@31..36 "other"
+                          Space@36..37 " "
+                          NameType@37..40
+                            Identifier@37..40 "u32"
+                          Semicolon@40..41 ";"
+                        Newline@41..42 "\n"
+                        RightCurlyBracket@42..43 "}"
+                    ,
+                }
+            "#]],
+        );
+    }
+
+    fn check(src: &str, expected: Expect) {
+        let file = parse_file(src);
         expected.assert_debug_eq(&file);
     }
 }
