@@ -89,6 +89,17 @@ fn parse_item(p: &mut Parser) {
             p.expect(t!("}"));
             p.end(m, Syntax::StructItem);
         }
+        t!("identifier") if p.at_keyword(t!("const")) => {
+            let m = p.begin();
+            p.bump(t!("const"));
+            p.expect(t!("identifier"));
+            p.expect(t!(":"));
+            parse_type(p);
+            p.expect(t!("="));
+            parse_expr(p);
+            p.expect(t!(";"));
+            p.end(m, Syntax::StructItem);
+        }
         _ => unreachable!("{:?}", p.nth_keyword(0)),
     }
 }
