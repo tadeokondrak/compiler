@@ -184,11 +184,12 @@ pub enum IntSize {
 
 #[derive(Debug, Default)]
 pub struct Items {
-    items: Vec<Item>,
+    items: Vec<ItemId>,
     enums: Arena<Enum>,
     consts: Arena<Const>,
     records: Arena<Record>,
     functions: Arena<Function>,
+    by_name: HashMap<String, ItemId>,
 }
 
 type EnumId = Idx<Enum>;
@@ -197,12 +198,10 @@ type RecordId = Idx<Record>;
 type FunctionId = Idx<Function>;
 
 impl Items {
-    pub fn items(&self) -> &[Item] {
+    pub fn items(&self) -> &[ItemId] {
         &self.items
     }
 }
-
-
 
 impl Index<FunctionId> for Items {
     type Output = Function;
@@ -212,8 +211,8 @@ impl Index<FunctionId> for Items {
     }
 }
 
-#[derive(Debug)]
-pub enum Item {
+#[derive(Debug, Clone, Copy)]
+pub enum ItemId {
     Function(FunctionId),
     Enum(EnumId),
     Record(RecordId),
@@ -223,15 +222,38 @@ pub enum Item {
 pub fn file_items(file: ast::File) -> Items {
     let mut items = Items::default();
     for syntax in file.items() {
-        let lowered = match syntax {
-            ast::Item::FnItem(it) => Item::Function(items.functions.alloc(lower_function(it))),
-            ast::Item::EnumItem(_) => Item::Enum(items.enums.alloc(todo!())),
-            ast::Item::UnionItem(_) => Item::Record(items.records.alloc(todo!())),
-            ast::Item::StructItem(it) => Item::Record(items.records.alloc(lower_struct(it))),
-            ast::Item::VariantItem(_) => Item::Record(items.records.alloc(todo!())),
-            ast::Item::ConstItem(it) => Item::Const(items.consts.alloc(lower_const(it))),
-        };
-        items.items.push(lowered);
+        match syntax {
+            ast::Item::FnItem(it) => {
+                let lowered = lower_function(it);
+                let lowered = items.functions.alloc(lowered);
+                let lowered_id = ItemId::Function(lowered);
+                items.items.push(lowered_id);
+                if let Name::Present(name) = &items.functions[lowered].name {
+                    items.by_name.insert(name.clone(), lowered_id);
+                }
+            }
+            ast::Item::EnumItem(_) => todo!(),
+            ast::Item::UnionItem(_) => todo!(),
+            ast::Item::StructItem(it) => {
+                let lowered = lower_struct(it);
+                let lowered = items.records.alloc(lowered);
+                let lowered_id = ItemId::Record(lowered);
+                items.items.push(lowered_id);
+                if let Name::Present(name) = &items.records[lowered].name {
+                    items.by_name.insert(name.clone(), lowered_id);
+                }
+            }
+            ast::Item::VariantItem(_) => todo!(),
+            ast::Item::ConstItem(it) => {
+                let lowered = lower_const(it);
+                let lowered = items.consts.alloc(lowered);
+                let lowered_id = ItemId::Const(lowered);
+                items.items.push(lowered_id);
+                if let Name::Present(name) = &items.consts[lowered].name {
+                    items.by_name.insert(name.clone(), lowered_id);
+                }
+            }
+        }
     }
     items
 }
@@ -314,13 +336,13 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .items
                 .iter()
                 .find_map(|item| match item {
-                    &Item::Function(func) => match &ctx.items.functions[func].name {
+                    &ItemId::Function(func) => match &ctx.items.functions[func].name {
                         Name::Present(func_name) if func_name == name => Some(func),
                         _ => None,
                     },
-                    Item::Record(_) => None,
-                    Item::Const(_) => None,
-                    Item::Enum(_) => None,
+                    ItemId::Record(_) => None,
+                    ItemId::Const(_) => None,
+                    ItemId::Enum(_) => None,
                 })
                 .map(|func| {
                     let func = &ctx.items.functions[func];
@@ -393,6 +415,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         Expr::Call { callee, args } => {
             let callee_ty = infer_expr(ctx, *callee);
             let &Type::SpecificFn { ret_ty, .. } = &ctx.analysis.types[callee_ty] else {
+                eprintln!("called non-function type");
                 return ctx.analysis.intern_type(Type::Error);
             };
             for &arg in args.iter() {
@@ -402,11 +425,12 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         }
         &Expr::Index { base, index: _ } => {
             infer_expr(ctx, base);
-
+            eprintln!("Expr::Index unimplemented");
             ctx.analysis.intern_type(Type::Error)
         }
         Expr::Field { base, name: _ } => {
             infer_expr(ctx, *base);
+            eprintln!("Expr::Field unimplemented");
             ctx.analysis.intern_type(Type::Error)
         }
     };
@@ -417,38 +441,56 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
 fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
     match &ctx.func.type_refs[ty] {
         TypeRef::Error => ctx.analysis.intern_type(Type::Error),
-        TypeRef::Name(name) => match name.as_str() {
-            "u8" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::No, IntSize::Size8)),
-            "u16" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::No, IntSize::Size16)),
-            "u32" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::No, IntSize::Size32)),
-            "u64" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::No, IntSize::Size64)),
-            "usize" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::No, IntSize::SizePtr)),
-            "i8" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::Yes, IntSize::Size8)),
-            "i16" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::Yes, IntSize::Size16)),
-            "i32" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::Yes, IntSize::Size32)),
-            "i64" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::Yes, IntSize::Size64)),
-            "isize" => ctx
-                .analysis
-                .intern_type(Type::Int(Signed::Yes, IntSize::SizePtr)),
-            _ => ctx.analysis.intern_type(Type::Error),
+        TypeRef::Name(name) => match ctx.items.by_name.get(name) {
+            Some(&ItemId::Function(func_id)) => {
+                let func = &ctx.items[func_id];
+                let ret_ty = lower_type_ref(ctx, func.return_ty);
+                let param_tys = func
+                    .param_tys
+                    .iter()
+                    .copied()
+                    .map(|ty| lower_type_ref(ctx, ty))
+                    .collect();
+                ctx.analysis.intern_type(Type::SpecificFn {
+                    name: func.name.clone(),
+                    ret_ty,
+                    param_tys,
+                })
+            }
+            Some(_) => todo!(),
+            None => match name.as_str() {
+                "u8" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::No, IntSize::Size8)),
+                "u16" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::No, IntSize::Size16)),
+                "u32" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::No, IntSize::Size32)),
+                "u64" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::No, IntSize::Size64)),
+                "usize" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::No, IntSize::SizePtr)),
+                "i8" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::Yes, IntSize::Size8)),
+                "i16" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::Yes, IntSize::Size16)),
+                "i32" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::Yes, IntSize::Size32)),
+                "i64" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::Yes, IntSize::Size64)),
+                "isize" => ctx
+                    .analysis
+                    .intern_type(Type::Int(Signed::Yes, IntSize::SizePtr)),
+                _ => ctx.analysis.intern_type(Type::Error),
+            },
         },
         &TypeRef::Ptr(dest) => {
             let dest_ty = lower_type_ref(ctx, dest);
@@ -482,16 +524,16 @@ fn fib(n u32) u32 {
         let mut analysis = Analysis::default();
         for item in &items.items {
             match item {
-                &Item::Function(func_id) => {
+                &ItemId::Function(func_id) => {
                     let func = &items.functions[func_id];
                     let body = lower_function_body(func.ast.to_node(file.syntax()));
                     let _result = infer(&mut analysis, &items, func, &body);
                     dbg!(&analysis);
                     eprintln!("{}", print_function(func, &body));
                 }
-                Item::Record(_structure) => {}
-                Item::Const(_) => todo!(),
-                Item::Enum(_) => todo!(),
+                ItemId::Record(_structure) => {}
+                ItemId::Const(_) => todo!(),
+                ItemId::Enum(_) => todo!(),
             }
         }
     }

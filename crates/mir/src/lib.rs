@@ -552,16 +552,16 @@ fn fib(n u32) u32 {
         let mut analysis = hir::Analysis::default();
         for item in items.items() {
             match item {
-                &hir::Item::Function(func_id) => {
+                &hir::ItemId::Function(func_id) => {
                     let func = &items[func_id];
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
                     let inference = hir::infer(&mut analysis, &items, func, &body);
                     let func = lower(&analysis, &func, &body, &inference);
                     eprintln!("{}", print_function(&func));
                 }
-                hir::Item::Record(_) => todo!(),
-                hir::Item::Const(_) => todo!(),
-                hir::Item::Enum(_) => todo!(),
+                hir::ItemId::Record(_) => todo!(),
+                hir::ItemId::Const(_) => todo!(),
+                hir::ItemId::Enum(_) => todo!(),
             }
         }
     }
