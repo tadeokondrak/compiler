@@ -3,9 +3,7 @@ use crate::{ast::*, AstNode, Language, Syntax, SyntaxNode};
 pub enum Item {
     FnItem(FnItem),
     EnumItem(EnumItem),
-    UnionItem(UnionItem),
-    StructItem(StructItem),
-    VariantItem(VariantItem),
+    RecordItem(RecordItem),
     ConstItem(ConstItem),
 }
 #[rustfmt::skip]
@@ -13,17 +11,15 @@ impl AstNode for Item {
     type Language = Language;
     fn can_cast(kind: Syntax) -> bool {
         matches!(
-            kind, Syntax::FnItem | Syntax::EnumItem | Syntax::UnionItem |
-            Syntax::StructItem | Syntax::VariantItem | Syntax::ConstItem
+            kind, Syntax::FnItem | Syntax::EnumItem | Syntax::RecordItem |
+            Syntax::ConstItem
         )
     }
     fn cast(node: SyntaxNode) -> Option<Item> {
         match node.kind() {
             Syntax::FnItem => Some(Item::FnItem(FnItem { node })),
             Syntax::EnumItem => Some(Item::EnumItem(EnumItem { node })),
-            Syntax::UnionItem => Some(Item::UnionItem(UnionItem { node })),
-            Syntax::StructItem => Some(Item::StructItem(StructItem { node })),
-            Syntax::VariantItem => Some(Item::VariantItem(VariantItem { node })),
+            Syntax::RecordItem => Some(Item::RecordItem(RecordItem { node })),
             Syntax::ConstItem => Some(Item::ConstItem(ConstItem { node })),
             _ => None,
         }
@@ -32,9 +28,7 @@ impl AstNode for Item {
         match self {
             Item::FnItem(FnItem { node }) => node,
             Item::EnumItem(EnumItem { node }) => node,
-            Item::UnionItem(UnionItem { node }) => node,
-            Item::StructItem(StructItem { node }) => node,
-            Item::VariantItem(VariantItem { node }) => node,
+            Item::RecordItem(RecordItem { node }) => node,
             Item::ConstItem(ConstItem { node }) => node,
         }
     }

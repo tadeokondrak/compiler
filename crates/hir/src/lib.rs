@@ -7,7 +7,7 @@ use la_arena::{Arena, Idx};
 use std::{collections::HashMap, ops::Index};
 use syntax::{ast, AstPtr, BinaryOp, UnaryOp};
 
-pub use lower::{lower_const, lower_function, lower_function_body, lower_struct};
+pub use lower::{lower_const, lower_enum, lower_function, lower_function_body, lower_record};
 pub use pretty::print_function;
 
 pub type ExprId = Idx<Expr>;
@@ -43,7 +43,7 @@ pub struct Const {
 pub struct Enum {
     pub ast: AstPtr<ast::EnumItem>,
     pub name: Name,
-    pub fields: Box<[EnumVariant]>,
+    pub variants: Box<[EnumVariant]>,
 }
 
 #[derive(Debug)]
@@ -126,7 +126,7 @@ pub enum Expr {
     },
     Field {
         base: ExprId,
-        name: Option<String>,
+        name: String,
     },
 }
 
@@ -152,6 +152,7 @@ pub enum Type {
     Bool,
     Int(Signed, IntSize),
     Ptr(TypeId),
+    Record(RecordId),
     // The size of values of this type is infinite (it cannot exist at runtime).
     // However pointers to values of this type can exist.
     GenericFn {
@@ -211,6 +212,14 @@ impl Index<FunctionId> for Items {
     }
 }
 
+impl Index<RecordId> for Items {
+    type Output = Record;
+
+    fn index(&self, index: RecordId) -> &Self::Output {
+        &self.records[index]
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ItemId {
     Function(FunctionId),
@@ -232,10 +241,17 @@ pub fn file_items(file: ast::File) -> Items {
                     items.by_name.insert(name.clone(), lowered_id);
                 }
             }
-            ast::Item::EnumItem(_) => todo!(),
-            ast::Item::UnionItem(_) => todo!(),
-            ast::Item::StructItem(it) => {
-                let lowered = lower_struct(it);
+            ast::Item::EnumItem(it) => {
+                let lowered = lower_enum(it);
+                let lowered = items.enums.alloc(lowered);
+                let lowered_id = ItemId::Enum(lowered);
+                items.items.push(lowered_id);
+                if let Name::Present(name) = &items.enums[lowered].name {
+                    items.by_name.insert(name.clone(), lowered_id);
+                }
+            }
+            ast::Item::RecordItem(it) => {
+                let lowered = lower_record(it);
                 let lowered = items.records.alloc(lowered);
                 let lowered_id = ItemId::Record(lowered);
                 items.items.push(lowered_id);
@@ -243,7 +259,6 @@ pub fn file_items(file: ast::File) -> Items {
                     items.by_name.insert(name.clone(), lowered_id);
                 }
             }
-            ast::Item::VariantItem(_) => todo!(),
             ast::Item::ConstItem(it) => {
                 let lowered = lower_const(it);
                 let lowered = items.consts.alloc(lowered);
@@ -306,8 +321,7 @@ pub fn infer(
         .param_tys
         .iter()
         .map(|&ty| lower_type_ref(&mut ctx, ty))
-        .collect::<Vec<TypeId>>()
-        .into_boxed_slice();
+        .collect();
     let return_ty = lower_type_ref(&mut ctx, func.return_ty);
     infer_expr(&mut ctx, body.expr);
 
@@ -353,8 +367,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                             .param_tys
                             .iter()
                             .map(|&ty| lower_type_ref(ctx, ty))
-                            .collect::<Vec<TypeId>>()
-                            .into_boxed_slice(),
+                            .collect(),
                     }
                 })
                 .map(|ty| ctx.analysis.intern_type(ty));
@@ -428,10 +441,30 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             eprintln!("Expr::Index unimplemented");
             ctx.analysis.intern_type(Type::Error)
         }
-        Expr::Field { base, name: _ } => {
-            infer_expr(ctx, *base);
-            eprintln!("Expr::Field unimplemented");
-            ctx.analysis.intern_type(Type::Error)
+        Expr::Field { base, name } => {
+            let base_ty = infer_expr(ctx, *base);
+            match ctx.analysis.types[base_ty] {
+                Type::Ptr(ptr_ty) => match ctx.analysis.types[ptr_ty] {
+                    Type::Record(record_id) => {
+                        let field = ctx.items.records[record_id]
+                            .fields
+                            .iter()
+                            .find(|field| field.name == *name.as_str())
+                            .unwrap();
+                        lower_type_ref(ctx, field.ty)
+                    }
+                    _ => todo!(),
+                },
+                Type::Record(record_id) => {
+                    let field = ctx.items.records[record_id]
+                        .fields
+                        .iter()
+                        .find(|field| field.name == *name.as_str())
+                        .unwrap();
+                    lower_type_ref(ctx, field.ty)
+                }
+                _ => todo!(),
+            }
         }
     };
     ctx.exprs.insert(expr, type_id);
@@ -457,6 +490,7 @@ fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
                     param_tys,
                 })
             }
+            Some(&ItemId::Record(record_id)) => ctx.analysis.intern_type(Type::Record(record_id)),
             Some(_) => todo!(),
             None => match name.as_str() {
                 "u8" => ctx
@@ -509,10 +543,11 @@ mod tests {
     fn test_infer() {
         let file = syntax::parse_file(
             "
-struct Numbers {
+struct Vec2 {
     x i32
     y i32
 }
+fn get_x(v Vec2) { return v.x }
 fn exit(n i32)
 fn fib(n u32) u32 {
     if n <= 1 { return 1 }
@@ -521,6 +556,7 @@ fn fib(n u32) u32 {
 }",
         );
         let items = file_items(file.clone());
+        eprintln!("{items:#?}");
         let mut analysis = Analysis::default();
         for item in &items.items {
             match item {

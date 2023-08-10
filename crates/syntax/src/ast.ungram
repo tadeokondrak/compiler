@@ -12,16 +12,12 @@ LetStmt = 'let' 'identifier' (':' ty:Type)? '=' Expr
 Item =
   FnItem
 | EnumItem
-| UnionItem
-| StructItem
-| VariantItem
+| RecordItem
 | ConstItem
 
 FnItem = 'fn' 'identifier' '(' Parameter* ')' return_ty:Type (body:BlockExpr | ';')
 EnumItem = 'enum' 'identifier' Variant*
-UnionItem = 'union' 'identifier' Member*
-StructItem = 'struct' 'identifier' Member*
-VariantItem = 'variant' 'identifier' Member*
+RecordItem = ('union' | 'struct' | 'variant') 'identifier' Member*
 ConstItem = 'const' 'identifier' ':' ty:Type '=' Expr ';'
 
 Expr =

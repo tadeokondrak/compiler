@@ -1,20 +1,20 @@
 use crate::{
-    Body, Const, Expr, ExprId, Function, Name, Record, RecordField, Stmt, TypeRef, TypeRefId,
+    Body, Const, Enum, Expr, ExprId, Function, Record, RecordField, Stmt, TypeRef, TypeRefId,
 };
 use la_arena::Arena;
 use syntax::{ast, AstPtr};
 
 #[derive(Default)]
-struct LowerCtx {
+struct Ctx {
     type_refs: Arena<TypeRef>,
 }
 
 #[derive(Default)]
-struct LowerBodyCtx {
+struct BodyCtx {
     exprs: Arena<Expr>,
 }
 
-impl LowerCtx {
+impl Ctx {
     fn alloc_type_ref(&mut self, type_ref: TypeRef) -> TypeRefId {
         self.type_refs.alloc(type_ref)
     }
@@ -55,8 +55,7 @@ impl LowerCtx {
         let param_tys = syntax
             .parameters()
             .map(|param| self.lower_type_ref_opt(param.ty()))
-            .collect::<Vec<TypeRefId>>()
-            .into_boxed_slice();
+            .collect();
 
         Function {
             ast: AstPtr::new(&syntax),
@@ -67,7 +66,7 @@ impl LowerCtx {
         }
     }
 
-    fn lower_struct(mut self, syntax: ast::StructItem) -> Record {
+    fn lower_record(mut self, syntax: ast::RecordItem) -> Record {
         let name = syntax
             .identifier_token()
             .map(|tok| tok.text().to_owned())
@@ -75,12 +74,12 @@ impl LowerCtx {
         let fields = syntax
             .members()
             .map(|member| self.lower_struct_member(member))
-            .collect::<Vec<RecordField>>();
+            .collect();
         Record {
-            ast: AstPtr::new(&ast::Item::StructItem(syntax)),
+            ast: AstPtr::new(&ast::Item::RecordItem(syntax)),
             name,
             type_refs: self.type_refs,
-            fields: fields.into_boxed_slice(),
+            fields,
         }
     }
 
@@ -106,9 +105,29 @@ impl LowerCtx {
             ty,
         }
     }
+
+    fn lower_enum(&self, syntax: ast::EnumItem) -> Enum {
+        let name = syntax
+            .identifier_token()
+            .map(|tok| tok.text().to_owned())
+            .into();
+        let variants = syntax
+            .variants()
+            .map(|variant| self.lower_enum_variant(variant))
+            .collect();
+        Enum {
+            ast: AstPtr::new(&syntax),
+            name,
+            variants,
+        }
+    }
+
+    fn lower_enum_variant(&self, _variant: ast::Variant) -> crate::EnumVariant {
+        todo!()
+    }
 }
 
-impl LowerBodyCtx {
+impl BodyCtx {
     fn alloc_expr(&mut self, expr: Expr) -> ExprId {
         self.exprs.alloc(expr)
     }
@@ -165,8 +184,7 @@ impl LowerBodyCtx {
                     body: it
                         .stmts()
                         .filter_map(|stmt| self.lower_stmt(stmt))
-                        .collect::<Vec<Stmt>>()
-                        .into_boxed_slice(),
+                        .collect(),
                 };
                 self.alloc_expr(expr)
             }
@@ -196,8 +214,7 @@ impl LowerBodyCtx {
                 let args = it
                     .arguments()
                     .map(|arg| self.lower_expr_opt(arg.expr()))
-                    .collect::<Vec<ExprId>>()
-                    .into_boxed_slice();
+                    .collect();
                 self.alloc_expr(Expr::Call { callee, args })
             }
             ast::Expr::IndexExpr(it) => {
@@ -207,10 +224,13 @@ impl LowerBodyCtx {
             }
             ast::Expr::FieldExpr(it) => {
                 let base = self.lower_expr_opt(it.base());
-                self.alloc_expr(Expr::Field {
-                    base,
-                    name: it.identifier_token().map(|s| s.text().to_owned()),
-                })
+                match it.identifier_token() {
+                    Some(name) => self.alloc_expr(Expr::Field {
+                        base,
+                        name: name.text().to_owned(),
+                    }),
+                    None => self.alloc_expr(Expr::Missing),
+                }
             }
         }
     }
@@ -236,8 +256,7 @@ impl LowerBodyCtx {
                     .map(|it| it.text().to_owned())
                     .into()
             })
-            .collect::<Vec<Name>>()
-            .into_boxed_slice();
+            .collect();
 
         Body {
             param_names,
@@ -246,6 +265,7 @@ impl LowerBodyCtx {
         }
     }
 
+    #[allow(unreachable_pub)]
     pub fn lower_constant_body(mut self, syntax: ast::ConstItem) -> Body {
         let body = self.lower_expr_opt(syntax.expr());
         Body {
@@ -256,22 +276,27 @@ impl LowerBodyCtx {
     }
 }
 
-pub fn lower_function(func: ast::FnItem) -> Function {
-    LowerCtx::default().lower_function(func)
+pub fn lower_function(syntax: ast::FnItem) -> Function {
+    Ctx::default().lower_function(syntax)
 }
 
-pub fn lower_struct(func: ast::StructItem) -> Record {
-    LowerCtx::default().lower_struct(func)
+pub fn lower_record(syntax: ast::RecordItem) -> Record {
+    Ctx::default().lower_record(syntax)
 }
 
-pub fn lower_const(func: ast::ConstItem) -> Const {
-    LowerCtx::default().lower_const(func)
+pub fn lower_const(syntax: ast::ConstItem) -> Const {
+    Ctx::default().lower_const(syntax)
 }
 
-pub fn lower_function_body(func: ast::FnItem) -> Body {
-    LowerBodyCtx::default().lower_function_body(func)
+pub fn lower_enum(syntax: ast::EnumItem) -> Enum {
+    Ctx::default().lower_enum(syntax)
 }
 
-pub fn lower_constant_body(func: ast::ConstItem) -> Body {
-    LowerBodyCtx::default().lower_constant_body(func)
+pub fn lower_function_body(syntax: ast::FnItem) -> Body {
+    BodyCtx::default().lower_function_body(syntax)
+}
+
+#[allow(unreachable_pub, unused)]
+pub fn lower_constant_body(syntax: ast::ConstItem) -> Body {
+    BodyCtx::default().lower_constant_body(syntax)
 }

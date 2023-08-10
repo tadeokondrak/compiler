@@ -95,7 +95,7 @@ fn parse_item(p: &mut Parser) {
                 p.end(member, Syntax::Member);
             }
             p.expect(t!("}"));
-            p.end(m, Syntax::StructItem);
+            p.end(m, Syntax::RecordItem);
         }
         t!("identifier") if p.at_keyword(t!("const")) => {
             let m = p.begin();
@@ -106,7 +106,7 @@ fn parse_item(p: &mut Parser) {
             p.expect(t!("="));
             parse_expr(p);
             p.expect(t!(";"));
-            p.end(m, Syntax::StructItem);
+            p.end(m, Syntax::ConstItem);
         }
         _ => unreachable!("{:?}", p.nth_keyword(0)),
     }

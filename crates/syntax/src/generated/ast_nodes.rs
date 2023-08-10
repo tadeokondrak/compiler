@@ -103,55 +103,17 @@ impl AstNode for EnumItem {
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct UnionItem {
+pub struct RecordItem {
     pub(super) node: SyntaxNode,
 }
 #[rustfmt::skip]
-impl AstNode for UnionItem {
+impl AstNode for RecordItem {
     type Language = Language;
     fn can_cast(kind: Syntax) -> bool {
-        kind == Syntax::UnionItem
+        kind == Syntax::RecordItem
     }
-    fn cast(node: SyntaxNode) -> Option<UnionItem> {
-        if UnionItem::can_cast(node.kind()) { Some(UnionItem { node }) } else { None }
-    }
-    fn syntax(&self) -> &SyntaxNode {
-        &self.node
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct StructItem {
-    pub(super) node: SyntaxNode,
-}
-#[rustfmt::skip]
-impl AstNode for StructItem {
-    type Language = Language;
-    fn can_cast(kind: Syntax) -> bool {
-        kind == Syntax::StructItem
-    }
-    fn cast(node: SyntaxNode) -> Option<StructItem> {
-        if StructItem::can_cast(node.kind()) { Some(StructItem { node }) } else { None }
-    }
-    fn syntax(&self) -> &SyntaxNode {
-        &self.node
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VariantItem {
-    pub(super) node: SyntaxNode,
-}
-#[rustfmt::skip]
-impl AstNode for VariantItem {
-    type Language = Language;
-    fn can_cast(kind: Syntax) -> bool {
-        kind == Syntax::VariantItem
-    }
-    fn cast(node: SyntaxNode) -> Option<VariantItem> {
-        if VariantItem::can_cast(node.kind()) {
-            Some(VariantItem { node })
-        } else {
-            None
-        }
+    fn cast(node: SyntaxNode) -> Option<RecordItem> {
+        if RecordItem::can_cast(node.kind()) { Some(RecordItem { node }) } else { None }
     }
     fn syntax(&self) -> &SyntaxNode {
         &self.node
@@ -662,31 +624,13 @@ impl EnumItem {
     }
 }
 #[rustfmt::skip]
-impl UnionItem {
+impl RecordItem {
     pub fn union_keyword(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::UnionKeyword)
     }
-    pub fn identifier_token(&self) -> Option<SyntaxToken> {
-        token(&self.node, Syntax::Identifier)
-    }
-    pub fn members(&self) -> AstChildren<Member> {
-        children(&self.node)
-    }
-}
-#[rustfmt::skip]
-impl StructItem {
     pub fn struct_keyword(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::StructKeyword)
     }
-    pub fn identifier_token(&self) -> Option<SyntaxToken> {
-        token(&self.node, Syntax::Identifier)
-    }
-    pub fn members(&self) -> AstChildren<Member> {
-        children(&self.node)
-    }
-}
-#[rustfmt::skip]
-impl VariantItem {
     pub fn variant_keyword(&self) -> Option<SyntaxToken> {
         token(&self.node, Syntax::VariantKeyword)
     }

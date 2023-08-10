@@ -157,6 +157,7 @@ struct Ctx<'a> {
     cur_block: Option<Block>,
     next_var: u32,
     next_reg: u32,
+    items: &'a hir::Items,
 }
 impl Ctx<'_> {
     fn var(&mut self) -> Var {
@@ -313,10 +314,20 @@ impl Ctx<'_> {
             hir::Expr::Break => todo!(),
             hir::Expr::Continue => todo!(),
             &hir::Expr::Return { value } => {
-                let ty = self.type_of(value);
-                let value = self.lower_expr(value).unwrap();
-                self.push(Inst::Retv { ty, src: value });
-                None
+                let hir_ty_id = self.inference.exprs[&value];
+                let hir_ty = &self.analysis[hir_ty_id];
+                match hir_ty {
+                    hir::Type::Unit => {
+                        self.push(Inst::Ret);
+                        None
+                    }
+                    _ => {
+                        let ty = self.type_of(value);
+                        let value = self.lower_expr(value).unwrap();
+                        self.push(Inst::Retv { ty, src: value });
+                        None
+                    }
+                }
             }
             hir::Expr::Call { callee, args } => {
                 let hir::Type::SpecificFn {
@@ -327,10 +338,10 @@ impl Ctx<'_> {
                 else {
                     todo!()
                 };
-                let mut arg_regs = Vec::new();
-                for &arg in args.iter() {
-                    arg_regs.push(self.lower_expr(arg).unwrap());
-                }
+                let arg_regs = args
+                    .iter()
+                    .map(|&arg| self.lower_expr(arg).unwrap())
+                    .collect();
                 if self.analysis[*ret_ty] == hir::Type::Unit {
                     let func = Func(self.funcs.len() as u32);
                     self.funcs.push(FuncData {
@@ -340,7 +351,7 @@ impl Ctx<'_> {
                     });
                     self.push(Inst::Call {
                         func,
-                        args: arg_regs.into_boxed_slice(),
+                        args: arg_regs,
                     });
                     None
                 } else {
@@ -356,13 +367,33 @@ impl Ctx<'_> {
                         ty: ret_ty,
                         dst,
                         func,
-                        args: arg_regs.into_boxed_slice(),
+                        args: arg_regs,
                     });
                     Some(dst)
                 }
             }
             hir::Expr::Index { base, index } => todo!(),
-            hir::Expr::Field { base, name } => todo!(),
+            hir::Expr::Field { base, name } => {
+                let ty = self.type_of(*base);
+                let hir_ty = self.inference.exprs[base];
+                let value = self.lower_expr(*base).unwrap();
+                let hir::Type::Ptr(hir_indirect_ty) = self.analysis[hir_ty] else {
+                    todo!();
+                };
+                let hir::Type::Record(record_id) = self.analysis[hir_indirect_ty] else {
+                    todo!();
+                };
+                let record = &self.items[record_id];
+                let (field_index, field) = record
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .find(|(_, field)| field.name == *name.as_str())
+                    .unwrap();
+                assert_eq!(field_index, 0);
+
+                Some(value)
+            }
         }
     }
 
@@ -385,13 +416,14 @@ impl Ctx<'_> {
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size32) => Type::Int32,
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size64) => Type::Int64,
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::SizePtr) => Type::Int64,
-            hir::Type::Ptr(_) => todo!(),
+            hir::Type::Ptr(_) => Type::Int64,
             hir::Type::SpecificFn {
                 ret_ty,
                 param_tys,
                 name,
             } => todo!(),
             hir::Type::GenericFn { ret_ty, param_tys } => todo!(),
+            hir::Type::Record(_) => Type::Error,
         }
     }
 }
@@ -422,12 +454,14 @@ fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
 
 pub fn lower(
     analysis: &hir::Analysis,
+    items: &hir::Items,
     function: &hir::Function,
     body: &hir::Body,
     inference: &hir::InferenceResult,
 ) -> Function {
     let ctx = Ctx {
         analysis,
+        items,
         function,
         body,
         inference,
@@ -540,6 +574,12 @@ mod tests {
     fn test_infer() {
         let file = syntax::parse_file(
             "
+struct Vec2 {
+    x i32
+    y i32
+}
+fn get_x(v ptr Vec2) { return v.x }
+
 fn exit(n i32)
 
 fn fib(n u32) u32 {
@@ -556,12 +596,12 @@ fn fib(n u32) u32 {
                     let func = &items[func_id];
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
                     let inference = hir::infer(&mut analysis, &items, func, &body);
-                    let func = lower(&analysis, &func, &body, &inference);
+                    let func = lower(&analysis, &items, &func, &body, &inference);
                     eprintln!("{}", print_function(&func));
                 }
-                hir::ItemId::Record(_) => todo!(),
-                hir::ItemId::Const(_) => todo!(),
-                hir::ItemId::Enum(_) => todo!(),
+                hir::ItemId::Record(_) => {}
+                hir::ItemId::Const(_) => {}
+                hir::ItemId::Enum(_) => {}
             }
         }
     }

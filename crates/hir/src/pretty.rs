@@ -127,7 +127,7 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
         Expr::Field { base, name } => {
             print_expr(s, exprs, *base, indent);
             s.push('.');
-            s.push_str(name.as_ref().map(AsRef::as_ref).unwrap_or("<missing name>"));
+            s.push_str(name);
         }
     }
 }

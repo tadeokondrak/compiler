@@ -687,7 +687,7 @@ struct X {
                 File {
                     node: File@0..41
                       Newline@0..1 "\n"
-                      StructItem@1..41
+                      RecordItem@1..41
                         StructKeyword@1..7 "struct"
                         Space@7..8 " "
                         Identifier@8..9 "X"
