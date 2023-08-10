@@ -148,7 +148,7 @@ impl std::fmt::Debug for Type {
 }
 
 struct Ctx<'a> {
-    db: &'a hir::Db,
+    analysis: &'a hir::Analysis,
     function: &'a hir::Function,
     body: &'a hir::Body,
     inference: &'a hir::InferenceResult,
@@ -323,7 +323,7 @@ impl Ctx<'_> {
                     name: hir::Name::Present(name),
                     ret_ty,
                     param_tys,
-                } = &self.db[self.inference.exprs[&callee]]
+                } = &self.analysis[self.inference.exprs[&callee]]
                 else {
                     todo!()
                 };
@@ -331,7 +331,7 @@ impl Ctx<'_> {
                 for &arg in args.iter() {
                     arg_regs.push(self.lower_expr(arg).unwrap());
                 }
-                if self.db[*ret_ty] == hir::Type::Unit {
+                if self.analysis[*ret_ty] == hir::Type::Unit {
                     let func = Func(self.funcs.len() as u32);
                     self.funcs.push(FuncData {
                         name: name.clone(),
@@ -375,7 +375,7 @@ impl Ctx<'_> {
     }
 
     fn lower_ty(&self, ty: TypeId) -> Type {
-        match &self.db[ty] {
+        match &self.analysis[ty] {
             hir::Type::Error => Type::Error,
             hir::Type::Never => todo!(),
             hir::Type::Unit => todo!(),
@@ -421,13 +421,13 @@ fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
 }
 
 pub fn lower(
-    db: &hir::Db,
+    analysis: &hir::Analysis,
     function: &hir::Function,
     body: &hir::Body,
     inference: &hir::InferenceResult,
 ) -> Function {
     let ctx = Ctx {
-        db,
+        analysis,
         function,
         body,
         inference,
@@ -549,13 +549,13 @@ fn fib(n u32) u32 {
 ",
         );
         let items = hir::file_items(file.clone());
-        let mut db = hir::Db::default();
+        let mut analysis = hir::Analysis::default();
         for item in items.items().values() {
             match item {
                 hir::Item::Function(func) => {
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
-                    let inference = hir::infer(&mut db, &items, func, &body);
-                    let func = lower(&db, &func, &body, &inference);
+                    let inference = hir::infer(&mut analysis, &items, func, &body);
+                    let func = lower(&analysis, &func, &body, &inference);
                     eprintln!("{}", print_function(&func));
                 }
                 hir::Item::Record(_) => todo!(),

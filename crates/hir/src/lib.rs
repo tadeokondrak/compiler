@@ -217,12 +217,12 @@ pub fn file_items(file: ast::File) -> Items {
 }
 
 #[derive(Default, Debug)]
-pub struct Db {
+pub struct Analysis {
     types: Arena<Type>,
     cache: HashMap<Type, TypeId>,
 }
 
-impl Db {
+impl Analysis {
     fn intern_type(&mut self, key: Type) -> TypeId {
         self.cache.get(&key).copied().unwrap_or_else(|| {
             let ty = self.types.alloc(key.clone());
@@ -232,7 +232,7 @@ impl Db {
     }
 }
 
-impl Index<TypeId> for Db {
+impl Index<TypeId> for Analysis {
     type Output = Type;
 
     fn index(&self, id: TypeId) -> &Self::Output {
@@ -247,9 +247,9 @@ pub struct InferenceResult {
     pub exprs: HashMap<ExprId, TypeId>,
 }
 
-pub fn infer(db: &mut Db, items: &Items, func: &Function, body: &Body) -> InferenceResult {
+pub fn infer(analysis: &mut Analysis, items: &Items, func: &Function, body: &Body) -> InferenceResult {
     let mut ctx = InferCtx {
-        db,
+        analysis,
         items,
         func,
         body,
@@ -272,7 +272,7 @@ pub fn infer(db: &mut Db, items: &Items, func: &Function, body: &Body) -> Infere
 }
 
 struct InferCtx<'a> {
-    db: &'a mut Db,
+    analysis: &'a mut Analysis,
     items: &'a Items,
     func: &'a Function,
     body: &'a Body,
@@ -281,8 +281,8 @@ struct InferCtx<'a> {
 
 fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
     let type_id = match &ctx.body.exprs[expr] {
-        Expr::Missing => ctx.db.intern_type(Type::Error),
-        Expr::Unit => ctx.db.intern_type(Type::Unit),
+        Expr::Missing => ctx.analysis.intern_type(Type::Error),
+        Expr::Unit => ctx.analysis.intern_type(Type::Unit),
         Expr::Name(name) => {
             let item_ty = ctx
                 .items
@@ -307,7 +307,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         .collect::<Vec<TypeId>>()
                         .into_boxed_slice(),
                 })
-                .map(|ty| ctx.db.intern_type(ty));
+                .map(|ty| ctx.analysis.intern_type(ty));
             let param_ty = ctx
                 .body
                 .param_names
@@ -317,9 +317,9 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .map(|(i, _)| lower_type_ref(ctx, ctx.func.param_tys[i]));
             param_ty
                 .or(item_ty)
-                .unwrap_or_else(|| ctx.db.intern_type(Type::Error))
+                .unwrap_or_else(|| ctx.analysis.intern_type(Type::Error))
         }
-        Expr::Number(_) => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size32)),
+        Expr::Number(_) => ctx.analysis.intern_type(Type::Int(Signed::No, IntSize::Size32)),
         &Expr::If {
             cond,
             then_expr,
@@ -328,11 +328,11 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             infer_expr(ctx, cond);
             infer_expr(ctx, then_expr);
             else_expr.map(|expr| infer_expr(ctx, expr));
-            ctx.db.intern_type(Type::Unit)
+            ctx.analysis.intern_type(Type::Unit)
         }
         &Expr::Loop { body } => {
             infer_expr(ctx, body);
-            ctx.db.intern_type(Type::Never)
+            ctx.analysis.intern_type(Type::Never)
         }
         Expr::Block { body } => {
             for stmt in body.iter() {
@@ -343,7 +343,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                     }
                 }
             }
-            ctx.db.intern_type(Type::Unit)
+            ctx.analysis.intern_type(Type::Unit)
         }
         &Expr::Unary { op: _, operand } => {
             let operand_ty = infer_expr(ctx, operand);
@@ -354,16 +354,16 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             let _rhs_ty = infer_expr(ctx, rhs);
             lhs_ty
         }
-        Expr::Break => ctx.db.intern_type(Type::Never),
-        Expr::Continue => ctx.db.intern_type(Type::Never),
+        Expr::Break => ctx.analysis.intern_type(Type::Never),
+        Expr::Continue => ctx.analysis.intern_type(Type::Never),
         &Expr::Return { value } => {
             infer_expr(ctx, value);
-            ctx.db.intern_type(Type::Never)
+            ctx.analysis.intern_type(Type::Never)
         }
         Expr::Call { callee, args } => {
             let callee_ty = infer_expr(ctx, *callee);
-            let &Type::SpecificFn { ret_ty, .. } = &ctx.db.types[callee_ty] else {
-                return ctx.db.intern_type(Type::Error);
+            let &Type::SpecificFn { ret_ty, .. } = &ctx.analysis.types[callee_ty] else {
+                return ctx.analysis.intern_type(Type::Error);
             };
             for &arg in args.iter() {
                 infer_expr(ctx, arg);
@@ -373,11 +373,11 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         &Expr::Index { base, index: _ } => {
             infer_expr(ctx, base);
 
-            ctx.db.intern_type(Type::Error)
+            ctx.analysis.intern_type(Type::Error)
         }
         Expr::Field { base, name: _ } => {
             infer_expr(ctx, *base);
-            ctx.db.intern_type(Type::Error)
+            ctx.analysis.intern_type(Type::Error)
         }
     };
     ctx.exprs.insert(expr, type_id);
@@ -386,23 +386,23 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
 
 fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
     match &ctx.func.type_refs[ty] {
-        TypeRef::Error => ctx.db.intern_type(Type::Error),
+        TypeRef::Error => ctx.analysis.intern_type(Type::Error),
         TypeRef::Name(name) => match name.as_str() {
-            "u8" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size8)),
-            "u16" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size16)),
-            "u32" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size32)),
-            "u64" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::Size64)),
-            "usize" => ctx.db.intern_type(Type::Int(Signed::No, IntSize::SizePtr)),
-            "i8" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size8)),
-            "i16" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size16)),
-            "i32" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size32)),
-            "i64" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::Size64)),
-            "isize" => ctx.db.intern_type(Type::Int(Signed::Yes, IntSize::SizePtr)),
-            _ => ctx.db.intern_type(Type::Error),
+            "u8" => ctx.analysis.intern_type(Type::Int(Signed::No, IntSize::Size8)),
+            "u16" => ctx.analysis.intern_type(Type::Int(Signed::No, IntSize::Size16)),
+            "u32" => ctx.analysis.intern_type(Type::Int(Signed::No, IntSize::Size32)),
+            "u64" => ctx.analysis.intern_type(Type::Int(Signed::No, IntSize::Size64)),
+            "usize" => ctx.analysis.intern_type(Type::Int(Signed::No, IntSize::SizePtr)),
+            "i8" => ctx.analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size8)),
+            "i16" => ctx.analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size16)),
+            "i32" => ctx.analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size32)),
+            "i64" => ctx.analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size64)),
+            "isize" => ctx.analysis.intern_type(Type::Int(Signed::Yes, IntSize::SizePtr)),
+            _ => ctx.analysis.intern_type(Type::Error),
         },
         &TypeRef::Ptr(dest) => {
             let dest_ty = lower_type_ref(ctx, dest);
-            ctx.db.intern_type(Type::Ptr(dest_ty))
+            ctx.analysis.intern_type(Type::Ptr(dest_ty))
         }
     }
 }
@@ -426,13 +426,13 @@ fn fib(n u32) u32 {
 }",
         );
         let items = file_items(file.clone());
-        let mut db = Db::default();
+        let mut analysis = Analysis::default();
         for item in items.items.values() {
             match item {
                 Item::Function(func) => {
                     let body = lower_function_body(func.ast.to_node(file.syntax()));
-                    let _result = infer(&mut db, &items, func, &body);
-                    dbg!(&db);
+                    let _result = infer(&mut analysis, &items, func, &body);
+                    dbg!(&analysis);
                     eprintln!("{}", print_function(func, &body));
                 }
                 Item::Record(_structure) => {}
