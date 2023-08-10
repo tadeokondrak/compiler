@@ -541,7 +541,7 @@ pub enum LogicOp {
 
 pub fn parse_file(src: &str) -> ast::File {
     let (node, errors) = parser::parse_file(src);
-    assert!(errors.is_empty());
+    assert!(errors.is_empty(), "{errors:?}");
     let node = SyntaxNode::new_root(node);
     ast::File::cast(node).unwrap()
 }
@@ -555,104 +555,124 @@ mod tests {
     fn test_parse() {
         check(
             "
-fn fib(n u32) ptr u32 {
-    if n <= 1 {
-        return 1
-    }
+fn exit(n i32)
+
+fn fib(n u32) u32 {
+    if n <= 1 { return 1 }
+    exit(0)
     return fib(n - 1) + fib(n - 2)
 }",
             expect![[r#"
                 File {
-                    node: File@0..100
+                    node: File@0..112
                       Newline@0..1 "\n"
-                      FnItem@1..100
+                      FnItem@1..16
                         FnKeyword@1..3 "fn"
                         Space@3..4 " "
-                        Identifier@4..7 "fib"
-                        LeftParenthesis@7..8 "("
-                        Parameter@8..13
-                          Identifier@8..9 "n"
-                          Space@9..10 " "
-                          NameType@10..13
-                            Identifier@10..13 "u32"
-                        RightParenthesis@13..14 ")"
-                        Space@14..15 " "
-                        PointerType@15..22
-                          PtrKeyword@15..18 "ptr"
-                          Space@18..19 " "
-                          NameType@19..22
-                            Identifier@19..22 "u32"
-                        Space@22..23 " "
-                        BlockExpr@23..100
-                          LeftCurlyBracket@23..24 "{"
-                          Newline@24..25 "\n"
-                          Space@25..29 "    "
-                          ExprStmt@29..64
-                            IfExpr@29..63
-                              IfKeyword@29..31 "if"
-                              Space@31..32 " "
-                              BinaryExpr@32..38
-                                NameExpr@32..33
-                                  Identifier@32..33 "n"
-                                Space@33..34 " "
-                                LessThanSignEqualsSign@34..36 "<="
-                                Space@36..37 " "
-                                LiteralExpr@37..38
-                                  Number@37..38 "1"
-                              Space@38..39 " "
-                              BlockExpr@39..63
-                                LeftCurlyBracket@39..40 "{"
-                                Newline@40..41 "\n"
-                                Space@41..49 "        "
-                                ExprStmt@49..57
-                                  ReturnExpr@49..57
-                                    ReturnKeyword@49..55 "return"
-                                    Space@55..56 " "
-                                    LiteralExpr@56..57
-                                      Number@56..57 "1"
-                                Newline@57..58 "\n"
-                                Space@58..62 "    "
+                        Identifier@4..8 "exit"
+                        LeftParenthesis@8..9 "("
+                        Parameter@9..14
+                          Identifier@9..10 "n"
+                          Space@10..11 " "
+                          NameType@11..14
+                            Identifier@11..14 "i32"
+                        RightParenthesis@14..15 ")"
+                        Newline@15..16 "\n"
+                      Newline@16..17 "\n"
+                      FnItem@17..112
+                        FnKeyword@17..19 "fn"
+                        Space@19..20 " "
+                        Identifier@20..23 "fib"
+                        LeftParenthesis@23..24 "("
+                        Parameter@24..29
+                          Identifier@24..25 "n"
+                          Space@25..26 " "
+                          NameType@26..29
+                            Identifier@26..29 "u32"
+                        RightParenthesis@29..30 ")"
+                        Space@30..31 " "
+                        NameType@31..34
+                          Identifier@31..34 "u32"
+                        Space@34..35 " "
+                        BlockExpr@35..112
+                          LeftCurlyBracket@35..36 "{"
+                          Newline@36..37 "\n"
+                          Space@37..41 "    "
+                          ExprStmt@41..64
+                            IfExpr@41..63
+                              IfKeyword@41..43 "if"
+                              Space@43..44 " "
+                              BinaryExpr@44..50
+                                NameExpr@44..45
+                                  Identifier@44..45 "n"
+                                Space@45..46 " "
+                                LessThanSignEqualsSign@46..48 "<="
+                                Space@48..49 " "
+                                LiteralExpr@49..50
+                                  Number@49..50 "1"
+                              Space@50..51 " "
+                              BlockExpr@51..63
+                                LeftCurlyBracket@51..52 "{"
+                                Space@52..53 " "
+                                ExprStmt@53..61
+                                  ReturnExpr@53..61
+                                    ReturnKeyword@53..59 "return"
+                                    Space@59..60 " "
+                                    LiteralExpr@60..61
+                                      Number@60..61 "1"
+                                Space@61..62 " "
                                 RightCurlyBracket@62..63 "}"
                             Newline@63..64 "\n"
                           Space@64..68 "    "
-                          ExprStmt@68..98
-                            ReturnExpr@68..98
-                              ReturnKeyword@68..74 "return"
-                              Space@74..75 " "
-                              BinaryExpr@75..98
-                                CallExpr@75..85
-                                  NameExpr@75..78
-                                    Identifier@75..78 "fib"
-                                  LeftParenthesis@78..79 "("
-                                  Argument@79..84
-                                    BinaryExpr@79..84
-                                      NameExpr@79..80
-                                        Identifier@79..80 "n"
-                                      Space@80..81 " "
-                                      HyphenMinus@81..82 "-"
-                                      Space@82..83 " "
-                                      LiteralExpr@83..84
-                                        Number@83..84 "1"
-                                  RightParenthesis@84..85 ")"
-                                Space@85..86 " "
-                                PlusSign@86..87 "+"
-                                Space@87..88 " "
-                                CallExpr@88..98
-                                  NameExpr@88..91
-                                    Identifier@88..91 "fib"
-                                  LeftParenthesis@91..92 "("
-                                  Argument@92..97
-                                    BinaryExpr@92..97
-                                      NameExpr@92..93
-                                        Identifier@92..93 "n"
-                                      Space@93..94 " "
-                                      HyphenMinus@94..95 "-"
-                                      Space@95..96 " "
-                                      LiteralExpr@96..97
-                                        Number@96..97 "2"
-                                  RightParenthesis@97..98 ")"
-                          Newline@98..99 "\n"
-                          RightCurlyBracket@99..100 "}"
+                          ExprStmt@68..76
+                            CallExpr@68..75
+                              NameExpr@68..72
+                                Identifier@68..72 "exit"
+                              LeftParenthesis@72..73 "("
+                              Argument@73..74
+                                LiteralExpr@73..74
+                                  Number@73..74 "0"
+                              RightParenthesis@74..75 ")"
+                            Newline@75..76 "\n"
+                          Space@76..80 "    "
+                          ExprStmt@80..110
+                            ReturnExpr@80..110
+                              ReturnKeyword@80..86 "return"
+                              Space@86..87 " "
+                              BinaryExpr@87..110
+                                CallExpr@87..97
+                                  NameExpr@87..90
+                                    Identifier@87..90 "fib"
+                                  LeftParenthesis@90..91 "("
+                                  Argument@91..96
+                                    BinaryExpr@91..96
+                                      NameExpr@91..92
+                                        Identifier@91..92 "n"
+                                      Space@92..93 " "
+                                      HyphenMinus@93..94 "-"
+                                      Space@94..95 " "
+                                      LiteralExpr@95..96
+                                        Number@95..96 "1"
+                                  RightParenthesis@96..97 ")"
+                                Space@97..98 " "
+                                PlusSign@98..99 "+"
+                                Space@99..100 " "
+                                CallExpr@100..110
+                                  NameExpr@100..103
+                                    Identifier@100..103 "fib"
+                                  LeftParenthesis@103..104 "("
+                                  Argument@104..109
+                                    BinaryExpr@104..109
+                                      NameExpr@104..105
+                                        Identifier@104..105 "n"
+                                      Space@105..106 " "
+                                      HyphenMinus@106..107 "-"
+                                      Space@107..108 " "
+                                      LiteralExpr@108..109
+                                        Number@108..109 "2"
+                                  RightParenthesis@109..110 ")"
+                          Newline@110..111 "\n"
+                          RightCurlyBracket@111..112 "}"
                     ,
                 }
             "#]],
@@ -660,14 +680,14 @@ fn fib(n u32) ptr u32 {
         check(
             "
 struct X {
-    field i32;
-    other u32;
+    field i32
+    other u32
 }",
             expect![[r#"
                 File {
-                    node: File@0..43
+                    node: File@0..41
                       Newline@0..1 "\n"
-                      StructItem@1..43
+                      StructItem@1..41
                         StructKeyword@1..7 "struct"
                         Space@7..8 " "
                         Identifier@8..9 "X"
@@ -680,17 +700,15 @@ struct X {
                           Space@21..22 " "
                           NameType@22..25
                             Identifier@22..25 "i32"
-                          Semicolon@25..26 ";"
-                        Newline@26..27 "\n"
-                        Space@27..31 "    "
-                        Member@31..41
-                          Identifier@31..36 "other"
-                          Space@36..37 " "
-                          NameType@37..40
-                            Identifier@37..40 "u32"
-                          Semicolon@40..41 ";"
-                        Newline@41..42 "\n"
-                        RightCurlyBracket@42..43 "}"
+                          Newline@25..26 "\n"
+                        Space@26..30 "    "
+                        Member@30..40
+                          Identifier@30..35 "other"
+                          Space@35..36 " "
+                          NameType@36..39
+                            Identifier@36..39 "u32"
+                          Newline@39..40 "\n"
+                        RightCurlyBracket@40..41 "}"
                     ,
                 }
             "#]],

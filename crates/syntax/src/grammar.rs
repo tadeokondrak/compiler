@@ -8,6 +8,17 @@ pub(super) fn parse_file(p: &mut Parser) {
     p.end(m, Syntax::File);
 }
 
+fn expect_newline_or(p: &mut Parser, t: Syntax) {
+    if !p.eat(t) {
+        if p.at_newline() {
+            // make sure the newline is in the node
+            p.bump_newline();
+        } else {
+            p.error(&format!("expected {t:?}, not {:?}", p.current()));
+        }
+    }
+}
+
 fn parse_stmt(p: &mut Parser) {
     assert!(p.at_any(EXPR_START) || p.at_any(ITEM_START));
     let m = p.begin();
@@ -24,13 +35,8 @@ fn parse_stmt(p: &mut Parser) {
         _ if p.at_any(ITEM_START) => parse_item(p),
         _ => unreachable!(),
     }
-    if !p.eat(t!(";")) && !p.at(t!("}")) && !p.at(Syntax::Eof) {
-        if p.at_newline() {
-            // make sure the newline is in the node
-            p.bump_newline();
-        } else {
-            p.error(&format!("expected semicolon, not {:?}", p.current()));
-        }
+    if !p.at(t!("}")) {
+        expect_newline_or(p, t!(";"));
     }
     p.end(m, Syntax::ExprStmt);
 }
@@ -59,18 +65,20 @@ fn parse_item(p: &mut Parser) {
                 parse_parameter(p);
             }
             p.expect(t!(")"));
-            // TODO allow newline here
-            if !p.at(t!("{")) && !p.at(t!(";")) && !p.at(Syntax::Eof) {
+            if !p.at_newline() && !p.at(t!("{")) && !p.at(t!(";")) {
                 parse_type(p);
             }
             match p.current() {
+                _ if p.at_newline() => {
+                    p.bump_newline();
+                }
                 t!("{") => {
                     parse_block_expr(p);
                 }
                 t!(";") => {
                     p.bump(t!(";"));
                 }
-                _ => p.error("expected { or ;"),
+                _ => p.error("expected newline, { or ;"),
             }
             p.end(m, Syntax::FnItem);
         }
@@ -83,7 +91,7 @@ fn parse_item(p: &mut Parser) {
                 let member = p.begin();
                 p.expect(t!("identifier"));
                 parse_type(p);
-                p.expect(t!(";")); // TODO allow newline
+                expect_newline_or(p, t!(";"));
                 p.end(member, Syntax::Member);
             }
             p.expect(t!("}"));
@@ -108,13 +116,8 @@ fn parse_parameter(p: &mut Parser) {
     let m = p.begin();
     p.expect(t!("identifier"));
     parse_type(p);
-    if !p.at(t!(")")) && !p.eat(t!(",")) {
-        if p.at_newline() {
-            // make sure the newline is in the node
-            p.bump_newline();
-        } else {
-            p.error(&format!("expected comma, not {:?}", p.current()));
-        }
+    if !p.at(t!(")")) {
+        expect_newline_or(p, t!(","));
     }
     p.end(m, Syntax::Parameter);
 }
@@ -186,13 +189,8 @@ fn parse_expr_precedence(p: &mut Parser, min_prec: i8) -> MarkClosed {
 fn parse_argument(p: &mut Parser) {
     let m = p.begin();
     parse_expr(p);
-    if !p.at(t!(")")) && !p.eat(t!(",")) {
-        if p.at_newline() {
-            // make sure the newline is in the node
-            p.bump_newline();
-        } else {
-            p.error(&format!("expected comma, not {:?}", p.current()));
-        }
+    if !p.at(t!(")")) {
+        expect_newline_or(p, t!(","));
     }
     p.end(m, Syntax::Argument);
 }

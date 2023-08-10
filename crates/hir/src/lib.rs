@@ -133,6 +133,7 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum TypeRef {
     Error,
+    Unit,
     Name(String),
     Ptr(TypeRefId),
 }
@@ -404,6 +405,9 @@ fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
             let dest_ty = lower_type_ref(ctx, dest);
             ctx.analysis.intern_type(Type::Ptr(dest_ty))
         }
+        TypeRef::Unit => {
+            ctx.analysis.intern_type(Type::Unit)
+        },
     }
 }
 
@@ -417,11 +421,13 @@ mod tests {
         let file = syntax::parse_file(
             "
 struct Numbers {
-    x i32;
-    y i32;
+    x i32
+    y i32
 }
+fn exit(n i32)
 fn fib(n u32) u32 {
     if n <= 1 { return 1 }
+    exit(0)
     return fib(n - 1) + fib(n - 2)
 }",
         );

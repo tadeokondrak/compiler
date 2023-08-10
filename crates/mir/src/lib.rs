@@ -540,13 +540,13 @@ mod tests {
     fn test_infer() {
         let file = syntax::parse_file(
             "
-fn exit(n i32);
+fn exit(n i32)
+
 fn fib(n u32) u32 {
     if n <= 1 { return 1 }
-    exit(0);
+    exit(0)
     return fib(n - 1) + fib(n - 2)
-}
-",
+}",
         );
         let items = hir::file_items(file.clone());
         let mut analysis = hir::Analysis::default();

@@ -35,6 +35,9 @@ fn print_type_ref(s: &mut String, function: &Function, ty: TypeRefId) {
             s.push_str("ptr ");
             print_type_ref(s, function, dest);
         }
+        TypeRef::Unit => {
+            s.push_str("unit");
+        },
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    Body, Const, Expr, ExprId, Function, Name, Stmt, Record, RecordField, TypeRef, TypeRefId,
+    Body, Const, Expr, ExprId, Function, Name, Record, RecordField, Stmt, TypeRef, TypeRefId,
 };
 use la_arena::Arena;
 use syntax::{ast, AstPtr};
@@ -47,7 +47,10 @@ impl LowerCtx {
             .identifier_token()
             .map(|tok| tok.text().to_owned())
             .into();
-        let return_ty = self.lower_type_ref_opt(syntax.return_ty());
+        let return_ty = syntax
+            .return_ty()
+            .map(|ty| self.lower_type_ref(ty))
+            .unwrap_or_else(|| self.alloc_type_ref(TypeRef::Unit));
 
         let param_tys = syntax
             .parameters()
