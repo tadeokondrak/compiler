@@ -1,5 +1,5 @@
 use crate::{
-    Body, Const, Expr, ExprId, Function, Name, Stmt, Struct, StructField, TypeRef, TypeRefId,
+    Body, Const, Expr, ExprId, Function, Name, Stmt, Record, RecordField, TypeRef, TypeRefId,
 };
 use la_arena::Arena;
 use syntax::{ast, AstPtr};
@@ -64,7 +64,7 @@ impl LowerCtx {
         }
     }
 
-    fn lower_struct(mut self, syntax: ast::StructItem) -> Struct {
+    fn lower_struct(mut self, syntax: ast::StructItem) -> Record {
         let name = syntax
             .identifier_token()
             .map(|tok| tok.text().to_owned())
@@ -72,22 +72,22 @@ impl LowerCtx {
         let fields = syntax
             .members()
             .map(|member| self.lower_struct_member(member))
-            .collect::<Vec<StructField>>();
-        Struct {
-            ast: AstPtr::new(&syntax),
+            .collect::<Vec<RecordField>>();
+        Record {
+            ast: AstPtr::new(&ast::Item::StructItem(syntax)),
             name,
             type_refs: self.type_refs,
             fields: fields.into_boxed_slice(),
         }
     }
 
-    fn lower_struct_member(&mut self, syntax: ast::Member) -> StructField {
+    fn lower_struct_member(&mut self, syntax: ast::Member) -> RecordField {
         let name = syntax
             .identifier_token()
             .map(|tok| tok.text().to_owned())
             .into();
         let ty = self.lower_type_ref_opt(syntax.ty());
-        StructField { name, ty }
+        RecordField { name, ty }
     }
 
     fn lower_const(mut self, syntax: ast::ConstItem) -> Const {
@@ -257,7 +257,7 @@ pub fn lower_function(func: ast::FnItem) -> Function {
     LowerCtx::default().lower_function(func)
 }
 
-pub fn lower_struct(func: ast::StructItem) -> Struct {
+pub fn lower_struct(func: ast::StructItem) -> Record {
     LowerCtx::default().lower_struct(func)
 }
 

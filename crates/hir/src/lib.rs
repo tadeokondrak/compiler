@@ -24,11 +24,11 @@ pub struct Function {
 }
 
 #[derive(Debug)]
-pub struct Struct {
-    pub ast: AstPtr<ast::StructItem>,
+pub struct Record {
+    pub ast: AstPtr<ast::Item>,
     pub name: Name,
     pub type_refs: Arena<TypeRef>,
-    pub fields: Box<[StructField]>,
+    pub fields: Box<[RecordField]>,
 }
 
 #[derive(Debug)]
@@ -40,9 +40,21 @@ pub struct Const {
 }
 
 #[derive(Debug)]
-pub struct StructField {
+pub struct Enum {
+    pub ast: AstPtr<ast::EnumItem>,
+    pub name: Name,
+    pub fields: Box<[EnumVariant]>,
+}
+
+#[derive(Debug)]
+pub struct RecordField {
     pub name: Name,
     pub ty: TypeRefId,
+}
+
+#[derive(Debug)]
+pub struct EnumVariant {
+    pub name: Name,
 }
 
 #[derive(Debug)]
@@ -183,7 +195,8 @@ impl Items {
 #[derive(Debug)]
 pub enum Item {
     Function(Function),
-    Struct(Struct),
+    Enum(Enum),
+    Record(Record),
     Const(Const),
 }
 
@@ -193,10 +206,10 @@ pub fn file_items(file: ast::File) -> Items {
             .items()
             .map(|item| match item {
                 ast::Item::FnItem(it) => Item::Function(lower_function(it)),
-                ast::Item::EnumItem(_) => todo!(),
-                ast::Item::UnionItem(_) => todo!(),
-                ast::Item::StructItem(it) => Item::Struct(lower_struct(it)),
-                ast::Item::VariantItem(_) => todo!(),
+                ast::Item::EnumItem(_) => Item::Enum(todo!()),
+                ast::Item::UnionItem(_) => Item::Record(todo!()),
+                ast::Item::StructItem(it) => Item::Record(lower_struct(it)),
+                ast::Item::VariantItem(_) => Item::Record(todo!()),
                 ast::Item::ConstItem(it) => Item::Const(lower_const(it)),
             })
             .collect(),
@@ -280,8 +293,9 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         Name::Present(func_name) if func_name == name => Some(func),
                         _ => None,
                     },
-                    Item::Struct(_) => None,
+                    Item::Record(_) => None,
                     Item::Const(_) => None,
+                    Item::Enum(_) => None,
                 })
                 .map(|func| Type::SpecificFn {
                     name: func.name.clone(),
@@ -421,8 +435,9 @@ fn fib(n u32) u32 {
                     dbg!(&db);
                     eprintln!("{}", print_function(func, &body));
                 }
-                Item::Struct(_structure) => {}
+                Item::Record(_structure) => {}
                 Item::Const(_) => todo!(),
+                Item::Enum(_) => todo!(),
             }
         }
     }

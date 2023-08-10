@@ -558,8 +558,9 @@ fn fib(n u32) u32 {
                     let func = lower(&db, &func, &body, &inference);
                     eprintln!("{}", print_function(&func));
                 }
-                hir::Item::Struct(_) => todo!(),
+                hir::Item::Record(_) => todo!(),
                 hir::Item::Const(_) => todo!(),
+                hir::Item::Enum(_) => todo!(),
             }
         }
     }
