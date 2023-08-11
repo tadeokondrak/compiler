@@ -45,15 +45,15 @@ pub fn infer(
     }
 }
 
-pub(crate) struct InferCtx<'a> {
-    pub(crate) analysis: &'a mut Analysis,
-    pub(crate) items: &'a Items,
-    pub(crate) func: &'a Function,
-    pub(crate) body: &'a Body,
-    pub(crate) exprs: HashMap<ExprId, TypeId>,
+struct InferCtx<'a> {
+    analysis: &'a mut Analysis,
+    items: &'a Items,
+    func: &'a Function,
+    body: &'a Body,
+    exprs: HashMap<ExprId, TypeId>,
 }
 
-pub(crate) fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
+fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
     let type_id = match &ctx.body.exprs[expr] {
         Expr::Missing => ctx.analysis.intern_type(Type::Error),
         Expr::Unit => ctx.analysis.intern_type(Type::Unit),
