@@ -77,20 +77,6 @@ pub enum Name {
     Present(String),
 }
 
-macro_rules! impl_index {
-    ($($base:ty { $($field: ident : $t:ty),* $(,)? })*) => {
-        $($(
-            impl Index<Idx<$t>> for $base {
-                type Output = $t;
-
-                fn index(&self, index: Idx<$t>) -> &$t {
-                    &self.$field[index]
-                }
-            }
-        )*)*
-    };
-}
-
 #[derive(Debug)]
 pub enum Expr {
     Missing,
@@ -134,12 +120,6 @@ pub enum Expr {
         base: ExprId,
         name: String,
     },
-}
-
-impl From<Option<String>> for Name {
-    fn from(value: Option<String>) -> Self {
-        value.map(Name::Present).unwrap_or(Name::Missing)
-    }
 }
 
 #[derive(Debug)]
@@ -206,12 +186,58 @@ pub struct Items {
     by_name: HashMap<String, ItemId>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ItemId {
+    Function(FunctionId),
+    Enum(EnumId),
+    Record(RecordId),
+    Const(ConstId),
+}
+
+enum NameResolution {
+    BuiltinType(BuiltinType),
+    Item(ItemId),
+}
+
+enum BuiltinType {
+    Int(Signed, IntSize),
+}
+
+#[derive(Default, Debug)]
+pub struct Analysis {
+    types: Arena<Type>,
+    type_cache: HashMap<Type, TypeId>,
+}
+
+macro_rules! impl_index {
+    ($($base:ty { $($field: ident : $t:ty),* $(,)? })*) => {
+        $($(
+            impl Index<Idx<$t>> for $base {
+                type Output = $t;
+
+                fn index(&self, index: Idx<$t>) -> &$t {
+                    &self.$field[index]
+                }
+            }
+        )*)*
+    };
+}
+
+impl From<Option<String>> for Name {
+    fn from(value: Option<String>) -> Self {
+        value.map(Name::Present).unwrap_or(Name::Missing)
+    }
+}
+
 impl_index! {
     Items {
         enums: Enum,
         consts: Const,
         functions: Function,
         records: Record,
+    }
+    Analysis {
+        types: Type,
     }
 }
 
@@ -228,14 +254,6 @@ impl Items {
     pub fn items(&self) -> &[ItemId] {
         &self.items
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ItemId {
-    Function(FunctionId),
-    Enum(EnumId),
-    Record(RecordId),
-    Const(ConstId),
 }
 
 pub fn file_items(file: ast::File) -> Items {
@@ -283,12 +301,6 @@ pub fn file_items(file: ast::File) -> Items {
     items
 }
 
-#[derive(Default, Debug)]
-pub struct Analysis {
-    types: Arena<Type>,
-    type_cache: HashMap<Type, TypeId>,
-}
-
 impl Analysis {
     fn intern_type(&mut self, key: Type) -> TypeId {
         self.type_cache.get(&key).copied().unwrap_or_else(|| {
@@ -296,12 +308,6 @@ impl Analysis {
             self.type_cache.insert(key, ty);
             ty
         })
-    }
-}
-
-impl_index! {
-    Analysis {
-        types: Type,
     }
 }
 
@@ -337,15 +343,6 @@ fn lower_type_ref(
         }
         TypeRef::Unit => analysis.intern_type(Type::Unit),
     }
-}
-
-enum NameResolution {
-    BuiltinType(BuiltinType),
-    Item(ItemId),
-}
-
-enum BuiltinType {
-    Int(Signed, IntSize),
 }
 
 #[rustfmt::skip]
