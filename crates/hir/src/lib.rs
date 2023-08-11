@@ -15,6 +15,10 @@ pub use pretty::print_function;
 pub type ExprId = Idx<Expr>;
 pub type TypeId = Idx<Type>;
 pub type TypeRefId = Idx<TypeRef>;
+pub type EnumId = Idx<Enum>;
+pub type ConstId = Idx<Const>;
+pub type RecordId = Idx<Record>;
+pub type FunctionId = Idx<Function>;
 
 #[derive(Debug)]
 pub struct Function {
@@ -73,19 +77,18 @@ pub enum Name {
     Present(String),
 }
 
-impl From<Option<String>> for Name {
-    fn from(value: Option<String>) -> Self {
-        value.map(Name::Present).unwrap_or(Name::Missing)
-    }
-}
+macro_rules! impl_index {
+    ($($base:ty { $($field: ident : $t:ty),* $(,)? })*) => {
+        $($(
+            impl Index<Idx<$t>> for $base {
+                type Output = $t;
 
-impl PartialEq<str> for Name {
-    fn eq(&self, other: &str) -> bool {
-        match self {
-            Name::Missing => false,
-            Name::Present(name) => name == other,
-        }
-    }
+                fn index(&self, index: Idx<$t>) -> &$t {
+                    &self.$field[index]
+                }
+            }
+        )*)*
+    };
 }
 
 #[derive(Debug)]
@@ -131,6 +134,12 @@ pub enum Expr {
         base: ExprId,
         name: String,
     },
+}
+
+impl From<Option<String>> for Name {
+    fn from(value: Option<String>) -> Self {
+        value.map(Name::Present).unwrap_or(Name::Missing)
+    }
 }
 
 #[derive(Debug)]
@@ -197,30 +206,27 @@ pub struct Items {
     by_name: HashMap<String, ItemId>,
 }
 
-type EnumId = Idx<Enum>;
-type ConstId = Idx<Const>;
-type RecordId = Idx<Record>;
-type FunctionId = Idx<Function>;
+impl_index! {
+    Items {
+        enums: Enum,
+        consts: Const,
+        functions: Function,
+        records: Record,
+    }
+}
+
+impl PartialEq<str> for Name {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            Name::Missing => false,
+            Name::Present(name) => name == other,
+        }
+    }
+}
 
 impl Items {
     pub fn items(&self) -> &[ItemId] {
         &self.items
-    }
-}
-
-impl Index<FunctionId> for Items {
-    type Output = Function;
-
-    fn index(&self, index: FunctionId) -> &Self::Output {
-        &self.functions[index]
-    }
-}
-
-impl Index<RecordId> for Items {
-    type Output = Record;
-
-    fn index(&self, index: RecordId) -> &Self::Output {
-        &self.records[index]
     }
 }
 
@@ -241,7 +247,7 @@ pub fn file_items(file: ast::File) -> Items {
                 let lowered = items.functions.alloc(lowered);
                 let lowered_id = ItemId::Function(lowered);
                 items.items.push(lowered_id);
-                if let Name::Present(name) = &items.functions[lowered].name {
+                if let Name::Present(name) = &items[lowered].name {
                     items.by_name.insert(name.clone(), lowered_id);
                 }
             }
@@ -250,7 +256,7 @@ pub fn file_items(file: ast::File) -> Items {
                 let lowered = items.enums.alloc(lowered);
                 let lowered_id = ItemId::Enum(lowered);
                 items.items.push(lowered_id);
-                if let Name::Present(name) = &items.enums[lowered].name {
+                if let Name::Present(name) = &items[lowered].name {
                     items.by_name.insert(name.clone(), lowered_id);
                 }
             }
@@ -259,7 +265,7 @@ pub fn file_items(file: ast::File) -> Items {
                 let lowered = items.records.alloc(lowered);
                 let lowered_id = ItemId::Record(lowered);
                 items.items.push(lowered_id);
-                if let Name::Present(name) = &items.records[lowered].name {
+                if let Name::Present(name) = &items[lowered].name {
                     items.by_name.insert(name.clone(), lowered_id);
                 }
             }
@@ -268,7 +274,7 @@ pub fn file_items(file: ast::File) -> Items {
                 let lowered = items.consts.alloc(lowered);
                 let lowered_id = ItemId::Const(lowered);
                 items.items.push(lowered_id);
-                if let Name::Present(name) = &items.consts[lowered].name {
+                if let Name::Present(name) = &items[lowered].name {
                     items.by_name.insert(name.clone(), lowered_id);
                 }
             }
@@ -293,11 +299,9 @@ impl Analysis {
     }
 }
 
-impl Index<TypeId> for Analysis {
-    type Output = Type;
-
-    fn index(&self, id: TypeId) -> &Self::Output {
-        &self.types[id]
+impl_index! {
+    Analysis {
+        types: Type,
     }
 }
 
@@ -415,7 +419,7 @@ fn fib(n u32) u32 {
         for item in &items.items {
             match item {
                 &ItemId::Function(func_id) => {
-                    let func = &items.functions[func_id];
+                    let func = &items[func_id];
                     let body = lower_function_body(func.ast.to_node(file.syntax()));
                     let _result = infer(&mut analysis, &items, func, &body);
                     dbg!(&analysis);

@@ -63,7 +63,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .items
                 .iter()
                 .find_map(|item| match item {
-                    &ItemId::Function(func) => match &ctx.items.functions[func].name {
+                    &ItemId::Function(func) => match &ctx.items[func].name {
                         Name::Present(func_name) if func_name == name => Some(func),
                         _ => None,
                     },
@@ -72,7 +72,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                     ItemId::Enum(_) => None,
                 })
                 .map(|func| {
-                    let func = &ctx.items.functions[func];
+                    let func = &ctx.items[func];
                     Type::SpecificFn {
                         name: func.name.clone(),
                         ret_ty: lower_type_ref(
@@ -173,7 +173,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             match ctx.analysis.types[base_ty] {
                 Type::Ptr(ptr_ty) => match ctx.analysis.types[ptr_ty] {
                     Type::Record(record_id) => {
-                        let record = &ctx.items.records[record_id];
+                        let record = &ctx.items[record_id];
                         let field = record
                             .fields
                             .iter()
@@ -184,7 +184,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                     _ => todo!(),
                 },
                 Type::Record(record_id) => {
-                    let record = &ctx.items.records[record_id];
+                    let record = &ctx.items[record_id];
                     let field = record
                         .fields
                         .iter()
