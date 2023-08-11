@@ -3,6 +3,7 @@ use crate::{
 };
 use la_arena::Arena;
 use syntax::{ast, AstPtr};
+use std::collections::HashMap;
 
 #[derive(Default)]
 struct Ctx {
@@ -11,6 +12,7 @@ struct Ctx {
 
 #[derive(Default)]
 struct BodyCtx {
+    expr_map: HashMap<ExprId, AstPtr<ast::Expr>>,
     exprs: Arena<Expr>,
 }
 
@@ -139,8 +141,9 @@ impl BodyCtx {
         }
     }
 
-    fn lower_expr(&mut self, expr: ast::Expr) -> la_arena::Idx<Expr> {
-        match expr {
+    fn lower_expr(&mut self, expr: ast::Expr) -> ExprId {
+        let ast_ptr = AstPtr::new(&expr);
+        let id = match expr {
             ast::Expr::ParenExpr(it) => self.lower_expr_opt(it.inner()),
             ast::Expr::NameExpr(it) => self.alloc_expr(
                 it.identifier_token()
@@ -232,7 +235,9 @@ impl BodyCtx {
                     None => self.alloc_expr(Expr::Missing),
                 }
             }
-        }
+        };
+        self.expr_map.insert(id, ast_ptr);
+        id
     }
 
     fn lower_stmt(&mut self, stmt: ast::Stmt) -> Option<Stmt> {
@@ -260,6 +265,7 @@ impl BodyCtx {
 
         Body {
             param_names,
+            expr_map: self.expr_map,
             exprs: self.exprs,
             expr: body,
         }
@@ -270,6 +276,7 @@ impl BodyCtx {
         let body = self.lower_expr_opt(syntax.expr());
         Body {
             param_names: Box::new([]),
+            expr_map: self.expr_map,
             exprs: self.exprs,
             expr: body,
         }

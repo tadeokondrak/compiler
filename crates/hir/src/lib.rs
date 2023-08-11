@@ -4,7 +4,7 @@ mod lower;
 mod pretty;
 
 use la_arena::{Arena, Idx};
-use std::{collections::HashMap, ops::Index};
+use std::{collections::HashMap, fmt::Write, ops::Index};
 use syntax::{ast, AstPtr, BinaryOp, UnaryOp};
 
 pub use lower::{lower_const, lower_enum, lower_function, lower_function_body, lower_record};
@@ -60,8 +60,9 @@ pub struct EnumVariant {
 #[derive(Debug)]
 pub struct Body {
     pub param_names: Box<[Name]>,
+    pub expr_map: HashMap<ExprId, AstPtr<ast::Expr>>,
     pub exprs: Arena<Expr>,
-    pub expr: Idx<Expr>,
+    pub expr: ExprId,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -320,9 +321,9 @@ pub fn infer(
     let param_tys = func
         .param_tys
         .iter()
-        .map(|&ty| lower_type_ref(&mut ctx, ty))
+        .map(|&ty| lower_type_ref(&mut ctx, &func.type_refs, ty))
         .collect();
-    let return_ty = lower_type_ref(&mut ctx, func.return_ty);
+    let return_ty = lower_type_ref(&mut ctx, &func.type_refs, func.return_ty);
     infer_expr(&mut ctx, body.expr);
 
     InferenceResult {
@@ -362,11 +363,11 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                     let func = &ctx.items.functions[func];
                     Type::SpecificFn {
                         name: func.name.clone(),
-                        ret_ty: lower_type_ref(ctx, func.return_ty),
+                        ret_ty: lower_type_ref(ctx, &func.type_refs, func.return_ty),
                         param_tys: func
                             .param_tys
                             .iter()
-                            .map(|&ty| lower_type_ref(ctx, ty))
+                            .map(|&ty| lower_type_ref(ctx, &func.type_refs, ty))
                             .collect(),
                     }
                 })
@@ -377,7 +378,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .iter()
                 .enumerate()
                 .find(|&(_, it)| it == name.as_str())
-                .map(|(i, _)| lower_type_ref(ctx, ctx.func.param_tys[i]));
+                .map(|(i, _)| lower_type_ref(ctx, &ctx.func.type_refs, ctx.func.param_tys[i]));
             param_ty
                 .or(item_ty)
                 .unwrap_or_else(|| ctx.analysis.intern_type(Type::Error))
@@ -446,22 +447,24 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             match ctx.analysis.types[base_ty] {
                 Type::Ptr(ptr_ty) => match ctx.analysis.types[ptr_ty] {
                     Type::Record(record_id) => {
-                        let field = ctx.items.records[record_id]
+                        let record = &ctx.items.records[record_id];
+                        let field = record
                             .fields
                             .iter()
                             .find(|field| field.name == *name.as_str())
                             .unwrap();
-                        lower_type_ref(ctx, field.ty)
+                        lower_type_ref(ctx, &record.type_refs, field.ty)
                     }
                     _ => todo!(),
                 },
                 Type::Record(record_id) => {
-                    let field = ctx.items.records[record_id]
+                    let record = &ctx.items.records[record_id];
+                    let field = record
                         .fields
                         .iter()
                         .find(|field| field.name == *name.as_str())
                         .unwrap();
-                    lower_type_ref(ctx, field.ty)
+                    lower_type_ref(ctx, &record.type_refs, field.ty)
                 }
                 _ => todo!(),
             }
@@ -471,18 +474,18 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
     type_id
 }
 
-fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
-    match &ctx.func.type_refs[ty] {
+fn lower_type_ref(ctx: &mut InferCtx, type_refs: &Arena<TypeRef>, ty: TypeRefId) -> TypeId {
+    match &type_refs[ty] {
         TypeRef::Error => ctx.analysis.intern_type(Type::Error),
         TypeRef::Name(name) => match ctx.items.by_name.get(name) {
             Some(&ItemId::Function(func_id)) => {
                 let func = &ctx.items[func_id];
-                let ret_ty = lower_type_ref(ctx, func.return_ty);
+                let ret_ty = lower_type_ref(ctx, type_refs, func.return_ty);
                 let param_tys = func
                     .param_tys
                     .iter()
                     .copied()
-                    .map(|ty| lower_type_ref(ctx, ty))
+                    .map(|ty| lower_type_ref(ctx, type_refs, ty))
                     .collect();
                 ctx.analysis.intern_type(Type::SpecificFn {
                     name: func.name.clone(),
@@ -527,7 +530,7 @@ fn lower_type_ref(ctx: &mut InferCtx, ty: TypeRefId) -> TypeId {
             },
         },
         &TypeRef::Ptr(dest) => {
-            let dest_ty = lower_type_ref(ctx, dest);
+            let dest_ty = lower_type_ref(ctx, type_refs, dest);
             ctx.analysis.intern_type(Type::Ptr(dest_ty))
         }
         TypeRef::Unit => ctx.analysis.intern_type(Type::Unit),
@@ -572,5 +575,44 @@ fn fib(n u32) u32 {
                 ItemId::Enum(_) => todo!(),
             }
         }
+    }
+}
+
+pub fn print_type(analysis: &Analysis, ty: TypeId) -> String {
+    let mut s = String::new();
+    print_type_(&mut s, analysis, ty);
+    s
+}
+
+fn print_type_(s: &mut String, analysis: &Analysis, ty: TypeId) {
+    match &analysis.types[ty] {
+        Type::Error => s.push_str("(error)"),
+        Type::Never => s.push_str("(never)"),
+        Type::Unit => s.push_str("(unit)"),
+        Type::Bool => s.push_str("bool"),
+        Type::Int(Signed::No, IntSize::Size8) => s.push_str("u8"),
+        Type::Int(Signed::No, IntSize::Size16) => s.push_str("u16"),
+        Type::Int(Signed::No, IntSize::Size32) => s.push_str("u32"),
+        Type::Int(Signed::No, IntSize::Size64) => s.push_str("u64"),
+        Type::Int(Signed::No, IntSize::SizePtr) => s.push_str("usize"),
+        Type::Int(Signed::Yes, IntSize::Size8) => s.push_str("i8"),
+        Type::Int(Signed::Yes, IntSize::Size16) => s.push_str("i16"),
+        Type::Int(Signed::Yes, IntSize::Size32) => s.push_str("i32"),
+        Type::Int(Signed::Yes, IntSize::Size64) => s.push_str("i64"),
+        Type::Int(Signed::Yes, IntSize::SizePtr) => s.push_str("isize"),
+        &Type::Ptr(ty) => {
+            s.push_str("ptr");
+            s.push(' ');
+            print_type_(s, analysis, ty);
+        }
+        Type::Record(record) => {
+            _ = write!(s, "record {record:?}");
+        }
+        Type::GenericFn { ret_ty, param_tys } => s.push_str("Type::GenericFn"),
+        Type::SpecificFn {
+            name,
+            ret_ty,
+            param_tys,
+        } => s.push_str("Type::SpecificFn"),
     }
 }

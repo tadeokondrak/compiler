@@ -374,7 +374,6 @@ impl Ctx<'_> {
             }
             hir::Expr::Index { base, index } => todo!(),
             hir::Expr::Field { base, name } => {
-                let ty = self.type_of(*base);
                 let hir_ty = self.inference.exprs[base];
                 let value = self.lower_expr(*base).unwrap();
                 let hir::Type::Ptr(hir_indirect_ty) = self.analysis[hir_ty] else {
@@ -384,7 +383,7 @@ impl Ctx<'_> {
                     todo!();
                 };
                 let record = &self.items[record_id];
-                let (field_index, field) = record
+                let (field_index, _field) = record
                     .fields
                     .iter()
                     .enumerate()
@@ -568,6 +567,7 @@ fn print_inst(s: &mut String, inst: &Inst) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cmp;
     use syntax::AstNode;
 
     #[test]
@@ -575,8 +575,8 @@ mod tests {
         let file = syntax::parse_file(
             "
 struct Vec2 {
-    x i32
-    y i32
+    x u32
+    y u32
 }
 fn get_x(v ptr Vec2) { return v.x }
 
@@ -595,7 +595,26 @@ fn fib(n u32) u32 {
                 &hir::ItemId::Function(func_id) => {
                     let func = &items[func_id];
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
+                    eprintln!("{}", hir::print_function(&func, &body));
                     let inference = hir::infer(&mut analysis, &items, func, &body);
+                    let mut inference_text = String::new();
+                    for (expr_id, _) in body.exprs.iter() {
+                        let Some(ptr) = body.expr_map.get(&expr_id) else {
+                            continue;
+                        };
+                        let node = ptr.to_node(file.syntax());
+                        let text = node.syntax().text();
+                        let Some(type_id) = inference.exprs.get(&expr_id) else {
+                            continue;
+                        };
+                        _ = writeln!(
+                            &mut inference_text,
+                            "{:?}: {}",
+                            &text,
+                            hir::print_type(&analysis, *type_id)
+                        );
+                    }
+                    eprintln!("{inference_text}");
                     let func = lower(&analysis, &items, &func, &body, &inference);
                     eprintln!("{}", print_function(&func));
                 }
