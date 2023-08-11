@@ -567,7 +567,6 @@ fn print_inst(s: &mut String, inst: &Inst) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cmp;
     use syntax::AstNode;
 
     #[test]
