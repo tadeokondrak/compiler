@@ -155,6 +155,7 @@ pub enum Type {
     Bool,
     Int(Signed, IntSize),
     Ptr(TypeId),
+    Enum(EnumId),
     Record(RecordId),
     // The size of values of this type is infinite (it cannot exist at runtime).
     // However pointers to values of this type can exist.
@@ -308,37 +309,23 @@ fn lower_type_ref(
 ) -> TypeId {
     match &type_refs[ty] {
         TypeRef::Error => analysis.intern_type(Type::Error),
-        TypeRef::Name(name) => match items.by_name.get(name) {
-            Some(&ItemId::Function(func_id)) => {
-                let func = &items[func_id];
-                let ret_ty = lower_type_ref(analysis, items, type_refs, func.return_ty);
-                let param_tys = func
-                    .param_tys
-                    .iter()
-                    .copied()
-                    .map(|ty| lower_type_ref(analysis, items, type_refs, ty))
-                    .collect();
-                analysis.intern_type(Type::SpecificFn {
-                    name: func.name.clone(),
-                    ret_ty,
-                    param_tys,
-                })
+        TypeRef::Name(name) => match resolve_name(items, name) {
+            Some(NameResolution::BuiltinType(BuiltinType::Int(signed, size))) => {
+                analysis.intern_type(Type::Int(signed, size))
             }
-            Some(&ItemId::Record(record_id)) => analysis.intern_type(Type::Record(record_id)),
-            Some(_) => todo!(),
-            None => match name.as_str() {
-                "u8" => analysis.intern_type(Type::Int(Signed::No, IntSize::Size8)),
-                "u16" => analysis.intern_type(Type::Int(Signed::No, IntSize::Size16)),
-                "u32" => analysis.intern_type(Type::Int(Signed::No, IntSize::Size32)),
-                "u64" => analysis.intern_type(Type::Int(Signed::No, IntSize::Size64)),
-                "usize" => analysis.intern_type(Type::Int(Signed::No, IntSize::SizePtr)),
-                "i8" => analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size8)),
-                "i16" => analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size16)),
-                "i32" => analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size32)),
-                "i64" => analysis.intern_type(Type::Int(Signed::Yes, IntSize::Size64)),
-                "isize" => analysis.intern_type(Type::Int(Signed::Yes, IntSize::SizePtr)),
-                _ => analysis.intern_type(Type::Error),
-            },
+            Some(NameResolution::Item(ItemId::Function(func_id))) => {
+                func_type(items, analysis, type_refs, func_id)
+            }
+            Some(NameResolution::Item(ItemId::Enum(enum_id))) => {
+                analysis.intern_type(Type::Enum(enum_id))
+            }
+            Some(NameResolution::Item(ItemId::Record(record_id))) => {
+                analysis.intern_type(Type::Record(record_id))
+            }
+            Some(NameResolution::Item(ItemId::Const(_const_id))) => {
+                todo!()
+            }
+            None => analysis.intern_type(Type::Error),
         },
         &TypeRef::Ptr(dest) => {
             let dest_ty = lower_type_ref(analysis, items, type_refs, dest);
@@ -346,6 +333,59 @@ fn lower_type_ref(
         }
         TypeRef::Unit => analysis.intern_type(Type::Unit),
     }
+}
+
+enum NameResolution {
+    BuiltinType(BuiltinType),
+    Item(ItemId),
+}
+
+enum BuiltinType {
+    Int(Signed, IntSize),
+}
+
+#[rustfmt::skip]
+fn resolve_name(
+    items: &Items,
+    name: &str,
+) -> Option<NameResolution> {
+    match items.by_name.get(name) {
+        Some(&item_id) => Some(NameResolution::Item(item_id)),
+        None => match name {
+            "u8" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::No, IntSize::Size8))),
+            "u16" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::No, IntSize::Size16))),
+            "u32" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::No, IntSize::Size32))),
+            "u64" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::No, IntSize::Size64))),
+            "usize" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::No, IntSize::SizePtr))),
+            "i8" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::Yes, IntSize::Size8))),
+            "i16" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::Yes, IntSize::Size16))),
+            "i32" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::Yes, IntSize::Size32))),
+            "i64" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::Yes, IntSize::Size64))),
+            "isize" => Some(NameResolution::BuiltinType(BuiltinType::Int(Signed::Yes, IntSize::SizePtr))),
+            _ => None,
+        },
+    }
+}
+
+fn func_type(
+    items: &Items,
+    analysis: &mut Analysis,
+    type_refs: &Arena<TypeRef>,
+    func_id: Idx<Function>,
+) -> TypeId {
+    let func = &items[func_id];
+    let ret_ty = lower_type_ref(analysis, items, type_refs, func.return_ty);
+    let param_tys = func
+        .param_tys
+        .iter()
+        .copied()
+        .map(|ty| lower_type_ref(analysis, items, type_refs, ty))
+        .collect();
+    analysis.intern_type(Type::SpecificFn {
+        name: func.name.clone(),
+        ret_ty,
+        param_tys,
+    })
 }
 
 #[cfg(test)]
@@ -425,5 +465,7 @@ fn print_type_(s: &mut String, analysis: &Analysis, ty: TypeId) {
             ret_ty,
             param_tys,
         } => s.push_str("Type::SpecificFn"),
+        Type::Ptr(_) => todo!(),
+        Type::Enum(_) => todo!(),
     }
 }

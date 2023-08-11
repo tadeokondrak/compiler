@@ -423,6 +423,7 @@ impl Ctx<'_> {
             } => todo!(),
             hir::Type::GenericFn { ret_ty, param_tys } => todo!(),
             hir::Type::Record(_) => Type::Error,
+            hir::Type::Enum(_) => todo!(),
         }
     }
 }
