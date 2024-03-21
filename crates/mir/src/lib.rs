@@ -568,36 +568,20 @@ fn print_inst(s: &mut String, inst: &Inst) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use expect_test::{expect, Expect};
     use syntax::AstNode;
 
-    #[test]
-    fn test_infer() {
-        let file = syntax::parse_file(
-            "
-struct Vec2 {
-    x u32
-    y u32
-}
-fn get_x(v ptr Vec2) { return v.x }
-
-fn exit(n i32)
-
-fn fib(n u32) u32 {
-    if n <= 1 { return 1 }
-    exit(0)
-    return fib(n - 1) + fib(n - 2)
-}",
-        );
+    fn check_inference(src: &str, expected: Expect) {
+        let file = syntax::parse_file(src);
         let items = hir::file_items(file.clone());
         let mut analysis = hir::Analysis::default();
+        let mut out = String::new();
         for item in items.items() {
             match item {
                 &hir::ItemId::Function(func_id) => {
                     let func = &items[func_id];
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
-                    eprintln!("{}", hir::print_function(&func, &body));
                     let inference = hir::infer(&mut analysis, &items, func, &body);
-                    let mut inference_text = String::new();
                     for (expr_id, _) in body.exprs.iter() {
                         let Some(ptr) = body.expr_map.get(&expr_id) else {
                             continue;
@@ -607,21 +591,167 @@ fn fib(n u32) u32 {
                         let Some(type_id) = inference.exprs.get(&expr_id) else {
                             continue;
                         };
-                        _ = writeln!(
-                            &mut inference_text,
+                        writeln!(
+                            &mut out,
                             "{:?}: {}",
                             &text,
                             hir::print_type(&analysis, *type_id)
-                        );
+                        )
+                        .unwrap();
                     }
-                    eprintln!("{inference_text}");
-                    let func = lower(&analysis, &items, &func, &body, &inference);
-                    eprintln!("{}", print_function(&func));
                 }
                 hir::ItemId::Record(_) => {}
                 hir::ItemId::Const(_) => {}
                 hir::ItemId::Enum(_) => {}
             }
         }
+        expected.assert_eq(&out);
+    }
+
+    fn check_codegen(src: &str, expected: Expect) {
+        let file = syntax::parse_file(src);
+        let items = hir::file_items(file.clone());
+        let mut analysis = hir::Analysis::default();
+        let mut out = String::new();
+        for item in items.items() {
+            match item {
+                &hir::ItemId::Function(func_id) => {
+                    let func = &items[func_id];
+                    let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
+                    let inference = hir::infer(&mut analysis, &items, func, &body);
+                    let func = lower(&analysis, &items, &func, &body, &inference);
+                    writeln!(&mut out, "{}", print_function(&func)).unwrap();
+                }
+                hir::ItemId::Record(_) => {}
+                hir::ItemId::Const(_) => {}
+                hir::ItemId::Enum(_) => {}
+            }
+        }
+        expected.assert_eq(&out);
+    }
+
+    #[test]
+    fn field_access() {
+        check_inference(
+            "
+struct Vec2 {
+    x u32
+    y u32
+}
+
+fn get_x(v ptr Vec2) { return v.x }",
+            expect![[r#"
+                "v": ptr record Idx::<Record>(0)
+                "v.x": u32
+                "return v.x": (never)
+                "{ return v.x }": (unit)
+            "#]],
+        );
+        check_codegen(
+            "
+struct Vec2 {
+    x u32
+    y u32
+}
+
+fn get_x(v ptr Vec2) { return v.x }",
+            expect![[r#"
+                b0(%0 i64):
+                    ret i32 %0
+
+            "#]],
+        );
+    }
+
+    #[test]
+    fn recursive_function() {
+        check_inference(
+            "
+fn fib(n u32) u32 {
+    if n <= 1 { return 1 }
+    return fib(n - 1) + fib(n - 2)
+}
+",
+            expect![[r#"
+                "n": u32
+                "1": u32
+                "n <= 1": u32
+                "1": u32
+                "return 1": (never)
+                "{ return 1 }": (unit)
+                "if n <= 1 { return 1 }": (unit)
+                "fib": Type::SpecificFn
+                "n": u32
+                "1": u32
+                "n - 1": u32
+                "fib(n - 1)": u32
+                "fib": Type::SpecificFn
+                "n": u32
+                "2": u32
+                "n - 2": u32
+                "fib(n - 2)": u32
+                "fib(n - 1) + fib(n - 2)": u32
+                "return fib(n - 1) + fib(n - 2)": (never)
+                "{\n    if n <= 1 { return 1 }\n    return fib(n - 1) + fib(n - 2)\n}": (unit)
+            "#]],
+        );
+        check_codegen(
+            "
+fn fib(n u32) u32 {
+    if n <= 1 { return 1 }
+    return fib(n - 1) + fib(n - 2)
+}
+",
+            expect![[r#"
+                b0(%0 i32):
+                    %1 = const i32 1
+                    %2 = cmp slte i32 %0 %1
+                    cbr %2 b1 [] b2 []
+                b1:
+                    %3 = const i32 1
+                    ret i32 %3
+                    br b2
+                b2:
+                    %4 = const i32 1
+                    %5 = isub i32 %0 %4
+                    %6 = call i32 f0 [%5]
+                    %7 = const i32 2
+                    %8 = isub i32 %0 %7
+                    %9 = call i32 f1 [%8]
+                    %10 = iadd i32 %6 %9
+                    ret i32 %10
+
+            "#]],
+        );
+    }
+
+    #[test]
+    fn function_call() {
+        check_inference(
+            "
+fn exit(n i32)
+fn do_exit() { exit(0) }
+",
+            expect![[r#"
+                "exit": Type::SpecificFn
+                "0": u32
+                "exit(0)": (unit)
+                "{ exit(0) }": (unit)
+            "#]],
+        );
+        check_codegen(
+            "
+fn exit(n i32)
+fn do_exit() { exit(0) }
+",
+            expect![[r#"
+                b0(%0 i32):
+
+                b0:
+                    %0 = const i32 0
+                    call f0 [%0]
+
+            "#]],
+        )
     }
 }
