@@ -44,6 +44,10 @@ fn parse_stmt(p: &mut Parser) {
 const EXPR_START: &[Syntax] = &[
     t!("{"),
     t!("("),
+    t!("!"),
+    t!("-"),
+    t!("ref"),
+    t!("deref"),
     t!("number"),
     t!("character"),
     t!("string"),

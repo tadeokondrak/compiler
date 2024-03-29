@@ -23,7 +23,7 @@ pub struct BlockData {
     pub insts: Vec<Inst>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Reg(u32);
 
 impl std::fmt::Debug for Reg {
@@ -149,20 +149,20 @@ impl std::fmt::Debug for Type {
 
 struct Ctx<'a> {
     analysis: &'a hir::Analysis,
-    function: &'a hir::Function,
+    _function: &'a hir::Function,
     body: &'a hir::Body,
     inference: &'a hir::InferenceResult,
     funcs: Vec<FuncData>,
     blocks: Vec<BlockData>,
     cur_block: Option<Block>,
-    next_var: u32,
+    _next_var: u32,
     next_reg: u32,
     items: &'a hir::Items,
 }
 impl Ctx<'_> {
-    fn var(&mut self) -> Var {
-        let var = Var(self.next_var);
-        self.next_var += 1;
+    fn _var(&mut self) -> Var {
+        let var = Var(self._next_var);
+        self._next_var += 1;
         var
     }
 
@@ -206,7 +206,7 @@ impl Ctx<'_> {
     fn lower_expr(&mut self, expr: hir::ExprId) -> Option<Reg> {
         match &self.body.exprs[expr] {
             hir::Expr::Missing => None,
-            hir::Expr::Unit => todo!(),
+            hir::Expr::Unit => None,
             hir::Expr::Name(name) => {
                 let param_index = self
                     .body
@@ -296,8 +296,24 @@ impl Ctx<'_> {
                 let operand = self.lower_expr(operand).unwrap();
                 let dst = self.reg();
                 match op {
-                    UnaryOp::Not => todo!(),
-                    UnaryOp::Neg => todo!(),
+                    UnaryOp::Not => {
+                        let ones = self.reg();
+                        let constant = match ty {
+                            Type::Int1 => 1 as u64,
+                            Type::Int8 => !0u8 as u64,
+                            Type::Int16 => !0u16 as u64,
+                            Type::Int32 => !0u32 as u64,
+                            Type::Int64 => !0u64 as u64,
+                            Type::Error | Type::Float32 | Type::Float64 => todo!(),
+                        };
+                        self.push(Inst::Const { ty, dst: ones, value: constant });
+                        self.push(Inst::Xor { ty, dst, lhs: ones, rhs: operand });
+                    },
+                    UnaryOp::Neg => {
+                        let zero = self.reg();
+                        self.push(Inst::Const { ty, dst: zero, value: 0 });
+                        self.push(Inst::Isub { ty, dst, lhs: zero, rhs: operand });
+                    },
                     UnaryOp::Ref => todo!(),
                     UnaryOp::Deref => todo!(),
                 }
@@ -372,7 +388,7 @@ impl Ctx<'_> {
                     Some(dst)
                 }
             }
-            hir::Expr::Index { base, index } => todo!(),
+            hir::Expr::Index { base: _, index: _ } => todo!(),
             hir::Expr::Field { base, name } => {
                 let hir_ty = self.inference.exprs[base];
                 let value = self.lower_expr(*base).unwrap();
@@ -407,7 +423,7 @@ impl Ctx<'_> {
     fn lower_ty(&self, ty: TypeId) -> Type {
         match &self.analysis[ty] {
             hir::Type::Error => Type::Error,
-            hir::Type::Never => todo!(),
+            hir::Type::Never => Type::Error,
             hir::Type::Unit => todo!(),
             hir::Type::Bool => Type::Int1,
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size8) => Type::Int8,
@@ -417,11 +433,11 @@ impl Ctx<'_> {
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::SizePtr) => Type::Int64,
             hir::Type::Ptr(_) => Type::Int64,
             hir::Type::SpecificFn {
-                ret_ty,
-                param_tys,
-                name,
+                ret_ty: _,
+                param_tys: _,
+                name: _,
             } => todo!(),
-            hir::Type::GenericFn { ret_ty, param_tys } => todo!(),
+            hir::Type::GenericFn { ret_ty: _, param_tys: _ } => todo!(),
             hir::Type::Record(_) => Type::Error,
             hir::Type::Enum(_) => todo!(),
         }
@@ -462,13 +478,13 @@ pub fn lower(
     let ctx = Ctx {
         analysis,
         items,
-        function,
+        _function: function,
         body,
         inference,
         funcs: Vec::new(),
         blocks: Vec::new(),
         cur_block: None,
-        next_var: 0,
+        _next_var: 0,
         next_reg: 0,
     };
     ctx.lower_function()
@@ -488,7 +504,7 @@ fn print_function_(s: &mut String, function: &Function) {
             s.push('(');
             for (i, (reg, ty)) in block.arg_regs.iter().zip(block.arg_tys.iter()).enumerate() {
                 if i != 0 {
-                    s.push(',');
+                    s.push_str(", ");
                 }
                 _ = write!(s, "{reg:?} {ty:?}");
             }
@@ -620,7 +636,7 @@ mod tests {
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
                     let inference = hir::infer(&mut analysis, &items, func, &body);
                     let func = lower(&analysis, &items, &func, &body, &inference);
-                    writeln!(&mut out, "{}", print_function(&func)).unwrap();
+                    out.push_str(&print_function(&func));
                 }
                 hir::ItemId::Record(_) => {}
                 hir::ItemId::Const(_) => {}
@@ -658,7 +674,6 @@ fn get_x(v ptr Vec2) { return v.x }",
             expect![[r#"
                 b0(%0 i64):
                     ret i32 %0
-
             "#]],
         );
     }
@@ -720,7 +735,6 @@ fn fib(n u32) u32 {
                     %9 = call i32 f1 [%8]
                     %10 = iadd i32 %6 %9
                     ret i32 %10
-
             "#]],
         );
     }
@@ -746,11 +760,49 @@ fn do_exit() { exit(0) }
 ",
             expect![[r#"
                 b0(%0 i32):
-
                 b0:
                     %0 = const i32 0
                     call f0 [%0]
+            "#]],
+        );
+    }
 
+    #[test]
+    fn bitwise_ops() {
+                check_codegen(
+            "
+fn double(x i32) { return x + x }
+fn square(x i32) { return x * x }
+fn negate(x i32) { return -x }
+fn complement(x i32) { return !x }
+fn bitand(x i32, y i32) { return x & y }
+fn bitor(x i32, y i32) { return x | y }
+fn bitxor(x i32, y i32) { return x ^ y }
+",
+            expect![[r#"
+                b0(%0 i32):
+                    %1 = iadd i32 %0 %0
+                    ret i32 %1
+                b0(%0 i32):
+                    %1 = imul i32 %0 %0
+                    ret i32 %1
+                b0(%0 i32):
+                    %2 = const i32 0
+                    %1 = isub i32 %2 %0
+                    ret i32 %1
+                b0(%0 i32):
+                    %2 = const i32 4294967295
+                    %1 = xor i32 %2 %0
+                    ret i32 %1
+                b0(%0 i32, %1 i32):
+                    %2 = and i32 %0 %1
+                    ret i32 %2
+                b0(%0 i32, %1 i32):
+                    %2 = or i32 %0 %1
+                    ret i32 %2
+                b0(%0 i32, %1 i32):
+                    %2 = xor i32 %0 %1
+                    ret i32 %2
             "#]],
         )
     }

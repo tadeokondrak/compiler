@@ -392,11 +392,34 @@ fn func_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use expect_test::{expect, Expect};
     use syntax::AstNode;
 
+    fn check(src: &str, expected: Expect) {
+        let file = syntax::parse_file(src);
+        let items = file_items(file.clone());
+        let mut analysis = Analysis::default();
+        let mut out = String::new();
+        for item in &items.items {
+            match item {
+                &ItemId::Function(func_id) => {
+                    let func = &items[func_id];
+                    let body = lower_function_body(func.ast.to_node(file.syntax()));
+                    let _result = infer(&mut analysis, &items, func, &body);
+                    out.push_str(&print_function(func, &body));
+                    out.push('\n');
+                }
+                ItemId::Record(_structure) => {}
+                ItemId::Const(_) => todo!(),
+                ItemId::Enum(_) => todo!(),
+            }
+        }
+        expected.assert_eq(&out);
+    }
+
     #[test]
-    fn test_infer() {
-        let file = syntax::parse_file(
+    fn test_misc() {
+        check(
             "
 struct Vec2 {
     x i32
@@ -404,29 +427,56 @@ struct Vec2 {
 }
 fn get_x(v Vec2) { return v.x }
 fn exit(n i32)
+fn do_exit() { exit(0) }
 fn fib(n u32) u32 {
     if n <= 1 { return 1 }
-    exit(0)
     return fib(n - 1) + fib(n - 2)
-}",
-        );
-        let items = file_items(file.clone());
-        eprintln!("{items:#?}");
-        let mut analysis = Analysis::default();
-        for item in &items.items {
-            match item {
-                &ItemId::Function(func_id) => {
-                    let func = &items[func_id];
-                    let body = lower_function_body(func.ast.to_node(file.syntax()));
-                    let _result = infer(&mut analysis, &items, func, &body);
-                    dbg!(&analysis);
-                    eprintln!("{}", print_function(func, &body));
+}
+fn double(x i32) { return x + x }
+fn square(x i32) { return x * x }
+fn negate(x i32) { return -x }
+fn complement(x i32) { return !x }
+fn bitand(x i32, y i32) { return x & y }
+fn bitor(x i32, y i32) { return x | y }
+fn bitxor(x i32, y i32) { return x ^ y }
+",
+            expect![[r#"
+                fn get_x(Vec2) unit {
+                    return v.x
                 }
-                ItemId::Record(_structure) => {}
-                ItemId::Const(_) => todo!(),
-                ItemId::Enum(_) => todo!(),
-            }
-        }
+                fn exit(i32) unit <missing>
+                fn do_exit() unit {
+                    exit(0)
+                }
+                fn fib(u32) u32 {
+                    if n <= 1 {
+                        return 1
+                    }
+                    return fib(n - 1) + fib(n - 2)
+                }
+                fn double(i32) unit {
+                    return x + x
+                }
+                fn square(i32) unit {
+                    return x * x
+                }
+                fn negate(i32) unit {
+                    return -x
+                }
+                fn complement(i32) unit {
+                    return !x
+                }
+                fn bitand(i32, i32) unit {
+                    return x & y
+                }
+                fn bitor(i32, i32) unit {
+                    return x | y
+                }
+                fn bitxor(i32, i32) unit {
+                    return x ^ y
+                }
+            "#]],
+        );
     }
 }
 
@@ -457,16 +507,13 @@ fn print_type_(s: &mut String, analysis: &Analysis, ty: TypeId) {
             s.push(' ');
             print_type_(s, analysis, ty);
         }
-        Type::Record(record) => {
-            _ = write!(s, "record {record:?}");
-        }
-        Type::GenericFn { ret_ty, param_tys } => s.push_str("Type::GenericFn"),
+        Type::Record(record) => write!(s, "record {record:?}").unwrap(),
+        Type::GenericFn { ret_ty: _, param_tys: _ } => s.push_str("Type::GenericFn"),
         Type::SpecificFn {
-            name,
-            ret_ty,
-            param_tys,
+            name: _,
+            ret_ty: _,
+            param_tys: _,
         } => s.push_str("Type::SpecificFn"),
-        Type::Ptr(_) => todo!(),
-        Type::Enum(_) => todo!(),
+        Type::Enum(_enum_id) => todo!(),
     }
 }
