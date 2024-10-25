@@ -23,8 +23,8 @@ pub struct BlockData {
     pub insts: Vec<Inst>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Reg(u32);
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Reg(pub u32);
 
 impl std::fmt::Debug for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,7 +32,7 @@ impl std::fmt::Debug for Reg {
     }
 }
 #[derive(Clone, Copy)]
-pub struct Var(u32);
+pub struct Var(pub u32);
 
 impl std::fmt::Debug for Var {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -40,7 +40,7 @@ impl std::fmt::Debug for Var {
     }
 }
 #[derive(Clone, Copy)]
-pub struct Func(u32);
+pub struct Func(pub u32);
 
 impl std::fmt::Debug for Func {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,7 +49,7 @@ impl std::fmt::Debug for Func {
 }
 
 #[derive(Clone, Copy)]
-pub struct Block(u32);
+pub struct Block(pub u32);
 
 impl std::fmt::Debug for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -84,12 +84,13 @@ pub enum Inst {
     Callv { ty: Type, dst: Reg, func: Func, args: Box<[Reg]> },
     Ret,
     Retv  { ty: Type, src: Reg },
-    Br    { block: Block },
+    Br    { block: Block, args: Box<[Reg]> },
     Cbr   { cond: Reg, then_block: Block, then_args: Box<[Reg]>,
                        else_block: Block, else_args: Box<[Reg]> },
     Halt,
 }
 
+#[derive(Clone, Copy)]
 pub enum Cmp {
     Eq,
     Ne,
@@ -159,6 +160,7 @@ struct Ctx<'a> {
     next_reg: u32,
     items: &'a hir::Items,
 }
+
 impl Ctx<'_> {
     fn _var(&mut self) -> Var {
         let var = Var(self._next_var);
@@ -245,7 +247,7 @@ impl Ctx<'_> {
                 });
                 self.switch_to_block(then_block);
                 self.lower_expr(then_expr);
-                self.push(Inst::Br { block: else_block });
+                self.push(Inst::Br { block: else_block, args: Box::new([]) });
                 self.switch_to_block(else_block);
                 None
             }
@@ -267,17 +269,17 @@ impl Ctx<'_> {
                 });
                 self.switch_to_block(then_block);
                 self.lower_expr(then_expr);
-                self.push(Inst::Br { block: join_block });
+                self.push(Inst::Br { block: join_block, args: Box::new([]) });
                 self.switch_to_block(else_block);
                 self.lower_expr(else_expr);
-                self.push(Inst::Br { block: join_block });
+                self.push(Inst::Br { block: join_block, args: Box::new([]) });
                 self.switch_to_block(join_block);
                 None
             }
             &hir::Expr::Loop { body } => {
                 let start = self.block();
                 self.lower_expr(body);
-                self.push(Inst::Br { block: start });
+                self.push(Inst::Br { block: start, args: Box::new([]) });
                 None
             }
             hir::Expr::Block { body } => {
@@ -306,14 +308,32 @@ impl Ctx<'_> {
                             Type::Int64 => !0u64 as u64,
                             Type::Error | Type::Float32 | Type::Float64 => todo!(),
                         };
-                        self.push(Inst::Const { ty, dst: ones, value: constant });
-                        self.push(Inst::Xor { ty, dst, lhs: ones, rhs: operand });
-                    },
+                        self.push(Inst::Const {
+                            ty,
+                            dst: ones,
+                            value: constant,
+                        });
+                        self.push(Inst::Xor {
+                            ty,
+                            dst,
+                            lhs: ones,
+                            rhs: operand,
+                        });
+                    }
                     UnaryOp::Neg => {
                         let zero = self.reg();
-                        self.push(Inst::Const { ty, dst: zero, value: 0 });
-                        self.push(Inst::Isub { ty, dst, lhs: zero, rhs: operand });
-                    },
+                        self.push(Inst::Const {
+                            ty,
+                            dst: zero,
+                            value: 0,
+                        });
+                        self.push(Inst::Isub {
+                            ty,
+                            dst,
+                            lhs: zero,
+                            rhs: operand,
+                        });
+                    }
                     UnaryOp::Ref => todo!(),
                     UnaryOp::Deref => todo!(),
                 }
@@ -437,7 +457,10 @@ impl Ctx<'_> {
                 param_tys: _,
                 name: _,
             } => todo!(),
-            hir::Type::GenericFn { ret_ty: _, param_tys: _ } => todo!(),
+            hir::Type::GenericFn {
+                ret_ty: _,
+                param_tys: _,
+            } => todo!(),
             hir::Type::Record(_) => Type::Error,
             hir::Type::Enum(_) => todo!(),
         }
@@ -572,8 +595,8 @@ fn print_inst(s: &mut String, inst: &Inst) {
             write!(s, "ret"),
         Inst::Retv { ty, src } => _ =
             write!(s, "ret {ty:?} {src:?}"),
-        Inst::Br { block } => _ =
-            write!(s, "br {block:?}"),
+        Inst::Br { block, args } => _ =
+            write!(s, "br {block:?} {args:?}"),
         Inst::Cbr { cond, then_block, then_args, else_block, else_args } => _ =
             write!(s, "cbr {cond:?} {then_block:?} {then_args:?} {else_block:?} {else_args:?}"),
         Inst::Halt => _ =
@@ -725,7 +748,7 @@ fn fib(n u32) u32 {
                 b1:
                     %3 = const i32 1
                     ret i32 %3
-                    br b2
+                    br b2 []
                 b2:
                     %4 = const i32 1
                     %5 = isub i32 %0 %4
@@ -769,7 +792,7 @@ fn do_exit() { exit(0) }
 
     #[test]
     fn bitwise_ops() {
-                check_codegen(
+        check_codegen(
             "
 fn double(x i32) { return x + x }
 fn square(x i32) { return x * x }
