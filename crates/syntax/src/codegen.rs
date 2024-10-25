@@ -134,6 +134,18 @@ const ASCII_NAMES: [&str; 128] = [
     "delete",
 ];
 
+const SPECIAL_TOKENS: &[&str] = &[
+    "eof",
+    "error",
+    "comment",
+    "space",
+    "newline",
+    "number",
+    "string",
+    "character",
+    "identifier",
+];
+
 #[rustfmt::skip]
 const PUNCTUATION_TOKENS: &[&str] = &[
     "!", "!=",
@@ -517,17 +529,9 @@ fn gen_syntax(
     nodes: impl Iterator<Item = String>,
 ) -> (Vec<(Option<String>, String)>, HashMap<String, String>) {
     let mut syntax = Vec::new();
-    syntax.extend_from_slice(&[
-        (Some("eof".to_string()), "Eof".to_string()),
-        (Some("error".to_string()), "Error".to_string()),
-        (Some("comment".to_string()), "Comment".to_string()),
-        (Some("space".to_string()), "Space".to_string()),
-        (Some("newline".to_string()), "Newline".to_string()),
-        (Some("number".to_string()), "Number".to_string()),
-        (Some("string".to_string()), "String".to_string()),
-        (Some("character".to_string()), "Character".to_string()),
-        (Some("identifier".to_string()), "Identifier".to_string()),
-    ]);
+    for name in SPECIAL_TOKENS {
+        syntax.push((Some(name.to_string()), upper_camel_case(&name)));
+    }
     syntax.extend(PUNCTUATION_TOKENS.iter().map(|token| {
         let mut name = String::new();
         for c in token.chars() {
