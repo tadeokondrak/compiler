@@ -39,9 +39,9 @@ fn gen_function(module: &dyn Module, mir_func: mir::Function, builder: &mut Func
 
     for (i, block) in mir_func.blocks.iter().enumerate() {
         builder.switch_to_block(cl_blocks[i]);
-        for i in 0..block.arg_regs.len() {
-            let reg = block.arg_regs[i];
-            let ty = block.arg_tys[i];
+        for j in 0..block.arg_regs.len() {
+            let reg = block.arg_regs[j];
+            let ty = block.arg_tys[j];
             let val = builder.append_block_param(cl_blocks[i], cl_ty(ty));
             regs.insert(reg, val);
         }
