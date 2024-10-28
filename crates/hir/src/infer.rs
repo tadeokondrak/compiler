@@ -275,6 +275,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 return ctx.analysis.intern_type(Type::Error);
             };
             let param_tys = param_tys.clone();
+            // TODO handle (here or elsewhere) the case where we've passed too many arguments
             for (i, &arg) in args.iter().enumerate() {
                 let arg_ty = infer_expr(ctx, arg);
                 let arg_tyvar = ctx.tyvar_of(arg_ty);
