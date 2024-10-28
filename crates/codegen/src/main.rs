@@ -4,6 +4,7 @@ use cranelift_codegen::{
         UserExternalNameRef,
     },
     isa::CallConv,
+    settings::Configurable,
     Context,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
@@ -29,7 +30,7 @@ fn cl_var(src: mir::Var) -> Variable {
     Variable::from_u32(src.0)
 }
 
-fn gen_function(module: &dyn Module, mir_func: mir::Function, builder: &mut FunctionBuilder) {
+fn gen_function(_module: &dyn Module, mir_func: mir::Function, builder: &mut FunctionBuilder) {
     let cl_blocks = mir_func
         .blocks
         .iter()
@@ -337,20 +338,21 @@ fn mir_function(src: &str) -> mir::Function {
 
 fn main() {
     let source = "
-fn fib(n u32) u32 {
+fn fib(n u64, x u64) u64 {
     if n <= 1 { return 1 }
-    return fib(n - 1) + fib(n - 2)
+    return fib(n - 1, 0) + fib(n - 2, 0)
 }
 ";
     let mir_func = mir_function(source);
     eprintln!("{}", mir::print_function(&mir_func));
-    let flag_builder = cranelift_codegen::settings::builder();
+    let mut flag_builder = cranelift_codegen::settings::builder();
+    flag_builder.set("is_pic", "true").unwrap();
     let isa_builder = cranelift_codegen::isa::lookup_by_name("aarch64-apple-darwin").unwrap();
     let isa = isa_builder
         .finish(cranelift_codegen::settings::Flags::new(flag_builder))
         .unwrap();
     let mut sig = Signature::new(CallConv::AppleAarch64);
-    sig.returns.push(AbiParam::new(types::I32));
+    sig.returns.push(AbiParam::new(types::I64));
     for ty in &mir_func.blocks[0].arg_tys {
         sig.params.push(AbiParam::new(cl_ty(*ty)));
     }
