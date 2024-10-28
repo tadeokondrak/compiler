@@ -14,6 +14,7 @@ pub use pretty::print_function;
 
 pub type ExprId = Idx<Expr>;
 pub type TypeId = Idx<Type>;
+pub type TypeVarId = Idx<()>;
 pub type TypeRefId = Idx<TypeRef>;
 pub type EnumId = Idx<Enum>;
 pub type ConstId = Idx<Const>;
@@ -159,6 +160,8 @@ pub enum Type {
         ret_ty: TypeId,
         param_tys: Box<[TypeId]>,
     },
+    // TODO maybe the wrong place for this; we can move this into an inference-only type
+    Unresolved(TypeVarId),
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
@@ -515,5 +518,6 @@ fn print_type_(s: &mut String, analysis: &Analysis, ty: TypeId) {
             param_tys: _,
         } => s.push_str("Type::SpecificFn"),
         Type::Enum(_enum_id) => todo!(),
+        Type::Unresolved(idx) => write!(s, "unresolved {}", idx.into_raw()).unwrap(),
     }
 }

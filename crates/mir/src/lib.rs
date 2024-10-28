@@ -223,8 +223,9 @@ impl Ctx<'_> {
             }
             &hir::Expr::Number(value) => {
                 let reg = self.reg();
+                let ty = self.type_of(expr);
                 self.push(Inst::Const {
-                    ty: Type::Int32,
+                    ty,
                     dst: reg,
                     value,
                 });
@@ -463,6 +464,7 @@ impl Ctx<'_> {
             } => todo!(),
             hir::Type::Record(_) => Type::Error,
             hir::Type::Enum(_) => todo!(),
+            hir::Type::Unresolved(_) => Type::Error,
         }
     }
 }
@@ -713,7 +715,7 @@ fn fib(n u32) u32 {
             expect![[r#"
                 "n": u32
                 "1": u32
-                "n <= 1": u32
+                "n <= 1": bool
                 "1": u32
                 "return 1": (never)
                 "{ return 1 }": (unit)
@@ -721,14 +723,14 @@ fn fib(n u32) u32 {
                 "fib": Type::SpecificFn
                 "n": u32
                 "1": u32
-                "n - 1": u32
+                "n - 1": bool
                 "fib(n - 1)": u32
                 "fib": Type::SpecificFn
                 "n": u32
                 "2": u32
-                "n - 2": u32
+                "n - 2": bool
                 "fib(n - 2)": u32
-                "fib(n - 1) + fib(n - 2)": u32
+                "fib(n - 1) + fib(n - 2)": bool
                 "return fib(n - 1) + fib(n - 2)": (never)
                 "{\n    if n <= 1 { return 1 }\n    return fib(n - 1) + fib(n - 2)\n}": (unit)
             "#]],
@@ -757,7 +759,34 @@ fn fib(n u32) u32 {
                     %8 = isub i32 %0 %7
                     %9 = call i32 f1 [%8]
                     %10 = iadd i32 %6 %9
-                    ret i32 %10
+                    ret i1 %10
+            "#]],
+        );
+                check_codegen(
+            "
+fn fib(n u64) u64 {
+    if n <= 1 { return 1 }
+    return fib(n - 1) + fib(n - 2)
+}
+",
+            expect![[r#"
+                b0(%0 i64):
+                    %1 = const i64 1
+                    %2 = cmp slte i64 %0 %1
+                    cbr %2 b1 [] b2 []
+                b1:
+                    %3 = const i64 1
+                    ret i64 %3
+                    br b2 []
+                b2:
+                    %4 = const i64 1
+                    %5 = isub i64 %0 %4
+                    %6 = call i64 f0 [%5]
+                    %7 = const i64 2
+                    %8 = isub i64 %0 %7
+                    %9 = call i64 f1 [%8]
+                    %10 = iadd i64 %6 %9
+                    ret i1 %10
             "#]],
         );
     }
@@ -771,7 +800,7 @@ fn do_exit() { exit(0) }
 ",
             expect![[r#"
                 "exit": Type::SpecificFn
-                "0": u32
+                "0": unresolved 0
                 "exit(0)": (unit)
                 "{ exit(0) }": (unit)
             "#]],
@@ -784,7 +813,7 @@ fn do_exit() { exit(0) }
             expect![[r#"
                 b0(%0 i32):
                 b0:
-                    %0 = const i32 0
+                    %0 = const error 0
                     call f0 [%0]
             "#]],
         );
@@ -805,10 +834,10 @@ fn bitxor(x i32, y i32) { return x ^ y }
             expect![[r#"
                 b0(%0 i32):
                     %1 = iadd i32 %0 %0
-                    ret i32 %1
+                    ret i1 %1
                 b0(%0 i32):
                     %1 = imul i32 %0 %0
-                    ret i32 %1
+                    ret i1 %1
                 b0(%0 i32):
                     %2 = const i32 0
                     %1 = isub i32 %2 %0
@@ -819,13 +848,13 @@ fn bitxor(x i32, y i32) { return x ^ y }
                     ret i32 %1
                 b0(%0 i32, %1 i32):
                     %2 = and i32 %0 %1
-                    ret i32 %2
+                    ret i1 %2
                 b0(%0 i32, %1 i32):
                     %2 = or i32 %0 %1
-                    ret i32 %2
+                    ret i1 %2
                 b0(%0 i32, %1 i32):
                     %2 = xor i32 %0 %1
-                    ret i32 %2
+                    ret i1 %2
             "#]],
         )
     }

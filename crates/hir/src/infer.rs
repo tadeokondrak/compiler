@@ -1,9 +1,10 @@
 use super::{
-    lower_type_ref, Analysis, Body, Expr, ExprId, Function, IntSize, ItemId, Items, Name, Signed,
-    Stmt, Type,
+    lower_type_ref, Analysis, Body, Expr, ExprId, Function, ItemId, Items, Name, Stmt, Type,
 };
-use crate::TypeId;
+use crate::{TypeId, TypeVarId};
+use la_arena::Arena;
 use std::collections::HashMap;
+use syntax::{ArithOp, BinaryOp};
 
 #[derive(Debug)]
 pub struct InferenceResult {
@@ -24,6 +25,8 @@ pub fn infer(
         func,
         body,
         exprs: HashMap::new(),
+        vars: Arena::new(),
+        constraints: Vec::new(),
     };
     let param_tys = func
         .param_tys
@@ -38,6 +41,45 @@ pub fn infer(
     );
     infer_expr(&mut ctx, body.expr);
 
+    let mut resolved = HashMap::new();
+    for &constraint in &ctx.constraints {
+        match constraint {
+            InferenceConstraint::IsType(tyvar, ty) => match ctx.analysis.types[ty] {
+                Type::Unresolved(_) => {}
+                _ => {
+                    resolved.insert(tyvar, ty);
+                }
+            },
+            InferenceConstraint::IsInteger(tyvar) => {
+                // TODO obviously we don't want this to run in the wrong order
+                if let Some(&ty) = resolved.get(&tyvar) {
+                    assert!(matches!(ctx.analysis.types[ty], Type::Int(_, _)));
+                }
+            }
+            InferenceConstraint::IsComparable(lhs, rhs) => {
+                if let Some(&ty) = resolved.get(&lhs) {
+                    resolved.insert(rhs, ty);
+                }
+                if let Some(&ty) = resolved.get(&rhs) {
+                    resolved.insert(lhs, ty);
+                }
+            }
+            InferenceConstraint::IsReturnType(idx) => {
+                resolved.insert(idx, return_ty);
+            }
+        }
+    }
+
+    let mut modified = Vec::new();
+    for (&expr, &expr_ty) in ctx.exprs.iter() {
+        if let Type::Unresolved(idx) = ctx.analysis.types[expr_ty] {
+            if let Some(&ty) = resolved.get(&idx) {
+                modified.push((expr, ty));
+            }
+        }
+    }
+    ctx.exprs.extend(modified);
+
     InferenceResult {
         return_ty,
         param_tys,
@@ -51,6 +93,30 @@ struct InferCtx<'a> {
     func: &'a Function,
     body: &'a Body,
     exprs: HashMap<ExprId, TypeId>,
+    vars: Arena<()>,
+    constraints: Vec<InferenceConstraint>,
+}
+
+impl InferCtx<'_> {
+    fn tyvar_of(&mut self, ty: TypeId) -> TypeVarId {
+        match &self.analysis.types[ty] {
+            &Type::Unresolved(idx) => idx,
+            _ => {
+                let tyvar = self.vars.alloc(());
+                self.constraints
+                    .push(InferenceConstraint::IsType(tyvar, ty));
+                tyvar
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum InferenceConstraint {
+    IsType(TypeVarId, TypeId),
+    IsInteger(TypeVarId),
+    IsComparable(TypeVarId, TypeVarId),
+    IsReturnType(TypeVarId),
 }
 
 fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
@@ -109,9 +175,11 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .or(item_ty)
                 .unwrap_or_else(|| ctx.analysis.intern_type(Type::Error))
         }
-        Expr::Number(_) => ctx
-            .analysis
-            .intern_type(Type::Int(Signed::No, IntSize::Size32)),
+        Expr::Number(_) => {
+            let tyvar = ctx.vars.alloc(());
+            ctx.constraints.push(InferenceConstraint::IsInteger(tyvar));
+            ctx.analysis.intern_type(Type::Unresolved(tyvar))
+        }
         &Expr::If {
             cond,
             then_expr,
@@ -141,6 +209,46 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
             let operand_ty = infer_expr(ctx, operand);
             operand_ty
         }
+        &Expr::Binary {
+            op: BinaryOp::Cmp(_),
+            lhs,
+            rhs,
+        } => {
+            let lhs_ty = infer_expr(ctx, lhs);
+            let rhs_ty = infer_expr(ctx, rhs);
+            let lhs_tyvar = ctx.tyvar_of(lhs_ty);
+            let rhs_tyvar = ctx.tyvar_of(rhs_ty);
+            ctx.constraints
+                .push(InferenceConstraint::IsComparable(lhs_tyvar, rhs_tyvar));
+            ctx.analysis.intern_type(Type::Bool)
+        }
+        &Expr::Binary {
+            op:
+                BinaryOp::Arith(
+                    ArithOp::Add
+                    | ArithOp::Sub
+                    | ArithOp::Mul
+                    | ArithOp::Div
+                    | ArithOp::Rem
+                    | ArithOp::And
+                    | ArithOp::Or
+                    | ArithOp::Xor
+                    | ArithOp::Shl
+                    | ArithOp::Shr,
+                ),
+            lhs,
+            rhs,
+        } => {
+            let lhs_ty = infer_expr(ctx, lhs);
+            let rhs_ty = infer_expr(ctx, rhs);
+            let lhs_tyvar = ctx.tyvar_of(lhs_ty);
+            let rhs_tyvar = ctx.tyvar_of(rhs_ty);
+            ctx.constraints
+                .push(InferenceConstraint::IsType(lhs_tyvar, rhs_ty));
+            ctx.constraints
+                .push(InferenceConstraint::IsType(rhs_tyvar, lhs_ty));
+            ctx.analysis.intern_type(Type::Bool)
+        }
         &Expr::Binary { op: _, lhs, rhs } => {
             let lhs_ty = infer_expr(ctx, lhs);
             let _rhs_ty = infer_expr(ctx, rhs);
@@ -149,17 +257,29 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         Expr::Break => ctx.analysis.intern_type(Type::Never),
         Expr::Continue => ctx.analysis.intern_type(Type::Never),
         &Expr::Return { value } => {
-            infer_expr(ctx, value);
+            let ty = infer_expr(ctx, value);
+            let tyvar = ctx.tyvar_of(ty);
+            ctx.constraints
+                .push(InferenceConstraint::IsReturnType(tyvar));
             ctx.analysis.intern_type(Type::Never)
         }
         Expr::Call { callee, args } => {
             let callee_ty = infer_expr(ctx, *callee);
-            let &Type::SpecificFn { ret_ty, .. } = &ctx.analysis.types[callee_ty] else {
+            let &Type::SpecificFn {
+                ret_ty,
+                ref param_tys,
+                ..
+            } = &ctx.analysis.types[callee_ty]
+            else {
                 eprintln!("called non-function type");
                 return ctx.analysis.intern_type(Type::Error);
             };
-            for &arg in args.iter() {
-                infer_expr(ctx, arg);
+            let param_tys = param_tys.clone();
+            for (i, &arg) in args.iter().enumerate() {
+                let arg_ty = infer_expr(ctx, arg);
+                let arg_tyvar = ctx.tyvar_of(arg_ty);
+                ctx.constraints
+                    .push(InferenceConstraint::IsType(arg_tyvar, param_tys[i]));
             }
             ret_ty
         }
