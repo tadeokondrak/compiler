@@ -298,7 +298,7 @@ fn gen_function(module: &dyn Module, mir_func: mir::Function, builder: &mut Func
                     break;
                 }
                 mir::Inst::Halt => {
-                    builder.ins().trap(ir::TrapCode::UnreachableCodeReached);
+                    builder.ins().trap(ir::TrapCode::user(1).unwrap());
                     break;
                 }
             }
