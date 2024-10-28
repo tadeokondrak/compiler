@@ -248,7 +248,10 @@ impl Ctx<'_> {
                 });
                 self.switch_to_block(then_block);
                 self.lower_expr(then_expr);
-                self.push(Inst::Br { block: else_block, args: Box::new([]) });
+                self.push(Inst::Br {
+                    block: else_block,
+                    args: Box::new([]),
+                });
                 self.switch_to_block(else_block);
                 None
             }
@@ -270,17 +273,26 @@ impl Ctx<'_> {
                 });
                 self.switch_to_block(then_block);
                 self.lower_expr(then_expr);
-                self.push(Inst::Br { block: join_block, args: Box::new([]) });
+                self.push(Inst::Br {
+                    block: join_block,
+                    args: Box::new([]),
+                });
                 self.switch_to_block(else_block);
                 self.lower_expr(else_expr);
-                self.push(Inst::Br { block: join_block, args: Box::new([]) });
+                self.push(Inst::Br {
+                    block: join_block,
+                    args: Box::new([]),
+                });
                 self.switch_to_block(join_block);
                 None
             }
             &hir::Expr::Loop { body } => {
                 let start = self.block();
                 self.lower_expr(body);
-                self.push(Inst::Br { block: start, args: Box::new([]) });
+                self.push(Inst::Br {
+                    block: start,
+                    args: Box::new([]),
+                });
                 None
             }
             hir::Expr::Block { body } => {
@@ -769,7 +781,7 @@ fn fib(n u32) u32 {
                     ret i1 %10
             "#]],
         );
-                check_codegen(
+        check_codegen(
             "
 fn fib(n u64) u64 {
     if n <= 1 { return 1 }
