@@ -1,16 +1,13 @@
 use cranelift_codegen::{
-    ir::{
-        self, condcodes::IntCC, types, AbiParam, InstBuilder, MemFlags, Signature,
-        UserExternalNameRef,
-    },
+    ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, MemFlags, Signature},
     isa::CallConv,
     settings::Configurable,
     Context,
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
-use cranelift_module::{default_libcall_names, Linkage, Module};
+use cranelift_module::{default_libcall_names, FuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use syntax::AstNode;
 
 fn cl_ty(ty: mir::Type) -> types::Type {
@@ -30,7 +27,12 @@ fn cl_var(src: mir::Var) -> Variable {
     Variable::from_u32(src.0)
 }
 
-fn gen_function(_module: &dyn Module, mir_func: mir::Function, builder: &mut FunctionBuilder) {
+fn gen_function(
+    module: &mut dyn Module,
+    mir_func: mir::Function,
+    builder: &mut FunctionBuilder,
+    func_ids: &HashMap<String, FuncId>,
+) {
     let cl_blocks = mir_func
         .blocks
         .iter()
@@ -226,16 +228,7 @@ fn gen_function(_module: &dyn Module, mir_func: mir::Function, builder: &mut Fun
                 }
                 mir::Inst::Call { func, ref args } => {
                     let func_data = &mir_func.funcs[func.0 as usize];
-                    let mut sig = Signature::new(CallConv::AppleAarch64);
-                    for arg in &func_data.args {
-                        sig.params.push(AbiParam::new(cl_ty(*arg)));
-                    }
-                    let sig = builder.import_signature(sig);
-                    let func = builder.import_function(ir::ExtFuncData {
-                        name: ir::ExternalName::User(UserExternalNameRef::from_u32(0)),
-                        signature: sig,
-                        colocated: false,
-                    });
+                    let func = module.declare_func_in_func(func_ids[&func_data.name], builder.func);
                     builder.ins().call(func, &cl_args(&args, &regs));
                 }
                 mir::Inst::Callv {
@@ -245,25 +238,7 @@ fn gen_function(_module: &dyn Module, mir_func: mir::Function, builder: &mut Fun
                     ref args,
                 } => {
                     let func_data = &mir_func.funcs[func.0 as usize];
-                    let mut sig = Signature::new(CallConv::AppleAarch64);
-                    for arg in &func_data.args {
-                        sig.params.push(AbiParam::new(cl_ty(*arg)));
-                    }
-                    sig.returns
-                        .push(AbiParam::new(cl_ty(func_data.ret.unwrap())));
-                    let sig = builder.import_signature(sig);
-                    let nameref =
-                        builder
-                            .func
-                            .declare_imported_user_function(ir::UserExternalName {
-                                namespace: 0,
-                                index: 0,
-                            });
-                    let func = builder.import_function(ir::ExtFuncData {
-                        name: ir::ExternalName::User(nameref),
-                        signature: sig,
-                        colocated: false,
-                    });
+                    let func = module.declare_func_in_func(func_ids[&func_data.name], builder.func);
                     let inst = builder.ins().call(func, &cl_args(&args, &regs));
                     let val = builder.inst_results(inst)[0];
                     regs.insert(dst, val);
@@ -315,65 +290,103 @@ fn cl_args(args: &[mir::Reg], regs: &BTreeMap<mir::Reg, ir::Value>) -> Vec<ir::V
     args.iter().map(|arg| regs[arg]).collect::<Vec<_>>()
 }
 
-fn mir_function(src: &str) -> mir::Function {
-    let file = syntax::parse_file(src);
-    let items = hir::file_items(file.clone());
-    let mut analysis = hir::Analysis::default();
-    for item in items.items() {
-        match item {
-            &hir::ItemId::Function(func_id) => {
-                let func = &items[func_id];
-                let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
-                let inference = hir::infer(&mut analysis, &items, func, &body);
-                let func = mir::lower(&analysis, &items, &func, &body, &inference);
-                return func;
-            }
-            hir::ItemId::Record(_) => {}
-            hir::ItemId::Const(_) => {}
-            hir::ItemId::Enum(_) => {}
-        }
-    }
-    panic!();
-}
-
 fn main() {
     let source = "
-fn fib(n u64, x u64) u64 {
+fn fib(n u64) u64 {
     if n <= 1 { return 1 }
-    return fib(n - 1, 0) + fib(n - 2, 0)
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn putchar(n i32)
+
+fn main(argc u64, argv u64) u64 {
+    putchar(72)
+    putchar(101)
+    putchar(108)
+    putchar(108)
+    putchar(111)
+    putchar(32)
+    putchar(119)
+    putchar(111)
+    putchar(114)
+    putchar(108)
+    putchar(100)
+    putchar(10)
+
+    return fib(argc)
 }
 ";
-    let mir_func = mir_function(source);
-    eprintln!("{}", mir::print_function(&mir_func));
     let mut flag_builder = cranelift_codegen::settings::builder();
     flag_builder.set("is_pic", "true").unwrap();
     let isa_builder = cranelift_codegen::isa::lookup_by_name("aarch64-apple-darwin").unwrap();
     let isa = isa_builder
         .finish(cranelift_codegen::settings::Flags::new(flag_builder))
         .unwrap();
-    let mut sig = Signature::new(CallConv::AppleAarch64);
-    sig.returns.push(AbiParam::new(types::I64));
-    for ty in &mir_func.blocks[0].arg_tys {
-        sig.params.push(AbiParam::new(cl_ty(*ty)));
-    }
+
     let mut module =
         ObjectModule::new(ObjectBuilder::new(isa, "name", default_libcall_names()).unwrap());
-    let main = module
-        .declare_function("main", Linkage::Export, &sig)
-        .unwrap();
-    let mut ctx = Context::new();
-    ctx.func.signature = sig;
-    let mut fn_builder_ctx = FunctionBuilderContext::new();
-    {
-        let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
 
-        gen_function(&module, mir_func, &mut builder);
-        builder.seal_all_blocks();
-        builder.finalize();
+    let file = syntax::parse_file(source);
+    let items = hir::file_items(file.clone());
+    let mut analysis = hir::Analysis::default();
+    let mut our_functions = Vec::new();
+    let mut func_ids = HashMap::new();
+    for item in items.items() {
+        match item {
+            &hir::ItemId::Function(func_id) => {
+                let func = &items[func_id];
+                let fn_syntax = func.ast.to_node(file.syntax());
+                let fn_name_syntax = fn_syntax.identifier_token().unwrap();
+                let fn_name = fn_name_syntax.text().to_owned();
+                if fn_syntax.body().is_some() {
+                    let body = hir::lower_function_body(fn_syntax);
+                    let inference = hir::infer(&mut analysis, &items, func, &body);
+                    let mir_func = mir::lower(&analysis, &items, &func, &body, &inference);
+                    //eprintln!("{}", mir::print_function(&mir_func));
+                    let mut sig = Signature::new(CallConv::AppleAarch64);
+                    sig.returns.push(AbiParam::new(types::I64));
+                    for ty in &mir_func.blocks[0].arg_tys {
+                        sig.params.push(AbiParam::new(cl_ty(*ty)));
+                    }
+                    let function = module
+                        .declare_function(&fn_name, Linkage::Export, &sig)
+                        .unwrap();
+                    our_functions.push((function, sig, mir_func));
+                    func_ids.insert(fn_name, function);
+                } else {
+                    let body = hir::lower_function_body(fn_syntax);
+                    let inference = hir::infer(&mut analysis, &items, func, &body);
+                    let mir_func = mir::lower(&analysis, &items, &func, &body, &inference);
+                    let mut sig = Signature::new(CallConv::AppleAarch64);
+                    sig.returns.push(AbiParam::new(types::I64));
+                    for ty in &mir_func.blocks[0].arg_tys {
+                        sig.params.push(AbiParam::new(cl_ty(*ty)));
+                    }
+                    let function = module
+                        .declare_function(&fn_name, Linkage::Import, &sig)
+                        .unwrap();
+                    func_ids.insert(fn_name, function);
+                }
+            }
+            hir::ItemId::Record(_) => {}
+            hir::ItemId::Const(_) => {}
+            hir::ItemId::Enum(_) => {}
+        }
     }
-    eprintln!("{}", ctx.func.display());
-    module.define_function(main, &mut ctx).unwrap();
 
+    for (function, sig, mir_func) in our_functions {
+        let mut ctx = Context::new();
+        ctx.func.signature = sig;
+        let mut fn_builder_ctx = FunctionBuilderContext::new();
+        {
+            let mut builder = FunctionBuilder::new(&mut ctx.func, &mut fn_builder_ctx);
+            gen_function(&mut module, mir_func, &mut builder, &func_ids);
+            builder.seal_all_blocks();
+            builder.finalize();
+        }
+        //eprintln!("{}", ctx.func.display());
+        module.define_function(function, &mut ctx).unwrap();
+    }
     let module_bytes = module.finish().emit().unwrap();
     std::fs::write("prog.o", module_bytes).unwrap();
 }
