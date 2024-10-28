@@ -6,6 +6,7 @@ use syntax::{ArithOp, BinaryOp, CmpOp, UnaryOp};
 pub struct Function {
     pub funcs: Vec<FuncData>,
     pub blocks: Vec<BlockData>,
+    pub return_ty: Type,
 }
 
 #[derive(Debug)]
@@ -63,6 +64,7 @@ pub enum Inst {
     Const { ty: Type, dst: Reg, value: u64 },
     Load  { ty: Type, dst: Reg, src: Var },
     Store { ty: Type, dst: Var, src: Reg },
+    Copy  { ty: Type, dst: Reg, operand: Reg },
     Zext  { ty: Type, dst: Reg, operand: Reg },
     Sext  { ty: Type, dst: Reg, operand: Reg },
     Trunc { ty: Type, dst: Reg, operand: Reg },
@@ -121,9 +123,10 @@ impl std::fmt::Debug for Cmp {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Error,
+    Int0,
     Int1,
     Int8,
     Int16,
@@ -137,6 +140,7 @@ impl std::fmt::Debug for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Error => write!(f, "error"),
+            Type::Int0 => write!(f, "i0"),
             Type::Int1 => write!(f, "i1"),
             Type::Int8 => write!(f, "i8"),
             Type::Int16 => write!(f, "i16"),
@@ -159,9 +163,30 @@ struct Ctx<'a> {
     _next_var: u32,
     next_reg: u32,
     items: &'a hir::Items,
+    scopes: Vec<Scope>,
+}
+
+#[derive(Default)]
+struct Scope {
+    break_target: Option<Block>,
+    continue_target: Option<Block>,
 }
 
 impl Ctx<'_> {
+    fn get_break_target(&self) -> Option<Block> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.break_target)
+    }
+
+    fn get_continue_target(&self) -> Option<Block> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.continue_target)
+    }
+
     fn _var(&mut self) -> Var {
         let var = Var(self._next_var);
         self._next_var += 1;
@@ -199,9 +224,11 @@ impl Ctx<'_> {
         }
         self.switch_to_block(entry);
         self.lower_expr(self.body.expr);
+        let return_ty = self.lower_ty(self.inference.return_ty);
         Function {
             funcs: self.funcs,
             blocks: self.blocks,
+            return_ty,
         }
     }
 
@@ -287,12 +314,23 @@ impl Ctx<'_> {
                 None
             }
             &hir::Expr::Loop { body } => {
-                let start = self.block();
-                self.lower_expr(body);
+                let main_block = self.block();
+                let done_block = self.block();
+                self.scopes.push(Scope {
+                    continue_target: Some(main_block),
+                    break_target: Some(done_block),
+                });
                 self.push(Inst::Br {
-                    block: start,
+                    block: main_block,
                     args: Box::new([]),
                 });
+                self.switch_to_block(main_block);
+                self.lower_expr(body);
+                self.push(Inst::Br {
+                    block: main_block,
+                    args: Box::new([]),
+                });
+                self.switch_to_block(done_block);
                 None
             }
             hir::Expr::Block { body } => {
@@ -314,6 +352,7 @@ impl Ctx<'_> {
                     UnaryOp::Not => {
                         let ones = self.reg();
                         let constant = match ty {
+                            Type::Int0 => 0 as u64,
                             Type::Int1 => 1 as u64,
                             Type::Int8 => !0u8 as u64,
                             Type::Int16 => !0u16 as u64,
@@ -360,8 +399,20 @@ impl Ctx<'_> {
                 self.push(bin_op(op, ty, dst, lhs, rhs));
                 Some(dst)
             }
-            hir::Expr::Break => todo!(),
-            hir::Expr::Continue => todo!(),
+            hir::Expr::Break => {
+                self.push(Inst::Br {
+                    block: self.get_break_target().unwrap(),
+                    args: Box::new([]),
+                });
+                None
+            }
+            hir::Expr::Continue => {
+                self.push(Inst::Br {
+                    block: self.get_continue_target().unwrap(),
+                    args: Box::new([]),
+                });
+                None
+            }
             &hir::Expr::Return { value } => {
                 let hir_ty_id = self.inference.exprs[&value];
                 let hir_ty = &self.analysis[hir_ty_id];
@@ -457,7 +508,7 @@ impl Ctx<'_> {
         match &self.analysis[ty] {
             hir::Type::Error => Type::Error,
             hir::Type::Never => Type::Error,
-            hir::Type::Unit => todo!(),
+            hir::Type::Unit => Type::Int0,
             hir::Type::Bool => Type::Int1,
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size8) => Type::Int8,
             hir::Type::Int(Signed::Yes | Signed::No, IntSize::Size16) => Type::Int16,
@@ -483,6 +534,11 @@ impl Ctx<'_> {
 
 fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
     match op {
+        BinaryOp::Asg(None) => Inst::Copy {
+            ty,
+            dst: lhs,
+            operand: rhs,
+        },
         BinaryOp::Asg(_) => todo!(),
         BinaryOp::Cmp(cmp) => Inst::Icmp {
             ty,
@@ -530,6 +586,7 @@ pub fn lower(
         cur_block: None,
         _next_var: 0,
         next_reg: 0,
+        scopes: Vec::new(),
     };
     ctx.lower_function()
 }
@@ -622,6 +679,7 @@ fn print_inst(s: &mut String, inst: &Inst) {
             write!(s, "cbr {cond:?} {then_block:?} {then_args:?} {else_block:?} {else_args:?}"),
         Inst::Halt => _ =
             write!(s, "halt"),
+        Inst::Copy { ty, dst, operand } => _ = write!(s, "{dst:?} = copy {ty:?} {operand:?}"),
     }
 }
 
@@ -834,6 +892,36 @@ fn do_exit() { exit(0) }
                 b0:
                     %0 = const i32 0
                     call f0 [%0]
+            "#]],
+        );
+    }
+
+    #[test]
+    fn inference_for_conditionals() {
+        check_inference(
+            "
+fn printu64(n u64) u64 {
+    while n != 0 {
+        putchar(48 + (n % 10))
+        n = n / 10;
+    }
+    return 0
+}",
+            expect![[r#"
+                "n": u64
+                "0": u64
+                "n != 0": bool
+                "putchar": (error)
+                "n": u64
+                "n": u64
+                "10": u64
+                "n / 10": bool
+                "n = n / 10": u64
+                "{\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }": (unit)
+                "while n != 0 {\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }": (never)
+                "0": u64
+                "return 0": (never)
+                "{\n    while n != 0 {\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }\n    return 0\n}": (unit)
             "#]],
         );
     }

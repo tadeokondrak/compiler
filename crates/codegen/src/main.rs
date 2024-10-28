@@ -13,6 +13,7 @@ use syntax::AstNode;
 fn cl_ty(ty: mir::Type) -> types::Type {
     match ty {
         mir::Type::Error => panic!(),
+        mir::Type::Int0 => panic!(),
         mir::Type::Int1 => types::I8,
         mir::Type::Int8 => types::I8,
         mir::Type::Int16 => types::I16,
@@ -53,11 +54,26 @@ fn gen_function(
                 mir::Inst::Const { ty, dst, value } => {
                     let val = match ty {
                         mir::Type::Error => panic!(),
-                        mir::Type::Int1 => builder.ins().iconst(types::I8, value as i64),
-                        mir::Type::Int8 => builder.ins().iconst(types::I8, value as i64),
-                        mir::Type::Int16 => builder.ins().iconst(types::I16, value as i64),
-                        mir::Type::Int32 => builder.ins().iconst(types::I32, value as i64),
-                        mir::Type::Int64 => builder.ins().iconst(types::I64, value as i64),
+                        mir::Type::Int0 => panic!(),
+                        mir::Type::Int1 => {
+                            assert!(value < (1 << 1));
+                            builder.ins().iconst(types::I8, value as i64)
+                        }
+                        mir::Type::Int8 => {
+                            assert!(value < (1 << 8));
+                            builder.ins().iconst(types::I8, value as i64)
+                        }
+                        mir::Type::Int16 => {
+                            assert!(value < (1 << 16));
+                            builder.ins().iconst(types::I16, value as i64)
+                        }
+                        mir::Type::Int32 => {
+                            assert!(value < (1 << 32));
+                            builder.ins().iconst(types::I32, value as i64)
+                        }
+                        mir::Type::Int64 => {
+                            builder.ins().iconst(types::I64, value as i64)
+                        }
                         mir::Type::Float32 => builder.ins().f32const(f32::from_bits(value as u32)),
                         mir::Type::Float64 => builder.ins().f64const(f64::from_bits(value)),
                     };
@@ -277,6 +293,13 @@ fn gen_function(
                     builder.ins().trap(ir::TrapCode::user(1).unwrap());
                     break;
                 }
+                mir::Inst::Copy {
+                    ty: _,
+                    dst,
+                    operand,
+                } => {
+                    regs.insert(dst, regs[&operand]);
+                }
             }
         }
     }
@@ -297,7 +320,15 @@ fn fib(n u64) u64 {
     return fib(n - 1) + fib(n - 2)
 }
 
-fn putchar(n i32)
+fn printu64(n u64) u64 {
+    if n == 0 {
+        return 0
+    }
+    putchar(48 + (n % 10))
+    return printu64(n / 10)
+}
+
+fn putchar(n u64)
 
 fn main(argc u64, argv u64) u64 {
     putchar(72)
@@ -312,8 +343,11 @@ fn main(argc u64, argv u64) u64 {
     putchar(108)
     putchar(100)
     putchar(10)
-
-    return fib(argc)
+    printu64(argc)
+    putchar(10)
+    printu64(fib(argc))
+    putchar(10)
+    return 0
 }
 ";
     let mut flag_builder = cranelift_codegen::settings::builder();
@@ -342,7 +376,7 @@ fn main(argc u64, argv u64) u64 {
                     let body = hir::lower_function_body(fn_syntax);
                     let inference = hir::infer(&mut analysis, &items, func, &body);
                     let mir_func = mir::lower(&analysis, &items, &func, &body, &inference);
-                    //eprintln!("{}", mir::print_function(&mir_func));
+                    eprintln!("{}", mir::print_function(&mir_func));
                     let mut sig = Signature::new(CallConv::AppleAarch64);
                     sig.returns.push(AbiParam::new(types::I64));
                     for ty in &mir_func.blocks[0].arg_tys {
@@ -357,8 +391,11 @@ fn main(argc u64, argv u64) u64 {
                     let body = hir::lower_function_body(fn_syntax);
                     let inference = hir::infer(&mut analysis, &items, func, &body);
                     let mir_func = mir::lower(&analysis, &items, &func, &body, &inference);
+                    eprintln!("{}", mir::print_function(&mir_func));
                     let mut sig = Signature::new(CallConv::AppleAarch64);
-                    sig.returns.push(AbiParam::new(types::I64));
+                    if mir_func.return_ty != mir::Type::Int0 {
+                        sig.returns.push(AbiParam::new(cl_ty(mir_func.return_ty)));
+                    }
                     for ty in &mir_func.blocks[0].arg_tys {
                         sig.params.push(AbiParam::new(cl_ty(*ty)));
                     }
@@ -384,7 +421,7 @@ fn main(argc u64, argv u64) u64 {
             builder.seal_all_blocks();
             builder.finalize();
         }
-        //eprintln!("{}", ctx.func.display());
+        eprintln!("{}", ctx.func.display());
         module.define_function(function, &mut ctx).unwrap();
     }
     let module_bytes = module.finish().emit().unwrap();

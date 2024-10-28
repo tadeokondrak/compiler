@@ -247,7 +247,7 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .push(InferenceConstraint::IsType(lhs_tyvar, rhs_ty));
             ctx.constraints
                 .push(InferenceConstraint::IsType(rhs_tyvar, lhs_ty));
-            ctx.analysis.intern_type(Type::Bool)
+            lhs_ty
         }
         &Expr::Binary { op: _, lhs, rhs } => {
             let lhs_ty = infer_expr(ctx, lhs);
