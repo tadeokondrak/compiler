@@ -469,16 +469,23 @@ impl Ctx<'_> {
     }
 }
 
-#[rustfmt::skip]
 fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
     match op {
         BinaryOp::Asg(_) => todo!(),
-        BinaryOp::Cmp(CmpOp::Eq) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Eq },
-        BinaryOp::Cmp(CmpOp::Ne) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Ne },
-        BinaryOp::Cmp(CmpOp::Lt) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Slt },
-        BinaryOp::Cmp(CmpOp::Lte) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Slte },
-        BinaryOp::Cmp(CmpOp::Gt) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Sgt },
-        BinaryOp::Cmp(CmpOp::Gte) => Inst::Icmp { ty, dst, lhs, rhs, cmp: Cmp::Sgte },
+        BinaryOp::Cmp(cmp) => Inst::Icmp {
+            ty,
+            dst,
+            lhs,
+            rhs,
+            cmp: match cmp {
+                CmpOp::Eq => Cmp::Eq,
+                CmpOp::Ne => Cmp::Ne,
+                CmpOp::Lt => Cmp::Slt,
+                CmpOp::Lte => Cmp::Slte,
+                CmpOp::Gt => Cmp::Sgt,
+                CmpOp::Gte => Cmp::Sgte,
+            },
+        },
         BinaryOp::Arith(ArithOp::Add) => Inst::Iadd { ty, dst, lhs, rhs },
         BinaryOp::Arith(ArithOp::Sub) => Inst::Isub { ty, dst, lhs, rhs },
         BinaryOp::Arith(ArithOp::Mul) => Inst::Imul { ty, dst, lhs, rhs },
