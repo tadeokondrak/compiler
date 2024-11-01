@@ -24,21 +24,28 @@ fn parse_stmt(p: &mut Parser) {
     let m = p.begin();
     match p.current() {
         t!("identifier") if p.at_keyword(t!("let")) => {
-            let m = p.begin();
             p.bump(t!("let"));
             p.expect(t!("identifier"));
             p.expect(t!("="));
             parse_expr(p);
+            if !p.at(t!("}")) {
+                expect_newline_or(p, t!(";"));
+            }
             p.end(m, Syntax::LetStmt);
         }
-        _ if p.at_any(EXPR_START) => parse_expr(p),
-        _ if p.at_any(ITEM_START) => parse_item(p),
+        _ if p.at_any(EXPR_START) => {
+            parse_expr(p);
+            if !p.at(t!("}")) {
+                expect_newline_or(p, t!(";"));
+            }
+            p.end(m, Syntax::ExprStmt);
+        }
+        _ if p.at_any(ITEM_START) => {
+            parse_item(p);
+            p.end(m, Syntax::ItemStmt);
+        }
         _ => unreachable!(),
     }
-    if !p.at(t!("}")) {
-        expect_newline_or(p, t!(";"));
-    }
-    p.end(m, Syntax::ExprStmt);
 }
 
 const EXPR_START: &[Syntax] = &[
@@ -109,7 +116,7 @@ fn parse_item(p: &mut Parser) {
             parse_type(p);
             p.expect(t!("="));
             parse_expr(p);
-            p.expect(t!(";"));
+            p.expect(t!(";")); // TODO: does this need to handle newlines?
             p.end(m, Syntax::ConstItem);
         }
         _ => unreachable!("{:?}", p.nth_keyword(0)),

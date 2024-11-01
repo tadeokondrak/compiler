@@ -1,4 +1,4 @@
-use crate::{Expr, ExprId, Function, Body, Name, Stmt, TypeRef, TypeRefId};
+use crate::{Body, Expr, ExprId, Function, Name, Stmt, TypeRef, TypeRefId};
 use la_arena::Arena;
 use std::fmt::Write;
 
@@ -37,7 +37,7 @@ fn print_type_ref(s: &mut String, function: &Function, ty: TypeRefId) {
         }
         TypeRef::Unit => {
             s.push_str("unit");
-        },
+        }
     }
 }
 
@@ -74,7 +74,12 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
         }
         &Expr::Loop { body } => {
             s.push_str("loop");
-            print_expr(s, exprs, body, indent)
+            s.push(' ');
+            s.push('{');
+            print_line(s, indent + 1);
+            print_expr(s, exprs, body, indent + 1);
+            print_line(s, indent);
+            s.push('}');
         }
         Expr::Block { body } => {
             s.push('{');
@@ -135,7 +140,15 @@ fn print_expr(s: &mut String, exprs: &Arena<Expr>, id: ExprId, indent: usize) {
 fn print_stmt(s: &mut String, exprs: &Arena<Expr>, stmt: &Stmt, indent: usize) {
     print_line(s, indent);
     match stmt {
-        Stmt::Let(_, _) => todo!(),
+        &Stmt::Let(ref name, expr) => {
+            s.push_str("let");
+            s.push(' ');
+            print_name(s, name);
+            s.push(' ');
+            s.push('=');
+            s.push(' ');
+            print_expr(s, exprs, expr, indent);
+        }
         &Stmt::Expr(it) => {
             print_expr(s, exprs, it, indent);
         }

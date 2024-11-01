@@ -481,6 +481,37 @@ fn bitxor(x i32, y i32) { return x ^ y }
             "#]],
         );
     }
+
+    #[test]
+    fn loop_and_locals() {
+        check(
+            "
+fn putchar(n u64)
+fn printu64(arg_n u64) u64 {
+    // prints numbers backwards, oops
+    let n = arg_n
+    while n != 0 {
+        putchar(48 + (n % 10))
+        n = n / 10
+    }
+    return 0
+}
+",
+            expect![[r#"
+                fn putchar(u64) unit <missing>
+                fn printu64(u64) u64 {
+                    let n = arg_n
+                    loop {
+                        if n != 0 {
+                            putchar(48 + n % 10)
+                            n = n / 10
+                        } else break
+                    }
+                    return 0
+                }
+            "#]],
+        );
+    }
 }
 
 pub fn print_type(analysis: &Analysis, ty: TypeId) -> String {
@@ -511,7 +542,10 @@ fn print_type_(s: &mut String, analysis: &Analysis, ty: TypeId) {
             print_type_(s, analysis, ty);
         }
         Type::Record(record) => write!(s, "record {record:?}").unwrap(),
-        Type::GenericFn { ret_ty: _, param_tys: _ } => s.push_str("Type::GenericFn"),
+        Type::GenericFn {
+            ret_ty: _,
+            param_tys: _,
+        } => s.push_str("Type::GenericFn"),
         Type::SpecificFn {
             name: _,
             ret_ty: _,

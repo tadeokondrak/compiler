@@ -1,11 +1,12 @@
 use hir::{IntSize, Signed, TypeId};
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write};
 use syntax::{ArithOp, BinaryOp, CmpOp, UnaryOp};
 
 #[derive(Debug)]
 pub struct Function {
     pub funcs: Vec<FuncData>,
     pub blocks: Vec<BlockData>,
+    pub vars: Vec<Type>,
     pub return_ty: Type,
 }
 
@@ -20,7 +21,6 @@ pub struct FuncData {
 pub struct BlockData {
     pub arg_tys: Vec<Type>,
     pub arg_regs: Vec<Reg>,
-    pub vars: Vec<Type>,
     pub insts: Vec<Inst>,
 }
 
@@ -159,8 +159,9 @@ struct Ctx<'a> {
     inference: &'a hir::InferenceResult,
     funcs: Vec<FuncData>,
     blocks: Vec<BlockData>,
+    vars: Vec<Type>,
     cur_block: Option<Block>,
-    _next_var: u32,
+    next_var: u32,
     next_reg: u32,
     items: &'a hir::Items,
     scopes: Vec<Scope>,
@@ -168,11 +169,20 @@ struct Ctx<'a> {
 
 #[derive(Default)]
 struct Scope {
+    vars: HashMap<String, Var>,
     break_target: Option<Block>,
     continue_target: Option<Block>,
 }
 
 impl Ctx<'_> {
+    fn get_var(&self, key: &str) -> Option<Var> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.vars.get(key))
+            .copied()
+    }
+
     fn get_break_target(&self) -> Option<Block> {
         self.scopes
             .iter()
@@ -187,9 +197,10 @@ impl Ctx<'_> {
             .find_map(|scope| scope.continue_target)
     }
 
-    fn _var(&mut self) -> Var {
-        let var = Var(self._next_var);
-        self._next_var += 1;
+    fn var(&mut self, ty: Type) -> Var {
+        let var = Var(self.next_var);
+        self.vars.push(ty);
+        self.next_var += 1;
         var
     }
 
@@ -228,6 +239,7 @@ impl Ctx<'_> {
         Function {
             funcs: self.funcs,
             blocks: self.blocks,
+            vars: self.vars,
             return_ty,
         }
     }
@@ -237,16 +249,27 @@ impl Ctx<'_> {
             hir::Expr::Missing => None,
             hir::Expr::Unit => None,
             hir::Expr::Name(name) => {
-                let param_index = self
+                if let Some(param_index) = self
                     .body
                     .param_names
                     .iter()
                     .enumerate()
                     .find(|&(_, it)| it == name.as_str())
-                    .unwrap()
-                    .0;
-                let entry_block = &self.blocks[0];
-                Some(entry_block.arg_regs[param_index])
+                    .map(|(i, _)| i)
+                {
+                    let entry_block = &self.blocks[0];
+                    Some(entry_block.arg_regs[param_index])
+                } else if let Some(src) = self.get_var(name.as_str()) {
+                    let dst = self.reg();
+                    self.push(Inst::Load {
+                        ty: self.vars[src.0 as usize],
+                        dst,
+                        src,
+                    });
+                    Some(dst)
+                } else {
+                    None
+                }
             }
             &hir::Expr::Number(value) => {
                 let reg = self.reg();
@@ -317,6 +340,7 @@ impl Ctx<'_> {
                 let main_block = self.block();
                 let done_block = self.block();
                 self.scopes.push(Scope {
+                    vars: HashMap::new(),
                     continue_target: Some(main_block),
                     break_target: Some(done_block),
                 });
@@ -336,7 +360,29 @@ impl Ctx<'_> {
             hir::Expr::Block { body } => {
                 for stmt in body.iter() {
                     match stmt {
-                        &hir::Stmt::Let(_, _) => todo!(),
+                        &hir::Stmt::Let(ref name, expr) => {
+                            // FIXME: actually infer the types of variables!
+                            let ty = self.type_of(expr);
+
+                            let var = if let hir::Name::Present(name) = name {
+                                let var = self.var(ty);
+                                let vars = &mut self.scopes.last_mut().unwrap().vars;
+                                assert!(!vars.contains_key(name));
+                                vars.insert(name.clone(), var);
+                                Some(var)
+                            } else {
+                                None
+                            };
+                            // TODO are we allowed to unwrap this I forgot
+                            let reg = self.lower_expr(expr).unwrap();
+                            if let Some(var) = var {
+                                self.push(Inst::Store {
+                                    ty: self.vars[var.0 as usize],
+                                    dst: var,
+                                    src: reg,
+                                })
+                            }
+                        }
                         &hir::Stmt::Expr(it) => {
                             self.lower_expr(it);
                         }
@@ -583,10 +629,15 @@ pub fn lower(
         inference,
         funcs: Vec::new(),
         blocks: Vec::new(),
+        vars: Vec::new(),
         cur_block: None,
-        _next_var: 0,
+        next_var: 0,
         next_reg: 0,
-        scopes: Vec::new(),
+        scopes: vec![Scope {
+            vars: HashMap::new(),
+            continue_target: None,
+            break_target: None,
+        }],
     };
     ctx.lower_function()
 }
@@ -630,7 +681,7 @@ fn print_inst(s: &mut String, inst: &Inst) {
         Inst::Load { ty, dst, src } => _ =
             write!(s, "{dst:?} = load {ty:?} {src:?}"),
         Inst::Store { ty, dst, src } => _ =
-            write!(s, "{dst:?} = store {ty:?} {src:?}"),
+            write!(s, "store {ty:?} {dst:?} {src:?}"),
         Inst::Zext { ty, dst, operand } => _ =
             write!(s, "{dst:?} = zext {ty:?} {operand:?}"),
         Inst::Sext { ty, dst, operand } => _ =
@@ -737,8 +788,11 @@ mod tests {
                     let func = &items[func_id];
                     let body = hir::lower_function_body(func.ast.to_node(file.syntax()));
                     let inference = hir::infer(&mut analysis, &items, func, &body);
-                    let func = lower(&analysis, &items, &func, &body, &inference);
-                    out.push_str(&print_function(&func));
+                    let lowered = lower(&analysis, &items, &func, &body, &inference);
+                    out.push_str("--- ");
+                    out.push_str(func.ast.to_node(file.syntax()).identifier_token().unwrap().text());
+                    out.push('\n');
+                    out.push_str(&print_function(&lowered));
                 }
                 hir::ItemId::Record(_) => {}
                 hir::ItemId::Const(_) => {}
@@ -774,6 +828,7 @@ struct Vec2 {
 
 fn get_x(v ptr Vec2) { return v.x }",
             expect![[r#"
+                --- get_x
                 b0(%0 i64):
                     ret i32 %0
             "#]],
@@ -800,14 +855,14 @@ fn fib(n u32) u32 {
                 "fib": Type::SpecificFn
                 "n": u32
                 "1": u32
-                "n - 1": bool
+                "n - 1": u32
                 "fib(n - 1)": u32
                 "fib": Type::SpecificFn
                 "n": u32
                 "2": u32
-                "n - 2": bool
+                "n - 2": u32
                 "fib(n - 2)": u32
-                "fib(n - 1) + fib(n - 2)": bool
+                "fib(n - 1) + fib(n - 2)": u32
                 "return fib(n - 1) + fib(n - 2)": (never)
                 "{\n    if n <= 1 { return 1 }\n    return fib(n - 1) + fib(n - 2)\n}": (unit)
             "#]],
@@ -820,6 +875,7 @@ fn fib(n u32) u32 {
 }
 ",
             expect![[r#"
+                --- fib
                 b0(%0 i32):
                     %1 = const i32 1
                     %2 = cmp slte i32 %0 %1
@@ -836,7 +892,7 @@ fn fib(n u32) u32 {
                     %8 = isub i32 %0 %7
                     %9 = call i32 f1 [%8]
                     %10 = iadd i32 %6 %9
-                    ret i1 %10
+                    ret i32 %10
             "#]],
         );
         check_codegen(
@@ -847,6 +903,7 @@ fn fib(n u64) u64 {
 }
 ",
             expect![[r#"
+                --- fib
                 b0(%0 i64):
                     %1 = const i64 1
                     %2 = cmp slte i64 %0 %1
@@ -863,7 +920,7 @@ fn fib(n u64) u64 {
                     %8 = isub i64 %0 %7
                     %9 = call i64 f1 [%8]
                     %10 = iadd i64 %6 %9
-                    ret i1 %10
+                    ret i64 %10
             "#]],
         );
     }
@@ -888,7 +945,9 @@ fn exit(n i32)
 fn do_exit() { exit(0) }
 ",
             expect![[r#"
+                --- exit
                 b0(%0 i32):
+                --- do_exit
                 b0:
                     %0 = const i32 0
                     call f0 [%0]
@@ -915,7 +974,7 @@ fn printu64(n u64) u64 {
                 "n": u64
                 "n": u64
                 "10": u64
-                "n / 10": bool
+                "n / 10": u64
                 "n = n / 10": u64
                 "{\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }": (unit)
                 "while n != 0 {\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }": (never)
@@ -939,30 +998,89 @@ fn bitor(x i32, y i32) { return x | y }
 fn bitxor(x i32, y i32) { return x ^ y }
 ",
             expect![[r#"
+                --- double
                 b0(%0 i32):
                     %1 = iadd i32 %0 %0
-                    ret i1 %1
+                    ret i32 %1
+                --- square
                 b0(%0 i32):
                     %1 = imul i32 %0 %0
-                    ret i1 %1
+                    ret i32 %1
+                --- negate
                 b0(%0 i32):
                     %2 = const i32 0
                     %1 = isub i32 %2 %0
                     ret i32 %1
+                --- complement
                 b0(%0 i32):
                     %2 = const i32 4294967295
                     %1 = xor i32 %2 %0
                     ret i32 %1
+                --- bitand
                 b0(%0 i32, %1 i32):
                     %2 = and i32 %0 %1
-                    ret i1 %2
+                    ret i32 %2
+                --- bitor
                 b0(%0 i32, %1 i32):
                     %2 = or i32 %0 %1
-                    ret i1 %2
+                    ret i32 %2
+                --- bitxor
                 b0(%0 i32, %1 i32):
                     %2 = xor i32 %0 %1
-                    ret i1 %2
+                    ret i32 %2
             "#]],
         )
+    }
+
+    #[test]
+    fn loop_and_locals() {
+        check_codegen(
+            "
+fn putchar(n u64)
+fn printu64(arg_n u64) u64 {
+    // prints numbers backwards, oops
+    let n = arg_n
+    while n != 0 {
+        putchar(48 + (n % 10))
+        n = n / 10
+    }
+    return 0
+}
+",
+            expect![[r#"
+                --- putchar
+                b0(%0 i64):
+                --- printu64
+                b0(%0 i64):
+                    store i64 $0 %0
+                    br b1 []
+                b1:
+                    %1 = load i64 $0
+                    %2 = const error 0
+                    %3 = cmp ne error %1 %2
+                    cbr %3 b3 [] b4 []
+                b2:
+                    %14 = const i64 0
+                    ret i64 %14
+                b3:
+                    %4 = const i64 48
+                    %5 = load i64 $0
+                    %6 = const error 10
+                    %7 = srem error %5 %6
+                    %8 = iadd i64 %4 %7
+                    call f0 [%8]
+                    %9 = load i64 $0
+                    %10 = load i64 $0
+                    %11 = const error 10
+                    %12 = sdiv error %10 %11
+                    %9 = copy error %12
+                    br b5 []
+                b4:
+                    br b2 []
+                    br b5 []
+                b5:
+                    br b1 []
+            "#]],
+        );
     }
 }

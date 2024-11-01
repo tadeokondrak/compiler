@@ -197,7 +197,10 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         Expr::Block { body } => {
             for stmt in body.iter() {
                 match stmt {
-                    Stmt::Let(_, _) => todo!(),
+                    &Stmt::Let(ref _name, expr) => {
+                        // TODO process name
+                        infer_expr(ctx, expr);
+                    },
                     &Stmt::Expr(expr) => {
                         infer_expr(ctx, expr);
                     }
