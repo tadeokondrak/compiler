@@ -139,7 +139,7 @@ pub enum Type {
 impl std::fmt::Debug for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Type::Error => write!(f, "error"),
+            Type::Error => write!(f, "<error>"),
             Type::Int0 => write!(f, "i0"),
             Type::Int1 => write!(f, "i1"),
             Type::Int8 => write!(f, "i8"),
@@ -234,7 +234,7 @@ impl Ctx<'_> {
             self.blocks[entry.0 as usize].arg_regs.push(reg);
         }
         self.switch_to_block(entry);
-        self.lower_expr(self.body.expr);
+        self.lower_expr_rval(self.body.expr);
         let return_ty = self.lower_ty(self.inference.return_ty);
         Function {
             funcs: self.funcs,
@@ -244,7 +244,41 @@ impl Ctx<'_> {
         }
     }
 
-    fn lower_expr(&mut self, expr: hir::ExprId) -> Option<Reg> {
+    fn lower_expr_lval(&mut self, expr: hir::ExprId) -> Option<Var> {
+        match &self.body.exprs[expr] {
+            hir::Expr::Missing => todo!(),
+            hir::Expr::Unit => todo!(),
+            hir::Expr::Name(name) => {
+                assert!(self
+                    .body
+                    .param_names
+                    .iter()
+                    .enumerate()
+                    .find(|&(_, it)| it == name.as_str())
+                    .map(|(i, _)| i)
+                    .is_none());
+                self.get_var(name.as_str())
+            }
+            hir::Expr::Number(_) => todo!(),
+            hir::Expr::If {
+                cond,
+                then_expr,
+                else_expr,
+            } => todo!(),
+            hir::Expr::Loop { body } => todo!(),
+            hir::Expr::Block { body } => todo!(),
+            hir::Expr::Unary { op, operand } => todo!(),
+            hir::Expr::Binary { op, lhs, rhs } => todo!(),
+            hir::Expr::Break => todo!(),
+            hir::Expr::Continue => todo!(),
+            hir::Expr::Return { value } => todo!(),
+            hir::Expr::Call { callee, args } => todo!(),
+            hir::Expr::Index { base, index } => todo!(),
+            hir::Expr::Field { base, name } => todo!(),
+        }
+    }
+
+    fn lower_expr_rval(&mut self, expr: hir::ExprId) -> Option<Reg> {
         match &self.body.exprs[expr] {
             hir::Expr::Missing => None,
             hir::Expr::Unit => None,
@@ -286,7 +320,7 @@ impl Ctx<'_> {
                 then_expr,
                 else_expr: None,
             } => {
-                let cond = self.lower_expr(cond).unwrap();
+                let cond = self.lower_expr_rval(cond).unwrap();
                 let then_block = self.block();
                 let else_block = self.block();
                 self.push(Inst::Cbr {
@@ -297,7 +331,7 @@ impl Ctx<'_> {
                     else_args: Box::new([]),
                 });
                 self.switch_to_block(then_block);
-                self.lower_expr(then_expr);
+                self.lower_expr_rval(then_expr);
                 self.push(Inst::Br {
                     block: else_block,
                     args: Box::new([]),
@@ -310,7 +344,7 @@ impl Ctx<'_> {
                 then_expr,
                 else_expr: Some(else_expr),
             } => {
-                let cond = self.lower_expr(cond).unwrap();
+                let cond = self.lower_expr_rval(cond).unwrap();
                 let then_block = self.block();
                 let else_block = self.block();
                 let join_block = self.block();
@@ -322,13 +356,13 @@ impl Ctx<'_> {
                     else_args: Box::new([]),
                 });
                 self.switch_to_block(then_block);
-                self.lower_expr(then_expr);
+                self.lower_expr_rval(then_expr);
                 self.push(Inst::Br {
                     block: join_block,
                     args: Box::new([]),
                 });
                 self.switch_to_block(else_block);
-                self.lower_expr(else_expr);
+                self.lower_expr_rval(else_expr);
                 self.push(Inst::Br {
                     block: join_block,
                     args: Box::new([]),
@@ -349,7 +383,7 @@ impl Ctx<'_> {
                     args: Box::new([]),
                 });
                 self.switch_to_block(main_block);
-                self.lower_expr(body);
+                self.lower_expr_rval(body);
                 self.push(Inst::Br {
                     block: main_block,
                     args: Box::new([]),
@@ -374,7 +408,7 @@ impl Ctx<'_> {
                                 None
                             };
                             // TODO are we allowed to unwrap this I forgot
-                            let reg = self.lower_expr(expr).unwrap();
+                            let reg = self.lower_expr_rval(expr).unwrap();
                             if let Some(var) = var {
                                 self.push(Inst::Store {
                                     ty: self.vars[var.0 as usize],
@@ -384,7 +418,7 @@ impl Ctx<'_> {
                             }
                         }
                         &hir::Stmt::Expr(it) => {
-                            self.lower_expr(it);
+                            self.lower_expr_rval(it);
                         }
                     }
                 }
@@ -392,7 +426,7 @@ impl Ctx<'_> {
             }
             &hir::Expr::Unary { op, operand } => {
                 let ty = self.type_of(operand);
-                let operand = self.lower_expr(operand).unwrap();
+                let operand = self.lower_expr_rval(operand).unwrap();
                 let dst = self.reg();
                 match op {
                     UnaryOp::Not => {
@@ -437,10 +471,26 @@ impl Ctx<'_> {
                 }
                 Some(dst)
             }
+            &hir::Expr::Binary {
+                op: BinaryOp::Asg(None),
+                lhs,
+                rhs,
+            } => {
+                let ty = self.type_of(lhs);
+                let lhs = self.lower_expr_lval(lhs).unwrap();
+                let rhs = self.lower_expr_rval(rhs).unwrap();
+                let dst = self.reg();
+                self.push(Inst::Store {
+                    ty,
+                    dst: lhs,
+                    src: rhs,
+                });
+                Some(dst)
+            }
             &hir::Expr::Binary { op, lhs, rhs } => {
                 let ty = self.type_of(lhs);
-                let lhs = self.lower_expr(lhs).unwrap();
-                let rhs = self.lower_expr(rhs).unwrap();
+                let lhs = self.lower_expr_rval(lhs).unwrap();
+                let rhs = self.lower_expr_rval(rhs).unwrap();
                 let dst = self.reg();
                 self.push(bin_op(op, ty, dst, lhs, rhs));
                 Some(dst)
@@ -469,7 +519,7 @@ impl Ctx<'_> {
                     }
                     _ => {
                         let ty = self.type_of(value);
-                        let value = self.lower_expr(value).unwrap();
+                        let value = self.lower_expr_rval(value).unwrap();
                         self.push(Inst::Retv { ty, src: value });
                         None
                     }
@@ -486,7 +536,7 @@ impl Ctx<'_> {
                 };
                 let arg_regs = args
                     .iter()
-                    .map(|&arg| self.lower_expr(arg).unwrap())
+                    .map(|&arg| self.lower_expr_rval(arg).unwrap())
                     .collect();
                 if self.analysis[*ret_ty] == hir::Type::Unit {
                     let func = Func(self.funcs.len() as u32);
@@ -521,7 +571,7 @@ impl Ctx<'_> {
             hir::Expr::Index { base: _, index: _ } => todo!(),
             hir::Expr::Field { base, name } => {
                 let hir_ty = self.inference.exprs[base];
-                let value = self.lower_expr(*base).unwrap();
+                let value = self.lower_expr_rval(*base).unwrap();
                 let hir::Type::Ptr(hir_indirect_ty) = self.analysis[hir_ty] else {
                     todo!();
                 };
@@ -580,11 +630,6 @@ impl Ctx<'_> {
 
 fn bin_op(op: BinaryOp, ty: Type, dst: Reg, lhs: Reg, rhs: Reg) -> Inst {
     match op {
-        BinaryOp::Asg(None) => Inst::Copy {
-            ty,
-            dst: lhs,
-            operand: rhs,
-        },
         BinaryOp::Asg(_) => todo!(),
         BinaryOp::Cmp(cmp) => Inst::Icmp {
             ty,
@@ -790,7 +835,13 @@ mod tests {
                     let inference = hir::infer(&mut analysis, &items, func, &body);
                     let lowered = lower(&analysis, &items, &func, &body, &inference);
                     out.push_str("--- ");
-                    out.push_str(func.ast.to_node(file.syntax()).identifier_token().unwrap().text());
+                    out.push_str(
+                        func.ast
+                            .to_node(file.syntax())
+                            .identifier_token()
+                            .unwrap()
+                            .text(),
+                    );
                     out.push('\n');
                     out.push_str(&print_function(&lowered));
                 }
@@ -975,7 +1026,7 @@ fn printu64(n u64) u64 {
                 "n": u64
                 "10": u64
                 "n / 10": u64
-                "n = n / 10": u64
+                "n = n / 10": (unit)
                 "{\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }": (unit)
                 "while n != 0 {\n        putchar(48 + (n % 10))\n        n = n / 10;\n    }": (never)
                 "0": u64
@@ -1056,24 +1107,23 @@ fn printu64(arg_n u64) u64 {
                     br b1 []
                 b1:
                     %1 = load i64 $0
-                    %2 = const error 0
-                    %3 = cmp ne error %1 %2
+                    %2 = const i64 0
+                    %3 = cmp ne i64 %1 %2
                     cbr %3 b3 [] b4 []
                 b2:
-                    %14 = const i64 0
-                    ret i64 %14
+                    %13 = const i64 0
+                    ret i64 %13
                 b3:
                     %4 = const i64 48
                     %5 = load i64 $0
-                    %6 = const error 10
-                    %7 = srem error %5 %6
+                    %6 = const i64 10
+                    %7 = srem i64 %5 %6
                     %8 = iadd i64 %4 %7
                     call f0 [%8]
                     %9 = load i64 $0
-                    %10 = load i64 $0
-                    %11 = const error 10
-                    %12 = sdiv error %10 %11
-                    %9 = copy error %12
+                    %10 = const i64 10
+                    %11 = sdiv i64 %9 %10
+                    store i64 $0 %11
                     br b5 []
                 b4:
                     br b2 []

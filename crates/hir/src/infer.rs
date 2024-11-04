@@ -27,6 +27,7 @@ pub fn infer(
         exprs: HashMap::new(),
         vars: Arena::new(),
         constraints: Vec::new(),
+        scopes: vec![Scope::default()],
     };
     let param_tys = func
         .param_tys
@@ -41,44 +42,52 @@ pub fn infer(
     );
     infer_expr(&mut ctx, body.expr);
 
-    let mut resolved = HashMap::new();
-    for &constraint in &ctx.constraints {
-        match constraint {
-            InferenceConstraint::IsType(tyvar, ty) => match ctx.analysis.types[ty] {
-                Type::Unresolved(_) => {}
-                _ => {
-                    resolved.insert(tyvar, ty);
+    let mut resolved: HashMap<TypeVarId, TypeId> = HashMap::new();
+    loop {
+        for &constraint in &ctx.constraints {
+            match constraint {
+                InferenceConstraint::IsType(tyvar, ty) => {
+                    if let Type::Unresolved(other_tyvar) = ctx.analysis.types[ty] {
+                        if let Some(&ty) = resolved.get(&other_tyvar) {
+                            resolved.insert(tyvar, ty);
+                        }
+                    } else {
+                        resolved.insert(tyvar, ty);
+                    }
                 }
-            },
-            InferenceConstraint::IsInteger(tyvar) => {
-                // TODO obviously we don't want this to run in the wrong order
-                if let Some(&ty) = resolved.get(&tyvar) {
-                    assert!(matches!(ctx.analysis.types[ty], Type::Int(_, _)));
+                InferenceConstraint::IsInteger(tyvar) => {
+                    if let Some(&ty) = resolved.get(&tyvar) {
+                        assert!(matches!(ctx.analysis.types[ty], Type::Int(_, _)));
+                    }
                 }
-            }
-            InferenceConstraint::IsComparable(lhs, rhs) => {
-                if let Some(&ty) = resolved.get(&lhs) {
-                    resolved.insert(rhs, ty);
+                InferenceConstraint::IsComparable(lhs, rhs) => {
+                    if let Some(&ty) = resolved.get(&lhs) {
+                        resolved.insert(rhs, ty);
+                    }
+                    if let Some(&ty) = resolved.get(&rhs) {
+                        resolved.insert(lhs, ty);
+                    }
                 }
-                if let Some(&ty) = resolved.get(&rhs) {
-                    resolved.insert(lhs, ty);
+                InferenceConstraint::IsReturnType(idx) => {
+                    resolved.insert(idx, return_ty);
                 }
-            }
-            InferenceConstraint::IsReturnType(idx) => {
-                resolved.insert(idx, return_ty);
-            }
-        }
-    }
-
-    let mut modified = Vec::new();
-    for (&expr, &expr_ty) in ctx.exprs.iter() {
-        if let Type::Unresolved(idx) = ctx.analysis.types[expr_ty] {
-            if let Some(&ty) = resolved.get(&idx) {
-                modified.push((expr, ty));
             }
         }
+        let mut modified = Vec::new();
+        for (&expr, &expr_ty) in ctx.exprs.iter() {
+            if let Type::Unresolved(idx) = ctx.analysis.types[expr_ty] {
+                if let Some(&ty) = resolved.get(&idx) {
+                    if ctx.exprs[&expr] != ty {
+                        modified.push((expr, ty));
+                    }
+                }
+            }
+        }
+        if modified.is_empty() {
+            break;
+        }
+        ctx.exprs.extend(modified);
     }
-    ctx.exprs.extend(modified);
 
     InferenceResult {
         return_ty,
@@ -95,6 +104,13 @@ struct InferCtx<'a> {
     exprs: HashMap<ExprId, TypeId>,
     vars: Arena<()>,
     constraints: Vec<InferenceConstraint>,
+    scopes: Vec<Scope>,
+}
+
+// TODO make shadowing work
+#[derive(Default)]
+struct Scope {
+    vars: HashMap<String, TypeVarId>,
 }
 
 impl InferCtx<'_> {
@@ -108,6 +124,14 @@ impl InferCtx<'_> {
                 tyvar
             }
         }
+    }
+
+    fn get_var(&self, key: &str) -> Option<TypeVarId> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.vars.get(key))
+            .copied()
     }
 }
 
@@ -171,7 +195,11 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                         ctx.func.param_tys[i],
                     )
                 });
-            param_ty
+            let var_tyvar = ctx.get_var(name);
+            let var_ty =
+                var_tyvar.map(|var_tyvar| ctx.analysis.intern_type(Type::Unresolved(var_tyvar)));
+            var_ty
+                .or(param_ty)
                 .or(item_ty)
                 .unwrap_or_else(|| ctx.analysis.intern_type(Type::Error))
         }
@@ -197,10 +225,18 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
         Expr::Block { body } => {
             for stmt in body.iter() {
                 match stmt {
-                    &Stmt::Let(ref _name, expr) => {
-                        // TODO process name
-                        infer_expr(ctx, expr);
-                    },
+                    &Stmt::Let(ref name, expr) => {
+                        if let Name::Present(name) = name {
+                            let tyvar = ctx.vars.alloc(());
+                            let vars = &mut ctx.scopes.last_mut().unwrap().vars;
+                            assert!(!vars.contains_key(name));
+                            vars.insert(name.clone(), tyvar);
+                            let ty = infer_expr(ctx, expr);
+                            ctx.constraints.push(InferenceConstraint::IsType(tyvar, ty));
+                        } else {
+                            infer_expr(ctx, expr);
+                        }
+                    }
                     &Stmt::Expr(expr) => {
                         infer_expr(ctx, expr);
                     }
@@ -252,7 +288,23 @@ fn infer_expr(ctx: &mut InferCtx, expr: ExprId) -> TypeId {
                 .push(InferenceConstraint::IsType(rhs_tyvar, lhs_ty));
             lhs_ty
         }
+        &Expr::Binary {
+            op: BinaryOp::Asg(None),
+            lhs,
+            rhs,
+        } => {
+            let lhs_ty = infer_expr(ctx, lhs);
+            let rhs_ty = infer_expr(ctx, rhs);
+            let lhs_tyvar = ctx.tyvar_of(lhs_ty);
+            let rhs_tyvar = ctx.tyvar_of(rhs_ty);
+            ctx.constraints
+                .push(InferenceConstraint::IsType(lhs_tyvar, rhs_ty));
+            ctx.constraints
+                .push(InferenceConstraint::IsType(rhs_tyvar, lhs_ty));
+            ctx.analysis.intern_type(Type::Unit)
+        }
         &Expr::Binary { op: _, lhs, rhs } => {
+            // TODO
             let lhs_ty = infer_expr(ctx, lhs);
             let _rhs_ty = infer_expr(ctx, rhs);
             lhs_ty

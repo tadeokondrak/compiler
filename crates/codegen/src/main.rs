@@ -41,6 +41,10 @@ fn gen_function(
         .collect::<Vec<_>>();
     let mut regs = BTreeMap::new();
 
+    for (i, ty) in mir_func.vars.iter().copied().enumerate() {
+        builder.declare_var(Variable::from_u32(i as u32), cl_ty(ty));
+    }
+
     for (i, block) in mir_func.blocks.iter().enumerate() {
         builder.switch_to_block(cl_blocks[i]);
         for j in 0..block.arg_regs.len() {
@@ -50,258 +54,194 @@ fn gen_function(
             regs.insert(reg, val);
         }
         for inst in &block.insts {
-            match *inst {
-                mir::Inst::Const { ty, dst, value } => {
-                    let val = match ty {
-                        mir::Type::Error => panic!(),
-                        mir::Type::Int0 => panic!(),
-                        mir::Type::Int1 => {
-                            assert!(value < (1 << 1));
-                            builder.ins().iconst(types::I8, value as i64)
-                        }
-                        mir::Type::Int8 => {
-                            assert!(value < (1 << 8));
-                            builder.ins().iconst(types::I8, value as i64)
-                        }
-                        mir::Type::Int16 => {
-                            assert!(value < (1 << 16));
-                            builder.ins().iconst(types::I16, value as i64)
-                        }
-                        mir::Type::Int32 => {
-                            assert!(value < (1 << 32));
-                            builder.ins().iconst(types::I32, value as i64)
-                        }
-                        mir::Type::Int64 => {
-                            builder.ins().iconst(types::I64, value as i64)
-                        }
-                        mir::Type::Float32 => builder.ins().f32const(f32::from_bits(value as u32)),
-                        mir::Type::Float64 => builder.ins().f64const(f64::from_bits(value)),
-                    };
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Load { ty, dst, src } => {
-                    let src = builder.use_var(cl_var(src));
-                    let val = builder.ins().load(cl_ty(ty), MemFlags::new(), src, 0);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Store { ty, dst, src } => {
-                    builder.declare_var(cl_var(dst), cl_ty(ty));
-                    builder.def_var(cl_var(dst), regs[&src]);
-                }
-                mir::Inst::Zext { ty, dst, operand } => {
-                    let val = builder.ins().uextend(cl_ty(ty), regs[&operand]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Sext { ty, dst, operand } => {
-                    let val = builder.ins().sextend(cl_ty(ty), regs[&operand]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Trunc {
-                    ty: _,
-                    dst,
-                    operand,
-                } => {
-                    regs.insert(dst, regs[&operand]);
-                }
-                mir::Inst::Iadd {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().iadd(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Isub {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().isub(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Imul {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().imul(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Sdiv {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().sdiv(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Udiv {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().udiv(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Srem {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().srem(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Urem {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().urem(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Icmp {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                    cmp,
-                } => {
-                    let cond = match cmp {
-                        mir::Cmp::Eq => IntCC::Equal,
-                        mir::Cmp::Ne => IntCC::NotEqual,
-                        mir::Cmp::Ugt => IntCC::UnsignedGreaterThan,
-                        mir::Cmp::Ult => IntCC::UnsignedLessThan,
-                        mir::Cmp::Ugte => IntCC::UnsignedGreaterThanOrEqual,
-                        mir::Cmp::Ulte => IntCC::UnsignedLessThanOrEqual,
-                        mir::Cmp::Sgt => IntCC::SignedGreaterThan,
-                        mir::Cmp::Slt => IntCC::SignedLessThan,
-                        mir::Cmp::Sgte => IntCC::SignedGreaterThanOrEqual,
-                        mir::Cmp::Slte => IntCC::SignedLessThanOrEqual,
-                    };
-                    let val = builder.ins().icmp(cond, regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Shl {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().ishl(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Lshr {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().ushr(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Ashr {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().sshr(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::And {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().band(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Or {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().bor(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Xor {
-                    ty: _,
-                    dst,
-                    lhs,
-                    rhs,
-                } => {
-                    let val = builder.ins().bxor(regs[&lhs], regs[&rhs]);
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Call { func, ref args } => {
-                    let func_data = &mir_func.funcs[func.0 as usize];
-                    let func = module.declare_func_in_func(func_ids[&func_data.name], builder.func);
-                    builder.ins().call(func, &cl_args(&args, &regs));
-                }
-                mir::Inst::Callv {
-                    ty: _,
-                    dst,
-                    func,
-                    ref args,
-                } => {
-                    let func_data = &mir_func.funcs[func.0 as usize];
-                    let func = module.declare_func_in_func(func_ids[&func_data.name], builder.func);
-                    let inst = builder.ins().call(func, &cl_args(&args, &regs));
-                    let val = builder.inst_results(inst)[0];
-                    regs.insert(dst, val);
-                }
-                mir::Inst::Ret => {
-                    builder.ins().return_(&[]);
-                    break;
-                }
-                mir::Inst::Retv { ty: _, src } => {
-                    builder.ins().return_(&[regs[&src]]);
-                    break;
-                }
-                mir::Inst::Br { block, ref args } => {
-                    builder
-                        .ins()
-                        .jump(cl_block(&cl_blocks, block), &cl_args(args, &regs));
-                    break;
-                }
-                mir::Inst::Cbr {
-                    cond,
-                    then_block,
-                    ref then_args,
-                    else_block,
-                    ref else_args,
-                } => {
-                    builder.ins().brif(
-                        regs[&cond],
-                        cl_block(&cl_blocks, then_block),
-                        &cl_args(then_args, &regs),
-                        cl_block(&cl_blocks, else_block),
-                        &cl_args(else_args, &regs),
-                    );
-                    break;
-                }
-                mir::Inst::Halt => {
-                    builder.ins().trap(ir::TrapCode::user(1).unwrap());
-                    break;
-                }
-                mir::Inst::Copy {
-                    ty: _,
-                    dst,
-                    operand,
-                } => {
-                    regs.insert(dst, regs[&operand]);
-                }
+            if !translate_inst(
+                inst, builder, &mut regs, &mir_func, module, func_ids, &cl_blocks,
+            ) {
+                break;
             }
         }
+    }
+}
+
+#[rustfmt::skip]
+fn translate_inst(
+    inst: &mir::Inst,
+    builder: &mut FunctionBuilder<'_>,
+    regs: &mut BTreeMap<mir::Reg, ir::Value>,
+    mir_func: &mir::Function,
+    module: &mut dyn Module,
+    func_ids: &HashMap<String, FuncId>,
+    cl_blocks: &Vec<ir::Block>,
+) -> bool {
+    match *inst {
+        mir::Inst::Const { ty, dst, value } => {
+            let val = cl_iconst(ty, value, builder);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Load { ty: _, dst, src } => {
+            let val = builder.use_var(cl_var(src));
+            regs.insert(dst, val);
+        }
+        mir::Inst::Store { ty: _, dst, src } => {
+            builder.def_var(cl_var(dst), regs[&src]);
+        }
+        mir::Inst::Zext { ty, dst, operand } => {
+            let val = builder.ins().uextend(cl_ty(ty), regs[&operand]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Sext { ty, dst, operand } => {
+            let val = builder.ins().sextend(cl_ty(ty), regs[&operand]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Trunc { ty: _, dst, operand } => {
+            regs.insert(dst, regs[&operand]);
+        }
+        mir::Inst::Iadd { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().iadd(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Isub { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().isub(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Imul { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().imul(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Sdiv { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().sdiv(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Udiv { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().udiv(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Srem { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().srem(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Urem { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().urem(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Icmp { ty: _, dst, lhs, rhs, cmp } => {
+            let cond = cl_intcc(cmp);
+            let val = builder.ins().icmp(cond, regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Shl { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().ishl(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Lshr { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().ushr(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Ashr { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().sshr(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::And { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().band(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Or { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().bor(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Xor { ty: _, dst, lhs, rhs } => {
+            let val = builder.ins().bxor(regs[&lhs], regs[&rhs]);
+            regs.insert(dst, val);
+        }
+        mir::Inst::Call { func, ref args } => {
+            let func_data = &mir_func.funcs[func.0 as usize];
+            let func = module.declare_func_in_func(func_ids[&func_data.name], builder.func);
+            builder.ins().call(func, &cl_args(&args, &*regs));
+        }
+        mir::Inst::Callv { ty: _, dst, func, ref args } => {
+            let func_data = &mir_func.funcs[func.0 as usize];
+            let func = module.declare_func_in_func(func_ids[&func_data.name], builder.func);
+            let inst = builder.ins().call(func, &cl_args(&args, &*regs));
+            let val = builder.inst_results(inst)[0];
+            regs.insert(dst, val);
+        }
+        mir::Inst::Ret => {
+            builder.ins().return_(&[]);
+            return false;
+        }
+        mir::Inst::Retv { ty: _, src } => {
+            builder.ins().return_(&[regs[&src]]);
+            return false;
+        }
+        mir::Inst::Br { block, ref args } => {
+            builder
+                .ins()
+                .jump(cl_block(cl_blocks, block), &cl_args(args, &*regs));
+            return false;
+        }
+        mir::Inst::Cbr { cond, then_block, ref then_args, else_block, ref else_args } => {
+            let cl_then_block = cl_block(cl_blocks, then_block);
+            let cl_else_block = cl_block(cl_blocks, else_block);
+            let cl_then_args = cl_args(then_args, &*regs);
+            let cl_else_args = cl_args(else_args, &*regs);
+            builder.ins().brif(
+                regs[&cond],
+                cl_then_block,
+                &cl_then_args,
+                cl_else_block,
+                &cl_else_args,
+            );
+            return false;
+        }
+        mir::Inst::Halt => {
+            builder.ins().trap(ir::TrapCode::user(1).unwrap());
+            return false;
+        }
+        mir::Inst::Copy { ty: _, dst, operand } => {
+            regs.insert(dst, regs[&operand]);
+        }
+    }
+    true
+}
+
+fn cl_iconst(ty: mir::Type, value: u64, builder: &mut FunctionBuilder<'_>) -> ir::Value {
+    match ty {
+        mir::Type::Error => panic!(),
+        mir::Type::Int0 => panic!(),
+        mir::Type::Int1 => {
+            assert!(value < (1 << 1));
+            builder.ins().iconst(types::I8, value as i64)
+        }
+        mir::Type::Int8 => {
+            assert!(value < (1 << 8));
+            builder.ins().iconst(types::I8, value as i64)
+        }
+        mir::Type::Int16 => {
+            assert!(value < (1 << 16));
+            builder.ins().iconst(types::I16, value as i64)
+        }
+        mir::Type::Int32 => {
+            assert!(value < (1 << 32));
+            builder.ins().iconst(types::I32, value as i64)
+        }
+        mir::Type::Int64 => builder.ins().iconst(types::I64, value as i64),
+        mir::Type::Float32 => builder.ins().f32const(f32::from_bits(value as u32)),
+        mir::Type::Float64 => builder.ins().f64const(f64::from_bits(value)),
+    }
+}
+
+fn cl_intcc(cmp: mir::Cmp) -> IntCC {
+    match cmp {
+        mir::Cmp::Eq => IntCC::Equal,
+        mir::Cmp::Ne => IntCC::NotEqual,
+        mir::Cmp::Ugt => IntCC::UnsignedGreaterThan,
+        mir::Cmp::Ult => IntCC::UnsignedLessThan,
+        mir::Cmp::Ugte => IntCC::UnsignedGreaterThanOrEqual,
+        mir::Cmp::Ulte => IntCC::UnsignedLessThanOrEqual,
+        mir::Cmp::Sgt => IntCC::SignedGreaterThan,
+        mir::Cmp::Slt => IntCC::SignedLessThan,
+        mir::Cmp::Sgte => IntCC::SignedGreaterThanOrEqual,
+        mir::Cmp::Slte => IntCC::SignedLessThanOrEqual,
     }
 }
 
@@ -320,12 +260,14 @@ fn fib(n u64) u64 {
     return fib(n - 1) + fib(n - 2)
 }
 
-fn printu64(n u64) u64 {
-    if n == 0 {
-        return 0
+fn printu64(arg_n u64) u64 {
+    // prints numbers backwards, oops
+    let n = arg_n
+    while n != 0 {
+        putchar(48 + (n % 10))
+        n = n / 10
     }
-    putchar(48 + (n % 10))
-    return printu64(n / 10)
+    return 0
 }
 
 fn putchar(n u64)
