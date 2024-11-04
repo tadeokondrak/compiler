@@ -1,5 +1,5 @@
 use cranelift_codegen::{
-    ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, MemFlags, Signature},
+    ir::{self, condcodes::IntCC, types, AbiParam, InstBuilder, Signature},
     isa::CallConv,
     settings::Configurable,
     Context,

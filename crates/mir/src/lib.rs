@@ -260,21 +260,17 @@ impl Ctx<'_> {
                 self.get_var(name.as_str())
             }
             hir::Expr::Number(_) => todo!(),
-            hir::Expr::If {
-                cond,
-                then_expr,
-                else_expr,
-            } => todo!(),
-            hir::Expr::Loop { body } => todo!(),
-            hir::Expr::Block { body } => todo!(),
-            hir::Expr::Unary { op, operand } => todo!(),
-            hir::Expr::Binary { op, lhs, rhs } => todo!(),
+            hir::Expr::If { .. } => todo!(),
+            hir::Expr::Loop { .. } => todo!(),
+            hir::Expr::Block { .. } => todo!(),
+            hir::Expr::Unary { .. } => todo!(),
+            hir::Expr::Binary { .. } => todo!(),
             hir::Expr::Break => todo!(),
             hir::Expr::Continue => todo!(),
-            hir::Expr::Return { value } => todo!(),
-            hir::Expr::Call { callee, args } => todo!(),
-            hir::Expr::Index { base, index } => todo!(),
-            hir::Expr::Field { base, name } => todo!(),
+            hir::Expr::Return { .. } => todo!(),
+            hir::Expr::Call { .. } => todo!(),
+            hir::Expr::Index { .. } => todo!(),
+            hir::Expr::Field { .. } => todo!(),
         }
     }
 
