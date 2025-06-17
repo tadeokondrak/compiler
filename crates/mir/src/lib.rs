@@ -819,7 +819,7 @@ fn do_exit() { exit(0) }
 ",
             expect![[r#"
                 "exit": Type::SpecificFn
-                "0": unresolved 0
+                "0": i32
                 "exit(0)": (unit)
                 "{ exit(0) }": (unit)
             "#]],
@@ -832,7 +832,7 @@ fn do_exit() { exit(0) }
             expect![[r#"
                 b0(%0 i32):
                 b0:
-                    %0 = const error 0
+                    %0 = const i32 0
                     call f0 [%0]
             "#]],
         );
