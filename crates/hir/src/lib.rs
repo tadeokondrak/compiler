@@ -213,7 +213,7 @@ pub struct Analysis {
 }
 
 macro_rules! impl_index {
-    ($($base:ty { $($field: ident : $t:ty),* $(,)? })*) => {
+    ($($base:ty { $($field: ident : $t:ty),* $(,)? }),* $(,)?) => {
         $($(
             impl Index<Idx<$t>> for $base {
                 type Output = $t;
@@ -238,10 +238,10 @@ impl_index! {
         consts: Const,
         functions: Function,
         records: Record,
-    }
+    },
     Analysis {
         types: Type,
-    }
+    },
 }
 
 impl PartialEq<str> for Name {
