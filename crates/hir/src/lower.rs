@@ -2,8 +2,8 @@ use crate::{
     Body, Const, Enum, Expr, ExprId, Function, Record, RecordField, Stmt, TypeRef, TypeRefId,
 };
 use la_arena::Arena;
-use syntax::{ast, AstPtr};
 use std::collections::HashMap;
+use syntax::{ast, AstPtr};
 
 #[derive(Default)]
 struct Ctx {

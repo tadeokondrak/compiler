@@ -343,7 +343,7 @@ pub type Preorder = rowan::api::Preorder<Language>;
 pub type PreorderWithTokens = rowan::api::PreorderWithTokens<Language>;
 pub use rowan::ast::{AstChildren, AstNode, AstPtr, SyntaxNodePtr};
 pub use rowan::NodeOrToken;
-pub use rowan::{TextLen, TextSize, TextRange};
+pub use rowan::{TextLen, TextRange, TextSize};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy)]

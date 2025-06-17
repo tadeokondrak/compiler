@@ -139,7 +139,7 @@ pub(super) fn parse_file(s: &str) -> (GreenNode, Vec<String>) {
             }
             Event::Error { s } => {
                 errors.push(s.into_string());
-            },
+            }
         }
     }
 
@@ -312,7 +312,9 @@ impl Parser {
     }
 
     pub(crate) fn error(&mut self, s: &str) {
-        self.events.push(Event::Error { s: String::from(s).into_boxed_str() })
+        self.events.push(Event::Error {
+            s: String::from(s).into_boxed_str(),
+        })
     }
 
     pub(crate) fn expect(&mut self, kind: Syntax) {
