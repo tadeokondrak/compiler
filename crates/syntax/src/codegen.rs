@@ -407,22 +407,22 @@ fn test_gen() {
 
     changed |= write_fenced(
         concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"),
-        gen_syntax_macro(&syntax),
+        &gen_syntax_macro(&syntax),
     );
 
     changed |= write(
         concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated/syntax.rs"),
-        gen_syntax_enum(&syntax, &syntax_map),
+        &format(gen_syntax_enum(&syntax, &syntax_map)),
     );
 
     changed |= write(
         concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated/ast_nodes.rs"),
-        ast_nodes,
+        &format(ast_nodes),
     );
 
     changed |= write(
         concat!(env!("CARGO_MANIFEST_DIR"), "/src/generated/ast_enums.rs"),
-        ast_enums,
+        &format(ast_enums),
     );
 
     if changed {
@@ -646,23 +646,20 @@ fn gen_syntax_enum(
     }
 }
 
-fn gen_syntax_macro(syntax: &[(Option<String>, String)]) -> TokenStream {
-    let arms = syntax
-        .iter()
-        .filter_map(|(token, name)| Some((token.as_ref()?, name)))
-        .map(|(token, name)| {
-            let name = format_ident!("{name}");
-            quote! {
-                (#token) => ($crate::Syntax::#name);
-            }
-        });
-    quote! {
-        #[macro_export]
-        #[rustfmt::skip]
-        macro_rules! t {
-            #(#arms)*
+fn gen_syntax_macro(syntax: &[(Option<String>, String)]) -> String {
+    fn escape(s: &str) -> &str {
+        match s {
+            "\\" => "\\\\",
+
+            _ => s,
         }
     }
+    let arms = syntax
+        .iter()
+        .filter_map(|(token, name)| Some((escape(token.as_ref()?), name)))
+        .map(|(token, name)| format!("    (\"{token}\") => ($crate::Syntax::{name});\n"))
+        .collect::<String>();
+    format!("#[macro_export]\n#[rustfmt::skip]\nmacro_rules! t {{\n{arms}}}\n")
 }
 
 fn upper_camel_case(s: &str) -> String {
@@ -694,8 +691,11 @@ fn inflect_plural(s: &str) -> String {
     format!("{s}s")
 }
 
-fn write(filename: &str, src: TokenStream) -> bool {
-    let src = prettyplease::unparse(&syn::parse2(src).unwrap());
+fn format(src: TokenStream) -> String {
+    prettyplease::unparse(&syn::parse2(src).unwrap())
+}
+
+fn write(filename: &str, src: &str) -> bool {
     let existing_content = std::fs::read_to_string(filename).unwrap();
     let new_content = src;
     if new_content != existing_content {
@@ -706,8 +706,7 @@ fn write(filename: &str, src: TokenStream) -> bool {
     }
 }
 
-fn write_fenced(filename: &str, src: TokenStream) -> bool {
-    let src = prettyplease::unparse(&syn::parse2(src).unwrap());
+fn write_fenced(filename: &str, src: &str) -> bool {
     const START: &str = "// <generated>\n";
     const END: &str = "// </generated>\n";
     let existing_content = std::fs::read_to_string(filename).unwrap();

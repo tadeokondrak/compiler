@@ -4,228 +4,80 @@
 #[macro_export]
 #[rustfmt::skip]
 macro_rules! t {
-    ("eof") => {
-        $crate ::Syntax::Eof
-    };
-    ("error") => {
-        $crate ::Syntax::Error
-    };
-    ("comment") => {
-        $crate ::Syntax::Comment
-    };
-    ("space") => {
-        $crate ::Syntax::Space
-    };
-    ("newline") => {
-        $crate ::Syntax::Newline
-    };
-    ("number") => {
-        $crate ::Syntax::Number
-    };
-    ("string") => {
-        $crate ::Syntax::String
-    };
-    ("character") => {
-        $crate ::Syntax::Character
-    };
-    ("identifier") => {
-        $crate ::Syntax::Identifier
-    };
-    ("!") => {
-        $crate ::Syntax::ExclamationMark
-    };
-    ("!=") => {
-        $crate ::Syntax::ExclamationMarkEqualsSign
-    };
-    ("#") => {
-        $crate ::Syntax::NumberSign
-    };
-    ("$") => {
-        $crate ::Syntax::DollarSign
-    };
-    ("%") => {
-        $crate ::Syntax::PercentSign
-    };
-    ("%=") => {
-        $crate ::Syntax::PercentSignEqualsSign
-    };
-    ("&") => {
-        $crate ::Syntax::Ampersand
-    };
-    ("&=") => {
-        $crate ::Syntax::AmpersandEqualsSign
-    };
-    ("(") => {
-        $crate ::Syntax::LeftParenthesis
-    };
-    (")") => {
-        $crate ::Syntax::RightParenthesis
-    };
-    ("*") => {
-        $crate ::Syntax::Asterisk
-    };
-    ("*=") => {
-        $crate ::Syntax::AsteriskEqualsSign
-    };
-    ("+") => {
-        $crate ::Syntax::PlusSign
-    };
-    ("+=") => {
-        $crate ::Syntax::PlusSignEqualsSign
-    };
-    (",") => {
-        $crate ::Syntax::Comma
-    };
-    ("-") => {
-        $crate ::Syntax::HyphenMinus
-    };
-    ("-=") => {
-        $crate ::Syntax::HyphenMinusEqualsSign
-    };
-    (".") => {
-        $crate ::Syntax::FullStop
-    };
-    ("/") => {
-        $crate ::Syntax::Solidus
-    };
-    ("/=") => {
-        $crate ::Syntax::SolidusEqualsSign
-    };
-    (":") => {
-        $crate ::Syntax::Colon
-    };
-    (";") => {
-        $crate ::Syntax::Semicolon
-    };
-    ("<") => {
-        $crate ::Syntax::LessThanSign
-    };
-    ("<<") => {
-        $crate ::Syntax::LessThanSignLessThanSign
-    };
-    ("<<=") => {
-        $crate ::Syntax::LessThanSignLessThanSignEqualsSign
-    };
-    ("<=") => {
-        $crate ::Syntax::LessThanSignEqualsSign
-    };
-    ("=") => {
-        $crate ::Syntax::EqualsSign
-    };
-    ("==") => {
-        $crate ::Syntax::EqualsSignEqualsSign
-    };
-    (">") => {
-        $crate ::Syntax::GreaterThanSign
-    };
-    (">=") => {
-        $crate ::Syntax::GreaterThanSignEqualsSign
-    };
-    (">>") => {
-        $crate ::Syntax::GreaterThanSignGreaterThanSign
-    };
-    (">>=") => {
-        $crate ::Syntax::GreaterThanSignGreaterThanSignEqualsSign
-    };
-    ("?") => {
-        $crate ::Syntax::QuestionMark
-    };
-    ("@") => {
-        $crate ::Syntax::CommercialAt
-    };
-    ("[") => {
-        $crate ::Syntax::LeftSquareBracket
-    };
-    ("\\") => {
-        $crate ::Syntax::ReverseSolidus
-    };
-    ("]") => {
-        $crate ::Syntax::RightSquareBracket
-    };
-    ("^") => {
-        $crate ::Syntax::CircumflexAccent
-    };
-    ("^=") => {
-        $crate ::Syntax::CircumflexAccentEqualsSign
-    };
-    ("_") => {
-        $crate ::Syntax::LowLine
-    };
-    ("{") => {
-        $crate ::Syntax::LeftCurlyBracket
-    };
-    ("|") => {
-        $crate ::Syntax::VerticalLine
-    };
-    ("|=") => {
-        $crate ::Syntax::VerticalLineEqualsSign
-    };
-    ("}") => {
-        $crate ::Syntax::RightCurlyBracket
-    };
-    ("~") => {
-        $crate ::Syntax::Tilde
-    };
-    ("and") => {
-        $crate ::Syntax::AndKeyword
-    };
-    ("break") => {
-        $crate ::Syntax::BreakKeyword
-    };
-    ("const") => {
-        $crate ::Syntax::ConstKeyword
-    };
-    ("continue") => {
-        $crate ::Syntax::ContinueKeyword
-    };
-    ("deref") => {
-        $crate ::Syntax::DerefKeyword
-    };
-    ("else") => {
-        $crate ::Syntax::ElseKeyword
-    };
-    ("enum") => {
-        $crate ::Syntax::EnumKeyword
-    };
-    ("fn") => {
-        $crate ::Syntax::FnKeyword
-    };
-    ("if") => {
-        $crate ::Syntax::IfKeyword
-    };
-    ("let") => {
-        $crate ::Syntax::LetKeyword
-    };
-    ("loop") => {
-        $crate ::Syntax::LoopKeyword
-    };
-    ("or") => {
-        $crate ::Syntax::OrKeyword
-    };
-    ("ptr") => {
-        $crate ::Syntax::PtrKeyword
-    };
-    ("ref") => {
-        $crate ::Syntax::RefKeyword
-    };
-    ("return") => {
-        $crate ::Syntax::ReturnKeyword
-    };
-    ("slice") => {
-        $crate ::Syntax::SliceKeyword
-    };
-    ("struct") => {
-        $crate ::Syntax::StructKeyword
-    };
-    ("union") => {
-        $crate ::Syntax::UnionKeyword
-    };
-    ("variant") => {
-        $crate ::Syntax::VariantKeyword
-    };
-    ("while") => {
-        $crate ::Syntax::WhileKeyword
-    };
+    ("eof") => ($crate::Syntax::Eof);
+    ("error") => ($crate::Syntax::Error);
+    ("comment") => ($crate::Syntax::Comment);
+    ("space") => ($crate::Syntax::Space);
+    ("newline") => ($crate::Syntax::Newline);
+    ("number") => ($crate::Syntax::Number);
+    ("string") => ($crate::Syntax::String);
+    ("character") => ($crate::Syntax::Character);
+    ("identifier") => ($crate::Syntax::Identifier);
+    ("!") => ($crate::Syntax::ExclamationMark);
+    ("!=") => ($crate::Syntax::ExclamationMarkEqualsSign);
+    ("#") => ($crate::Syntax::NumberSign);
+    ("$") => ($crate::Syntax::DollarSign);
+    ("%") => ($crate::Syntax::PercentSign);
+    ("%=") => ($crate::Syntax::PercentSignEqualsSign);
+    ("&") => ($crate::Syntax::Ampersand);
+    ("&=") => ($crate::Syntax::AmpersandEqualsSign);
+    ("(") => ($crate::Syntax::LeftParenthesis);
+    (")") => ($crate::Syntax::RightParenthesis);
+    ("*") => ($crate::Syntax::Asterisk);
+    ("*=") => ($crate::Syntax::AsteriskEqualsSign);
+    ("+") => ($crate::Syntax::PlusSign);
+    ("+=") => ($crate::Syntax::PlusSignEqualsSign);
+    (",") => ($crate::Syntax::Comma);
+    ("-") => ($crate::Syntax::HyphenMinus);
+    ("-=") => ($crate::Syntax::HyphenMinusEqualsSign);
+    (".") => ($crate::Syntax::FullStop);
+    ("/") => ($crate::Syntax::Solidus);
+    ("/=") => ($crate::Syntax::SolidusEqualsSign);
+    (":") => ($crate::Syntax::Colon);
+    (";") => ($crate::Syntax::Semicolon);
+    ("<") => ($crate::Syntax::LessThanSign);
+    ("<<") => ($crate::Syntax::LessThanSignLessThanSign);
+    ("<<=") => ($crate::Syntax::LessThanSignLessThanSignEqualsSign);
+    ("<=") => ($crate::Syntax::LessThanSignEqualsSign);
+    ("=") => ($crate::Syntax::EqualsSign);
+    ("==") => ($crate::Syntax::EqualsSignEqualsSign);
+    (">") => ($crate::Syntax::GreaterThanSign);
+    (">=") => ($crate::Syntax::GreaterThanSignEqualsSign);
+    (">>") => ($crate::Syntax::GreaterThanSignGreaterThanSign);
+    (">>=") => ($crate::Syntax::GreaterThanSignGreaterThanSignEqualsSign);
+    ("?") => ($crate::Syntax::QuestionMark);
+    ("@") => ($crate::Syntax::CommercialAt);
+    ("[") => ($crate::Syntax::LeftSquareBracket);
+    ("\\") => ($crate::Syntax::ReverseSolidus);
+    ("]") => ($crate::Syntax::RightSquareBracket);
+    ("^") => ($crate::Syntax::CircumflexAccent);
+    ("^=") => ($crate::Syntax::CircumflexAccentEqualsSign);
+    ("_") => ($crate::Syntax::LowLine);
+    ("{") => ($crate::Syntax::LeftCurlyBracket);
+    ("|") => ($crate::Syntax::VerticalLine);
+    ("|=") => ($crate::Syntax::VerticalLineEqualsSign);
+    ("}") => ($crate::Syntax::RightCurlyBracket);
+    ("~") => ($crate::Syntax::Tilde);
+    ("and") => ($crate::Syntax::AndKeyword);
+    ("break") => ($crate::Syntax::BreakKeyword);
+    ("const") => ($crate::Syntax::ConstKeyword);
+    ("continue") => ($crate::Syntax::ContinueKeyword);
+    ("deref") => ($crate::Syntax::DerefKeyword);
+    ("else") => ($crate::Syntax::ElseKeyword);
+    ("enum") => ($crate::Syntax::EnumKeyword);
+    ("fn") => ($crate::Syntax::FnKeyword);
+    ("if") => ($crate::Syntax::IfKeyword);
+    ("let") => ($crate::Syntax::LetKeyword);
+    ("loop") => ($crate::Syntax::LoopKeyword);
+    ("or") => ($crate::Syntax::OrKeyword);
+    ("ptr") => ($crate::Syntax::PtrKeyword);
+    ("ref") => ($crate::Syntax::RefKeyword);
+    ("return") => ($crate::Syntax::ReturnKeyword);
+    ("slice") => ($crate::Syntax::SliceKeyword);
+    ("struct") => ($crate::Syntax::StructKeyword);
+    ("union") => ($crate::Syntax::UnionKeyword);
+    ("variant") => ($crate::Syntax::VariantKeyword);
+    ("while") => ($crate::Syntax::WhileKeyword);
 }
 // </generated>
 
